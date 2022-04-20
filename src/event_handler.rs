@@ -35,8 +35,8 @@ impl fmt::Display for EventType {
 // PeerEvents - used for sending messages to main thread
 pub struct PeerEvent {
     time: time::SystemTime,
-    peer: IpAddr,
-    event: EventType,
+    pub peer: IpAddr,
+    pub event: EventType,
 }
 
 impl fmt::Display for PeerEvent {
