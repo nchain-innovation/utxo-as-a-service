@@ -1,16 +1,24 @@
-# BNAR Bitcoin Network Analyser Rust Implementation
+# BNAR Bitcoin Network Analyser - Rust Implementation
 
-
-
+ The BNA (Bitcoin Network Analyser) communicates with peer BSV Nodes and captures information that provides an insight as to the status of the BSV network.
 
 This project uses the following Bitcoin SV Rust library for processing peer to peer (P2P) messages:
 https://github.com/brentongunning/rust-sv
 
-# Background Links
-Details of the messages and the peer to peer protocol can be found in the following links:
 
-* https://wiki.bitcoinsv.io/index.php/Peer-To-Peer_Protocol
-* https://developer.bitcoin.org/reference/p2p_networking.html
+## To Build the Project
+The project is developed in Rust.
+The best way to install Rust is to use `rustup`, see https://www.rust-lang.org/tools/install
+
+To build:
+```bash
+cargo build
+```
+
+To run:
+```bash
+cargo run
+```
 
 
 ## Directories
@@ -26,7 +34,7 @@ These directories contain the following:
 * `src` - Project source code in Rust
 
 # Project Notes
-This section contains project related notes.
+This section contains project status related notes.
 
 ## Done
 * Get basic P2P messages working
@@ -40,6 +48,7 @@ This section contains project related notes.
 
 
 ## In Progress
+* Manage child threads
 
 ## TODO
 * Agree requirements

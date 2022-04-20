@@ -6,7 +6,6 @@ port = 8333
 network = "Mainnet"
 
 #ip = [ "176.9.148.163", "167.99.91.85"]
-
 #port = 18333
 #network = "Testnet"
 
