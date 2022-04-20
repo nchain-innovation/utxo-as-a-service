@@ -6,6 +6,7 @@ use std::sync::mpsc;
 use std::thread;
 
 mod config;
+mod event_handler;
 mod peer;
 mod services;
 
