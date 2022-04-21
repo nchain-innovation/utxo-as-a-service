@@ -11,10 +11,12 @@ mod event_handler;
 mod peer;
 mod services;
 
-use crate::config::read_config;
+use crate::config::get_config;
 use crate::event_handler::EventType;
 use crate::peer::connect_to_peer;
 
+
+// Used to track the threads
 #[derive(Debug)]
 enum PeerThreadStatus {
     Started,
@@ -60,7 +62,7 @@ impl ThreadTracker {
 
     fn join_thread(&mut self, ip: &IpAddr) {
         // Joins the thread (wait for it to finish)
-        // remove required to move thread out of hashmap
+        // remove required to move thread out of HashMap
         if let Some(peer) = self.children.remove(ip) {
             if let Some(thread) = peer.thread {
                 // wait for it
@@ -83,12 +85,10 @@ fn main() {
     // println!("available_parallelism = {}", count);
     // println!("current thread id = {:?}", thread::current().id());
 
-    // Read config
-    let config = match read_config("data/bnar.toml") {
-        Ok(config) => config,
-        Err(error) => panic!("Error reading config file {:?}", error),
+    let config = match get_config("BNAR_CONFIG", "data/bnar.toml") {
+        Some(config) => config,
+        None => panic!("Unable to read config"),
     };
-    //dbg!(&config);
 
     // Decode config
     let ips: Vec<IpAddr> = config
@@ -113,7 +113,7 @@ fn main() {
         };
         children.add(ip, peer);
     }
-
+    // Process messages
     for received in rx {
         println!("{}", received);
         match received.event {

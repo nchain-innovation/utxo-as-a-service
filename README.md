@@ -45,13 +45,12 @@ This section contains project status related notes.
 * Timeout if message not received for a period..
 * Get peer user agent string etc.
 * Connect to multiple peers concurrently
-
+* Manage child threads
+* Read config from env vars
 
 ## In Progress
-* Manage child threads
 
 ## TODO
 * Agree requirements
 * Add rust build and release to docker file
 * Add database
-* Read config from env vars
