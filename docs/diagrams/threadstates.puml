@@ -1,0 +1,12 @@
+@startuml
+title Peer Thread Status
+
+[*] --> Started: create_thread()
+Started --> Connected: P2P connected
+Connected --> Disconnected: P2P disconnected
+Disconnected --> Finished :join_thread()
+Finished --> [*]
+
+@enduml
+
+

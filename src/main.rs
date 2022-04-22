@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::mpsc;
 use std::thread;
@@ -13,81 +12,12 @@ mod config;
 mod event_handler;
 mod peer;
 mod services;
+mod thread_tracker;
 
 use crate::config::get_config;
 use crate::event_handler::EventType;
 use crate::peer::connect_to_peer;
-
-// Used to track the threads
-#[derive(Debug, PartialEq)]
-enum PeerThreadStatus {
-    Started,
-    Connected,
-    Disconnected,
-    Finished,
-}
-
-#[derive(Debug)]
-struct PeerThread {
-    pub thread: Option<thread::JoinHandle<()>>,
-    pub status: PeerThreadStatus,
-}
-
-struct ThreadTracker {
-    // Used to track peer connection threads
-    children: HashMap<IpAddr, PeerThread>,
-}
-
-impl ThreadTracker {
-    fn new() -> Self {
-        ThreadTracker {
-            children: HashMap::new(),
-        }
-    }
-
-    fn add(&mut self, ip: IpAddr, peer: PeerThread) {
-        self.children.insert(ip, peer);
-    }
-
-    fn print(&self) {
-        for (ip, child) in &self.children {
-            println!("ip = {}, result={:?}", ip, child);
-        }
-    }
-
-    fn all_finished(&self) -> bool {
-        // Return true if all threads have finished
-        self.children
-            .iter()
-            .all(|(_, child)| child.status == PeerThreadStatus::Finished)
-    }
-
-    fn set_status(&mut self, ip: &IpAddr, status: PeerThreadStatus) {
-        // note this quietly fails if not found
-        if let Some(x) = self.children.get_mut(ip) {
-            x.status = status;
-        }
-    }
-
-    fn join_thread(&mut self, ip: &IpAddr) {
-        // Joins the thread (wait for it to finish)
-        // remove required to move thread out of HashMap
-        if let Some(peer) = self.children.remove(ip) {
-            if let Some(thread) = peer.thread {
-                // wait for it
-                let result = thread.join().unwrap();
-                println!("result={:?}", result);
-
-                // Create a new entry to replace the existing one
-                let new_peer = PeerThread {
-                    thread: None,
-                    status: PeerThreadStatus::Finished,
-                };
-                self.children.insert(*ip, new_peer);
-            }
-        }
-    }
-}
+use crate::thread_tracker::{ThreadTracker, PeerThreadStatus, PeerThread};
 
 fn create_tables(conn: &mut PooledConn) {
     // Create tables, if required
@@ -183,7 +113,6 @@ fn main() {
             EventType::Disconnected => {
                 // If we have disconnected then there is the opportunity to start another thread
                 children.set_status(&received.peer, PeerThreadStatus::Disconnected);
-                children.print();
                 // Wait for thread, sets state to Finished
                 children.join_thread(&received.peer);
                 children.print();

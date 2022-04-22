@@ -30,11 +30,13 @@ The following directories exist in this project:
 ```
 ├── data
 ├── docs
+│   └── diagrams
 └── src
 ```
 These directories contain the following:
 * `data` - Configuration, data and logs used and created by the service
-* `docs` - Project Documentation
+* `docs` - Project documentation
+* `docs/diagrams` - PlantUML diagrams and source in support of the documentation
 * `src` - Project source code in Rust
 
 
@@ -58,8 +60,6 @@ This section contains project status related notes.
 * Add database
 
 ## In Progress
-
-
 
 ## TODO
 * Agree requirements

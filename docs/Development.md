@@ -3,7 +3,7 @@
 As noted in the main README.md  the best way to install Rust is to use `rustup`.
 This code was developed using rustc `1.60.0`.
 
-Once installed update using:
+Once installed update rust toolset using:
 ```bash
 rustup update
 ```
@@ -28,4 +28,9 @@ Details of the messages and the Bitcoin SV peer to peer protocol can be found in
 
 * https://wiki.bitcoinsv.io/index.php/Peer-To-Peer_Protocol
 * https://developer.bitcoin.org/reference/p2p_networking.html
+
+# Peer Thread Status States
+The peer thread works through the following states:
+
+![States](diagrams/threadstates.png)
 
