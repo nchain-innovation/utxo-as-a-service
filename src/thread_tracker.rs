@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::thread;
 use std::net::IpAddr;
-
+use std::thread;
 
 // Used to track the threads
 #[derive(Debug, PartialEq)]

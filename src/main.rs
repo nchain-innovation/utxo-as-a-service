@@ -17,7 +17,7 @@ mod thread_tracker;
 use crate::config::get_config;
 use crate::event_handler::EventType;
 use crate::peer::connect_to_peer;
-use crate::thread_tracker::{ThreadTracker, PeerThreadStatus, PeerThread};
+use crate::thread_tracker::{PeerThread, PeerThreadStatus, ThreadTracker};
 
 fn create_tables(conn: &mut PooledConn) {
     // Create tables, if required
@@ -101,6 +101,18 @@ fn main() {
         };
         children.add(ip, peer);
     }
+
+    // Prepare SQL statements
+    let tx_insert = conn
+        .prep("INSERT INTO txs (time, ip, tx) VALUES (:time, :ip, :tx)")
+        .unwrap();
+    let block_insert = conn
+        .prep("INSERT INTO blocks (time, ip, block) VALUES (:time, :ip, :block)")
+        .unwrap();
+    let addr_insert = conn
+        .prep("INSERT INTO addr (time, ip, address) VALUES (:time, :ip, :address)")
+        .unwrap();
+
     // Process messages
     for received in rx {
         println!("{}", received);
@@ -122,17 +134,17 @@ fn main() {
             }
 
             EventType::Tx(ref hash) => {
-                conn.exec_drop("INSERT INTO txs (time, ip, tx) VALUES (:time, :ip, :tx)",
+                conn.exec_drop(&tx_insert,
                     params! { "time" => received.get_time(), "ip" => received.get_ip(), "tx" => hash} ).unwrap();
             }
 
             EventType::Block(ref hash) => {
-                conn.exec_drop("INSERT INTO blocks (time, ip, block) VALUES (:time, :ip, :block)",
+                conn.exec_drop(&block_insert,
                     params! { "time" => received.get_time(), "ip" => received.get_ip(), "block" => hash} ).unwrap();
             }
 
             EventType::Addr(ref detail) => {
-                conn.exec_drop("INSERT INTO addr (time, ip, address) VALUES (:time, :ip, :address)",
+                conn.exec_drop(&addr_insert,
                     params! { "time" => received.get_time(), "ip" => received.get_ip(), "address" => detail} ).unwrap();
             }
         }
