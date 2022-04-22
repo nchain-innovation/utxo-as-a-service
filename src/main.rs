@@ -19,7 +19,7 @@ use crate::event_handler::EventType;
 use crate::peer::connect_to_peer;
 
 // Used to track the threads
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum PeerThreadStatus {
     Started,
     Connected,
@@ -55,6 +55,13 @@ impl ThreadTracker {
         }
     }
 
+    fn all_finished(&self) -> bool {
+        // Return true if all threads have finished
+        self.children
+            .iter()
+            .all(|(_, child)| child.status == PeerThreadStatus::Finished)
+    }
+
     fn set_status(&mut self, ip: &IpAddr, status: PeerThreadStatus) {
         // note this quietly fails if not found
         if let Some(x) = self.children.get_mut(ip) {
@@ -82,6 +89,48 @@ impl ThreadTracker {
     }
 }
 
+fn create_tables(conn: &mut PooledConn) {
+    // Create tables, if required
+
+    // Check for the tables
+    let tables: Vec<String> = conn
+        .query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';")
+        .unwrap();
+
+    if tables.iter().find(|x| x.as_str() == "txs") == None {
+        conn.query_drop(
+            r"CREATE TABLE txs (
+            time DOUBLE,
+            ip text,
+            tx text
+        )",
+        )
+        .unwrap();
+    }
+
+    if tables.iter().find(|x| x.as_str() == "blocks") == None {
+        conn.query_drop(
+            r"CREATE TABLE blocks (
+            time DOUBLE,
+            ip text,
+            block text
+        )",
+        )
+        .unwrap();
+    }
+
+    if tables.iter().find(|x| x.as_str() == "addr") == None {
+        conn.query_drop(
+            r"CREATE TABLE addr (
+            time DOUBLE,
+            ip text,
+            address text
+        )",
+        )
+        .unwrap();
+    }
+}
+
 fn main() {
     // let count = thread::available_parallelism().expect("parallel error");
     // println!("available_parallelism = {}", count);
@@ -95,14 +144,9 @@ fn main() {
     // Connect to database
     let pool = Pool::new(&config.mysql_url).unwrap();
     let mut conn = pool.get_conn().unwrap();
-    /* create table
-    conn.query_drop(r"CREATE TABLE txs (
-        time DOUBLE,
-        ip text,
-        tx text
-    )").unwrap();
-    */
-    // dbg!(conn);
+
+    // Create tables, if required
+    create_tables(&mut conn);
 
     // Decode config
     let ips: Vec<IpAddr> = config
@@ -140,9 +184,12 @@ fn main() {
                 // If we have disconnected then there is the opportunity to start another thread
                 children.set_status(&received.peer, PeerThreadStatus::Disconnected);
                 children.print();
-                // wait for thread
+                // Wait for thread, sets state to Finished
                 children.join_thread(&received.peer);
                 children.print();
+                if children.all_finished() {
+                    break;
+                }
             }
 
             EventType::Tx(ref hash) => {
@@ -150,7 +197,15 @@ fn main() {
                     params! { "time" => received.get_time(), "ip" => received.get_ip(), "tx" => hash} ).unwrap();
             }
 
-            _ => {}
+            EventType::Block(ref hash) => {
+                conn.exec_drop("INSERT INTO blocks (time, ip, block) VALUES (:time, :ip, :block)",
+                    params! { "time" => received.get_time(), "ip" => received.get_ip(), "block" => hash} ).unwrap();
+            }
+
+            EventType::Addr(ref detail) => {
+                conn.exec_drop("INSERT INTO addr (time, ip, address) VALUES (:time, :ip, :address)",
+                    params! { "time" => received.get_time(), "ip" => received.get_ip(), "address" => detail} ).unwrap();
+            }
         }
     }
 }

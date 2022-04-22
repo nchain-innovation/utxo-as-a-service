@@ -21,11 +21,8 @@ cargo run
 ```
 ## Database
 This service writes the P2P messages to a MySQL database.
+Database setup details can be found [here](docs/Database.md).
 
-Database setup stages can be found https://bitbucket.stressedsharks.com/projects/SDL/repos/utxo-identity/browse/UsersDB/dbschema?at=refs%2Fheads%2Fadd_tx
-
-* `rundb.sh` - Start the Docker container for MySQL
-* `connectdb.sh` - Connect to the running MySQL container
 
 
 ## Directories
@@ -39,6 +36,10 @@ These directories contain the following:
 * `data` - Configuration, data and logs used and created by the service
 * `docs` - Project Documentation
 * `src` - Project source code in Rust
+
+
+## Developemnt
+Project development details can be found [here](docs/Development.md).
 
 # Project Notes
 This section contains project status related notes.
@@ -54,12 +55,11 @@ This section contains project status related notes.
 * Connect to multiple peers concurrently
 * Manage child threads
 * Read config from env vars
-
-## In Progress
 * Add database
 
+## In Progress
 
-mysql root password QS#^hc?*ej4Bo6P?S1T23,@_1MR6i2iU
+
 
 ## TODO
 * Agree requirements

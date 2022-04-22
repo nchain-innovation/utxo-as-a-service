@@ -24,7 +24,7 @@ cargo clippy
 ```
 
 # Background Links
-Details of the messages and the peer to peer protocol can be found in the following links:
+Details of the messages and the Bitcoin SV peer to peer protocol can be found in the following links:
 
 * https://wiki.bitcoinsv.io/index.php/Peer-To-Peer_Protocol
 * https://developer.bitcoin.org/reference/p2p_networking.html
