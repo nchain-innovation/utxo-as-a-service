@@ -19,6 +19,13 @@ To run:
 ```bash
 cargo run
 ```
+## Database
+This service writes the P2P messages to a MySQL database.
+
+Database setup stages can be found https://bitbucket.stressedsharks.com/projects/SDL/repos/utxo-identity/browse/UsersDB/dbschema?at=refs%2Fheads%2Fadd_tx
+
+* `rundb.sh` - Start the Docker container for MySQL
+* `connectdb.sh` - Connect to the running MySQL container
 
 
 ## Directories
@@ -49,8 +56,13 @@ This section contains project status related notes.
 * Read config from env vars
 
 ## In Progress
+* Add database
+
+
+mysql root password QS#^hc?*ej4Bo6P?S1T23,@_1MR6i2iU
 
 ## TODO
 * Agree requirements
 * Add rust build and release to docker file
-* Add database
+
+

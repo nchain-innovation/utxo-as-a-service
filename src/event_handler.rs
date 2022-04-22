@@ -39,6 +39,20 @@ pub struct PeerEvent {
     pub event: EventType,
 }
 
+impl PeerEvent {
+    pub fn get_time(&self) -> f64 {
+        let sys_time = self
+            .time
+            .duration_since(time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        sys_time.as_secs_f64()
+    }
+
+    pub fn get_ip(&self) -> String {
+        format!("{}", self.peer)
+    }
+}
+
 impl fmt::Display for PeerEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let sys_time = self

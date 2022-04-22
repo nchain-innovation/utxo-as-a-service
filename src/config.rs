@@ -10,6 +10,7 @@ pub struct Config {
     pub port: u16,
     pub network: String,
     pub timeout_period: f64,
+    pub mysql_url: String,
 }
 
 impl Config {

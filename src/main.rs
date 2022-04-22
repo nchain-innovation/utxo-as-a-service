@@ -6,6 +6,9 @@ use std::net::IpAddr;
 use std::sync::mpsc;
 use std::thread;
 
+use mysql::prelude::*;
+use mysql::*;
+
 mod config;
 mod event_handler;
 mod peer;
@@ -14,7 +17,6 @@ mod services;
 use crate::config::get_config;
 use crate::event_handler::EventType;
 use crate::peer::connect_to_peer;
-
 
 // Used to track the threads
 #[derive(Debug)]
@@ -90,6 +92,18 @@ fn main() {
         None => panic!("Unable to read config"),
     };
 
+    // Connect to database
+    let pool = Pool::new(&config.mysql_url).unwrap();
+    let mut conn = pool.get_conn().unwrap();
+    /* create table
+    conn.query_drop(r"CREATE TABLE txs (
+        time DOUBLE,
+        ip text,
+        tx text
+    )").unwrap();
+    */
+    // dbg!(conn);
+
     // Decode config
     let ips: Vec<IpAddr> = config
         .get_ips()
@@ -130,6 +144,12 @@ fn main() {
                 children.join_thread(&received.peer);
                 children.print();
             }
+
+            EventType::Tx(ref hash) => {
+                conn.exec_drop("INSERT INTO txs (time, ip, tx) VALUES (:time, :ip, :tx)",
+                    params! { "time" => received.get_time(), "ip" => received.get_ip(), "tx" => hash} ).unwrap();
+            }
+
             _ => {}
         }
     }
