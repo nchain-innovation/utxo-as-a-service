@@ -12,3 +12,4 @@ network = "Mainnet"
 timeout_period = 60.0
 
 mysql_url = "mysql://bnar:bnar-password@localhost:3306/test_db"
+# mysql_url = "mysql://bnar:bnar-password@host.docker.internal:3306/test_db"
