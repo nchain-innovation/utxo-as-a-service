@@ -12,6 +12,7 @@ The best way to install Rust is to use `rustup`, see https://www.rust-lang.org/t
 
 To build:
 ```bash
+cd rust
 cargo build
 ```
 
