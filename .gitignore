@@ -1,2 +1,10 @@
-/target
+
+# Rust compiler output
 /rust/target
+
+# Compiled Python bytecode
+*.py[cod]
+__pycache__
+
+# Generated data
+data/*.dat

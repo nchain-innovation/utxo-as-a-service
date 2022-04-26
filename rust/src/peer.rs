@@ -15,14 +15,14 @@ use crate::event_handler::{EventHandler, PeerEvent};
 
 pub fn connect_to_peer(ip: IpAddr, config: Config, tx: mpsc::Sender<PeerEvent>) {
     // Given the ip address and config connect to the peer, quit if timeout occurs
-    let port = config.port;
+    let port = config.service.port;
     let network = config.get_network().expect("Error decoding config network");
 
     let version = Version {
         version: PROTOCOL_VERSION,
         services: NODE_BITCOIN_CASH,
         timestamp: secs_since(time::UNIX_EPOCH) as i64,
-        user_agent: config.user_agent,
+        user_agent: config.service.user_agent,
         relay: true, // This is required to receive Tx messages
         ..Default::default()
     };
@@ -37,7 +37,7 @@ pub fn connect_to_peer(ip: IpAddr, config: Config, tx: mpsc::Sender<PeerEvent>) 
     // Wait
     let one_second = time::Duration::from_secs(1);
     thread::sleep(one_second);
-    while event_handler.get_elapsed_time() < config.timeout_period {
+    while event_handler.get_elapsed_time() < config.service.timeout_period {
         thread::sleep(one_second);
     }
     peer.disconnect();

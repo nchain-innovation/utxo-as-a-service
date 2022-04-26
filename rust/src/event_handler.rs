@@ -6,18 +6,24 @@ use std::time;
 use std::sync::{Arc, Mutex};
 use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
 
-use sv::messages::{Addr, Inv, Message};
+use sv::messages::{Addr, Block, Headers, Inv, InvVect, Message, Tx};
 
 use crate::services::decode_services;
 use sv::util::rx::Observer;
 
+// Constants for inv messages
+const TX: u32 = 1;
+const BLOCK: u32 = 2;
+
 // EventsType - used to identify the type of event that is being sent to parent thread
+#[derive(PartialEq)]
 pub enum EventType {
     Connected(String),
     Disconnected,
-    Addr(String),
-    Tx(String),
-    Block(String),
+    Addr(Addr),
+    Tx(Tx),
+    Block(Block),
+    Headers(Headers),
 }
 
 impl fmt::Display for EventType {
@@ -25,9 +31,10 @@ impl fmt::Display for EventType {
         match &*self {
             EventType::Connected(detail) => write!(f, "Connected=({})", detail),
             EventType::Disconnected => write!(f, "Disconnected"),
-            EventType::Addr(detail) => write!(f, "Addr={}", detail),
-            EventType::Tx(hash) => write!(f, "Tx={}", hash),
-            EventType::Block(hash) => write!(f, "Block={}", hash),
+            EventType::Addr(addr) => write!(f, "Addr={}", addr.addrs.len()),
+            EventType::Tx(tx) => write!(f, "Tx={:?}", tx.hash()),
+            EventType::Block(block) => write!(f, "Block={:?}", block.header.hash()),
+            EventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
         }
     }
 }
@@ -37,20 +44,6 @@ pub struct PeerEvent {
     time: time::SystemTime,
     pub peer: IpAddr,
     pub event: EventType,
-}
-
-impl PeerEvent {
-    pub fn get_time(&self) -> f64 {
-        let sys_time = self
-            .time
-            .duration_since(time::SystemTime::UNIX_EPOCH)
-            .unwrap();
-        sys_time.as_secs_f64()
-    }
-
-    pub fn get_ip(&self) -> String {
-        format!("{}", self.peer)
-    }
 }
 
 impl fmt::Display for PeerEvent {
@@ -97,44 +90,61 @@ impl EventHandler {
     // Message handlers
     fn on_addr(&self, addr: &Addr, peer: &Arc<Peer>) {
         // On addr message
-        for address in addr.addrs.iter() {
-            let msg = PeerEvent {
-                time: time::SystemTime::now(),
-                peer: peer.ip,
-                event: EventType::Addr(address.addr.ip.to_string()),
-            };
-            self.send_msg(msg);
-        }
+        //for address in addr.addrs.iter() {
+        let msg = PeerEvent {
+            time: time::SystemTime::now(),
+            peer: peer.ip,
+            event: EventType::Addr(addr.clone()),
+        };
+        self.send_msg(msg);
+        //}
     }
 
     fn on_inv(&self, inv: &Inv, peer: &Arc<Peer>) {
         // On inv message
+        let mut objects: Vec<InvVect> = Vec::new();
+
         for i in inv.objects.iter() {
             match i.obj_type {
-                1 => {
-                    // TX
-                    let hash = format!("{:?}", i.hash);
-                    let msg = PeerEvent {
-                        time: time::SystemTime::now(),
-                        peer: peer.ip,
-                        event: EventType::Tx(hash),
-                    };
-                    self.send_msg(msg);
-                }
-                2 => {
-                    // Block
-                    let hash = format!("{:?}", i.hash);
-
-                    let msg = PeerEvent {
-                        time: time::SystemTime::now(),
-                        peer: peer.ip,
-                        event: EventType::Block(hash),
-                    };
-                    self.send_msg(msg);
-                }
+                TX | BLOCK => objects.push(i.clone()),
                 _ => {}
             }
         }
+        // Request the txs and blocks in the inv message
+        if !objects.is_empty() {
+            let want = Message::GetData(Inv { objects });
+            peer.send(&want).unwrap();
+        }
+    }
+
+    fn on_block(&self, block: &Block, peer: &Arc<Peer>) {
+        // println!("on_block {:?}", block);
+        let msg = PeerEvent {
+            time: time::SystemTime::now(),
+            peer: peer.ip,
+            event: EventType::Block(block.clone()),
+        };
+        self.send_msg(msg);
+    }
+
+    fn on_tx(&self, tx: &Tx, peer: &Arc<Peer>) {
+        // println!("on_tx {:?}", tx);
+        let msg = PeerEvent {
+            time: time::SystemTime::now(),
+            peer: peer.ip,
+            event: EventType::Tx(tx.clone()),
+        };
+        self.send_msg(msg);
+    }
+
+    fn on_headers(&self, headers: &Headers, peer: &Arc<Peer>) {
+        // println!("on_tx {:?}", tx);
+        let msg = PeerEvent {
+            time: time::SystemTime::now(),
+            peer: peer.ip,
+            event: EventType::Headers(headers.clone()),
+        };
+        self.send_msg(msg);
     }
 }
 
@@ -186,6 +196,10 @@ impl Observer<PeerMessage> for EventHandler {
         match &event.message {
             Message::Addr(addr) => self.on_addr(addr, &event.peer),
             Message::Inv(inv) => self.on_inv(inv, &event.peer),
+            Message::Block(block) => self.on_block(block, &event.peer),
+            Message::Tx(tx) => self.on_tx(tx, &event.peer),
+            Message::Headers(headers) => self.on_headers(headers, &event.peer),
+
             _msg => {
                 // println!("default {:?}", msg)
             }

@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build --tag "bnar" .
+docker build --tag "uaas-web" .

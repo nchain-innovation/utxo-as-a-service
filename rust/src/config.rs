@@ -4,18 +4,30 @@ use std::net::IpAddr;
 use sv::network::Network;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Config {
+pub struct Service {
     pub user_agent: String,
     pub ip: Vec<String>,
     pub port: u16,
     pub network: String,
     pub timeout_period: f64,
     pub mysql_url: String,
+    pub start_block_hash: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Shared {
+    pub block_file: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config {
+    pub service: Service,
+    pub shared: Shared,
 }
 
 impl Config {
     pub fn get_network(&self) -> Result<Network, &str> {
-        match self.network.as_str() {
+        match self.service.network.as_str() {
             "Mainnet" => Ok(Network::Mainnet),
             "Testnet" => Ok(Network::Testnet),
             "STN" => Ok(Network::STN),
@@ -25,7 +37,7 @@ impl Config {
 
     pub fn get_ips(&self) -> Result<Vec<IpAddr>, &str> {
         let mut ip_list: Vec<IpAddr> = Vec::new();
-        for ip in self.ip.iter() {
+        for ip in self.service.ip.iter() {
             match ip.parse() {
                 Ok(value) => ip_list.push(value),
                 Err(_) => return Err("unable to parse ip address"),

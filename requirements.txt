@@ -1,0 +1,11 @@
+toml 
+docker
+docker-compose
+coincurve
+bitsv
+flake8
+mypy
+fastapi
+fastapi_utils
+uvicorn[standard]
+mysql-connector-python

@@ -52,19 +52,19 @@ mysql> ALTER USER 'root'@'localhost' IDENTIFIED BY 'root-password';
 Query OK, 0 rows affected (0.01 sec)
 ```
 
-4. Create user `bnar`
+4. Create user `uaas`
 ```bash
-mysql> CREATE USER 'bnar'@'172.17.0.1' IDENTIFIED BY 'bnar-password';
+mysql> CREATE USER 'uaas'@'172.17.0.1' IDENTIFIED BY 'uaas-password';
 Query OK, 0 rows affected (0.01 sec)
 ```
 
-5. Create database `test_db` and set permissions
+5. Create database `uaas_db` and set permissions
 
 ``` bash
-mysql> create database test_db;
+mysql> create database uaas_db;
 Query OK, 1 row affected (0.00 sec)
 
-mysql> GRANT ALL PRIVILEGES on test_db.* to 'bnar'@'172.17.0.1';
+mysql> GRANT ALL PRIVILEGES on uaas_db.* to 'uaas'@'172.17.0.1';
 Query OK, 0 rows affected (0.00 sec)
 ```
 
