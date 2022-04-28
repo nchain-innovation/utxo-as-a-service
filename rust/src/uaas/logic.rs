@@ -39,7 +39,6 @@ pub struct Logic {
 impl Logic {
     pub fn new(config: &Config) -> Self {
         let pool = Pool::new(&config.service.mysql_url).unwrap();
-        let mut db_conn = pool.get_conn().unwrap();
 
         let block_conn = pool.get_conn().unwrap();
         let tx_conn = pool.get_conn().unwrap();

@@ -13,7 +13,7 @@ impl AddressManager {
     pub fn new(_config: &Config, conn: PooledConn) -> Self {
         let mut a = AddressManager {
             addresses: Vec::new(),
-            conn: conn,
+            conn,
         };
         a.create_table();
         a.read_table();

@@ -1,6 +1,5 @@
 use mysql::PooledConn;
 use std::fs::OpenOptions;
-use std::io::Read;
 
 use crate::config::Config;
 use sv::messages::Block;
