@@ -4,7 +4,7 @@ from typing import MutableMapping, Any
 import uvicorn
 import os
 
-
+from address_manager import address_manager
 from util import load_config
 
 
@@ -39,25 +39,9 @@ def main():
     """ main function - reads config, sets up system starts REST API
     """
     config = load_config("../data/uaasr.toml")
+    address_manager.set_config(config)
     run_webserver(config["web_interface"])
-
-def test_database():
-    from mysql.connector import connect
-    """
-    "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-    # mysql_url = "mysql://bnar:bnar-password@localhost:3306/test_db"
-    # mysql_url = "mysql://bnar:bnar-password@host.docker.internal:3306/test_db"
-
-    """
-
-    with connect(
-        host = "host.docker.internal",
-        user = "uaas",
-        password = "uaas-password",
-    ) as connection:
-        print(connection)
 
 
 if __name__ == "__main__":
-    test_database()
-    # main()
+    main()

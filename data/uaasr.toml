@@ -24,6 +24,11 @@ mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 [shared]
 block_file = "../data/block.dat"
 
+[python]
+host = "host.docker.internal"
+user = "uaas"
+password = "uaas-password"
+database = "uaas_db"
 
 [web_interface]
 address = '127.0.0.1:5010'

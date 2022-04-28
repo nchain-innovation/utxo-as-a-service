@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 import time
-from typing import List, MutableMapping, Any
+from typing import List
 import sys
 
 sys.path.append('..')
 
 from p2p_framework.object import CBlock
-from util import load_config, load_blocks, sort_blocks_by_hash_from_first
+from util import load_blocks
 
 
 def display_blocks(blocks: List[CBlock]) -> None:
@@ -33,7 +33,7 @@ def main(fname: str) -> None:
 
     # Sort by hash
     # new_blocks = sort_blocks_by_hash_from_last(blocks)
-    #new_blocks = sort_blocks_by_hash_from_first(blocks)
+    # new_blocks = sort_blocks_by_hash_from_first(blocks)
 
     # Display blocks
     display_blocks(blocks)
@@ -43,9 +43,7 @@ def main(fname: str) -> None:
 
 
 if __name__ == '__main__':
-    #config: MutableMapping[str, Any] = load_config("../data/uaas.toml")
-    #blockfile = "../" + config["Blocks"]["block_file"]
+    # config: MutableMapping[str, Any] = load_config("../data/uaas.toml")
+    # blockfile = "../" + config["Blocks"]["block_file"]
     blockfile = "../../../data/block.dat"
     main(blockfile)
-
-

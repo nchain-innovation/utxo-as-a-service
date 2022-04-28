@@ -1,18 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import re
-from typing import Any, MutableMapping, Dict, Union
+from typing import Any, MutableMapping, Dict
 
 from util import load_config
-"""
-from uaas.transaction_analyser import transaction_analyser
-from uaas.block_manager import block_manager
-from uaas.logic import logic
-from uaas.server_state import server_state_as_str
-"""
-from p2p_framework.util import hex_str_to_bytes, hex_str_to_int
-from p2p_framework.object import COutPoint, CTransaction
-from timer import Timer
+from address_manager import address_manager
 
 
 tags_metadata = [
@@ -78,3 +69,9 @@ def get_status() -> Dict[str, Any]:
         'number_of_utxo': 0,
     }
 
+
+@app.get("/addr", tags=["Status"])
+def get_addr() -> Dict[str, Any]:
+    """ Return the peer addresses seen by the service"""
+
+    return address_manager.get_peers()
