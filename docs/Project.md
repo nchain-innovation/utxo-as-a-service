@@ -5,14 +5,16 @@ This section contains project status related notes.
 * Set up database connection
 * Connect to database in Rust
 * Add `toml` configuration file
+* get inv messages working
+* Open MySQL database in Python
 
 ## In Progress
 * Get basic P2P messages working
 * Set up basic project
-* Open MySQL database in Python
 ## TODO
-* get inv messages working
 * Add offline detection?
+* Request additional blocks (based on ?)
+
 
 -----
 * Python database interface
@@ -29,6 +31,7 @@ This section contains project status related notes.
 * Add database
 * Add rust build and release to docker file
 
+* Support big messages
 * Agree requirements
 
 

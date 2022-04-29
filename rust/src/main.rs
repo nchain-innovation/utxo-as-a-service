@@ -4,6 +4,7 @@ extern crate lazy_static;
 use std::net::IpAddr;
 use std::sync::mpsc;
 use std::thread;
+use std::sync::{Arc, Mutex};
 
 mod config;
 mod event_handler;
@@ -19,16 +20,15 @@ use crate::thread_tracker::{PeerThread, PeerThreadStatus, ThreadTracker};
 use crate::uaas::logic::{Logic, ServerStateType};
 
 fn main() {
-    // let count = thread::available_parallelism().expect("parallel error");
-    // println!("available_parallelism = {}", count);
-    // println!("current thread id = {:?}", thread::current().id());
+    let count = thread::available_parallelism().expect("parallel error");
+    println!("Available_parallelism = {}", count);
 
     let config = match get_config("UAASR_CONFIG", "../data/uaasr.toml") {
         Some(config) => config,
         None => panic!("Unable to read config"),
     };
 
-    dbg!(&config);
+    // dbg!(&config);
 
     // Decode config
     let ips: Vec<IpAddr> = config
@@ -38,7 +38,11 @@ fn main() {
     let mut logic = Logic::new(&config);
 
     // Set up channels
+    // Used to send messages from child to main
     let (tx, rx) = mpsc::channel();
+    // Used to send messages from child to main
+    let (_request_tx, request_rx) = mpsc::channel();
+    let wrapped_request_rx = Arc::new(Mutex::new(request_rx));
 
     // Used to track peer connection threads
     let mut children = ThreadTracker::new();
@@ -47,9 +51,10 @@ fn main() {
     for ip in ips.into_iter() {
         let local_config = config.clone();
         let local_tx = tx.clone();
+        let local_rx = wrapped_request_rx.clone();
         let peer = PeerThread {
             thread: Some(thread::spawn(move || {
-                connect_to_peer(ip, local_config, local_tx)
+                connect_to_peer(ip, local_config, local_tx, local_rx)
             })),
             status: PeerThreadStatus::Started,
         };

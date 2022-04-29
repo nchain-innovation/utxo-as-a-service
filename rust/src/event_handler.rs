@@ -39,7 +39,7 @@ impl fmt::Display for EventType {
     }
 }
 
-// PeerEvents - used for sending messages to main thread
+// PeerEvents - used for sending messages from peer threads to main thread
 pub struct PeerEvent {
     time: time::SystemTime,
     pub peer: IpAddr,
@@ -56,17 +56,26 @@ impl fmt::Display for PeerEvent {
     }
 }
 
+// These are messages sent from the main thread to the peer threads
+#[derive(Debug)]
+pub enum RequestMessage {
+    BlockRequest(String),
+}
+
+
 // Event handler - processes peer events
 pub struct EventHandler {
     last_event: Mutex<time::Instant>,
-    tx_mutex: Mutex<mpsc::Sender<PeerEvent>>,
+    mutex_tx: Mutex<mpsc::Sender<PeerEvent>>,
+    arc_mutex_rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
 }
 
 impl EventHandler {
-    pub fn new(tx: mpsc::Sender<PeerEvent>) -> Self {
+    pub fn new(tx: mpsc::Sender<PeerEvent>, rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>) -> Self {
         EventHandler {
             last_event: Mutex::new(time::Instant::now()),
-            tx_mutex: Mutex::new(tx),
+            mutex_tx: Mutex::new(tx),
+            arc_mutex_rx: rx,
         }
     }
 
@@ -83,8 +92,13 @@ impl EventHandler {
     }
 
     fn send_msg(&self, msg: PeerEvent) {
-        let tx = self.tx_mutex.lock().unwrap();
+        let tx = self.mutex_tx.lock().unwrap();
         tx.send(msg).unwrap()
+    }
+
+    fn recv_msg(&self) -> Result<RequestMessage, mpsc::TryRecvError> {
+        let rx = self.arc_mutex_rx.lock().unwrap();
+        rx.try_recv()
     }
 
     // Message handlers
@@ -204,5 +218,13 @@ impl Observer<PeerMessage> for EventHandler {
                 // println!("default {:?}", msg)
             }
         }
+
+        // Check to see if we have recived anything to send
+        if let Ok(msg) = self.recv_msg() {
+            println!("received message");
+            dbg!(&msg);
+            // println!("msg ={}", &msg);
+        }
+
     }
 }
