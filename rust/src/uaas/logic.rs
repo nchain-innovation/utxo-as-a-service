@@ -1,8 +1,12 @@
-use mysql::prelude::*;
-use mysql::*;
+use std::time::Instant;
+// use mysql::prelude::*;
+//use mysql::*;
+use mysql::Pool;
+
+use sv::messages::{Addr, Block, Headers, Tx};
 
 use crate::config::Config;
-use sv::messages::{Addr, Block, Headers, Tx};
+use crate::event_handler::RequestMessage;
 
 use super::address_manager::AddressManager;
 use super::block_manager::BlockManager;
@@ -33,11 +37,12 @@ pub struct Logic {
     address_manager: AddressManager,
     // Used to keep track of the blocks downloaded, to determine if we need to download any more
     blocks_downloaded: usize,
-    // Database connection
+    last_block_request_time: Option<Instant>,
 }
 
 impl Logic {
     pub fn new(config: &Config) -> Self {
+        // Set up database connections for the componets
         let pool = Pool::new(&config.service.mysql_url).unwrap();
 
         let block_conn = pool.get_conn().unwrap();
@@ -49,6 +54,7 @@ impl Logic {
             tx_analyser: TxAnalyser::new(config, tx_conn),
             address_manager: AddressManager::new(config, addr_conn),
             blocks_downloaded: 0,
+            last_block_request_time: None,
         }
     }
 
@@ -83,6 +89,41 @@ impl Logic {
     }
 
     pub fn on_addr(&mut self, addr: Addr) {
+        // Handle Addr message
         self.address_manager.on_addr(addr);
+    }
+
+    fn sufficient_time_elapsed(&self) -> bool {
+        // Return true if sufficient time has passed since last request (if any)
+        match self.last_block_request_time {
+            // more than 4 sec since last request
+            Some(t) => t.elapsed().as_secs() > 4,
+            None => true,
+        }
+    }
+    fn need_to_request_blocks(&self) -> bool {
+        // return true if need to request a block
+        if self.state.is_ready() {
+            false
+        } else {
+            match self.blocks_downloaded {
+                0 => self.sufficient_time_elapsed(),
+                499 => self.sufficient_time_elapsed(),
+                _ => false,
+            }
+        }
+    }
+
+    pub fn message_to_send(&mut self) -> Option<RequestMessage> {
+        // Return a message to send, if any
+        if self.need_to_request_blocks() {
+            // Update last request time
+            self.last_block_request_time = Some(Instant::now());
+
+            let required_hash = self.block_manager.get_last_known_block_hash();
+            Some(RequestMessage::BlockRequest(required_hash.to_string()))
+        } else {
+            None
+        }
     }
 }

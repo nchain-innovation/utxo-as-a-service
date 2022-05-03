@@ -11,6 +11,11 @@ This section contains project status related notes.
 ## In Progress
 * Get basic P2P messages working
 * Set up basic project
+* need to inform child threads their time is up....
+
+* address issue of only receiving 4 blocks after a get block message.
+
+
 ## TODO
 * Add offline detection?
 * Request additional blocks (based on ?)

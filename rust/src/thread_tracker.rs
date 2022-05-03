@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use std::sync::Arc;
 use std::thread;
 
 // Used to track the threads
@@ -15,6 +18,7 @@ pub enum PeerThreadStatus {
 pub struct PeerThread {
     pub thread: Option<thread::JoinHandle<()>>,
     pub status: PeerThreadStatus,
+    pub running: Arc<AtomicBool>,
 }
 
 pub struct ThreadTracker {
@@ -53,6 +57,14 @@ impl ThreadTracker {
         }
     }
 
+    pub fn stop(&mut self, ip: &IpAddr) {
+        // Stop the thread from waiting for messages
+        // (Speeds up shutdown)
+        if let Some(x) = self.children.get_mut(ip) {
+            x.running.store(false, Ordering::Relaxed);
+        }
+    }
+
     pub fn join_thread(&mut self, ip: &IpAddr) {
         // Joins the thread (wait for it to finish)
         // remove required to move thread out of HashMap
@@ -66,6 +78,7 @@ impl ThreadTracker {
                 let new_peer = PeerThread {
                     thread: None,
                     status: PeerThreadStatus::Finished,
+                    running: Arc::new(AtomicBool::new(false)),
                 };
                 self.children.insert(*ip, new_peer);
             }

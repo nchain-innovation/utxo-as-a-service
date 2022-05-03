@@ -4,9 +4,9 @@ use std::sync::mpsc;
 use std::time;
 
 use std::sync::{Arc, Mutex};
+use sv::messages::{Addr, Block, BlockLocator, Headers, Inv, InvVect, Message, Tx};
 use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
-
-use sv::messages::{Addr, Block, Headers, Inv, InvVect, Message, Tx};
+use sv::util::Hash256;
 
 use crate::services::decode_services;
 use sv::util::rx::Observer;
@@ -62,7 +62,6 @@ pub enum RequestMessage {
     BlockRequest(String),
 }
 
-
 // Event handler - processes peer events
 pub struct EventHandler {
     last_event: Mutex<time::Instant>,
@@ -71,7 +70,10 @@ pub struct EventHandler {
 }
 
 impl EventHandler {
-    pub fn new(tx: mpsc::Sender<PeerEvent>, rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>) -> Self {
+    pub fn new(
+        tx: mpsc::Sender<PeerEvent>,
+        rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
+    ) -> Self {
         EventHandler {
             last_event: Mutex::new(time::Instant::now()),
             mutex_tx: Mutex::new(tx),
@@ -219,12 +221,20 @@ impl Observer<PeerMessage> for EventHandler {
             }
         }
 
-        // Check to see if we have recived anything to send
+        // Check to see if we have received anything to send
         if let Ok(msg) = self.recv_msg() {
-            println!("received message");
-            dbg!(&msg);
-            // println!("msg ={}", &msg);
-        }
+            match &msg {
+                RequestMessage::BlockRequest(value) => {
+                    println!("block request");
+                    let mut locator = BlockLocator::default();
+                    let hash = Hash256::decode(value).unwrap();
 
+                    locator.block_locator_hashes.push(hash);
+                    let message = Message::GetBlocks(locator);
+
+                    event.peer.send(&message).unwrap();
+                }
+            }
+        }
     }
 }

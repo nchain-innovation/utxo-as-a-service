@@ -2,9 +2,10 @@
 extern crate lazy_static;
 
 use std::net::IpAddr;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
-use std::thread;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 mod config;
 mod event_handler;
@@ -41,7 +42,7 @@ fn main() {
     // Used to send messages from child to main
     let (tx, rx) = mpsc::channel();
     // Used to send messages from child to main
-    let (_request_tx, request_rx) = mpsc::channel();
+    let (request_tx, request_rx) = mpsc::channel();
     let wrapped_request_rx = Arc::new(Mutex::new(request_rx));
 
     // Used to track peer connection threads
@@ -52,11 +53,15 @@ fn main() {
         let local_config = config.clone();
         let local_tx = tx.clone();
         let local_rx = wrapped_request_rx.clone();
+        let local_running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+        let peer_running = local_running.clone();
+
         let peer = PeerThread {
             thread: Some(thread::spawn(move || {
-                connect_to_peer(ip, local_config, local_tx, local_rx)
+                connect_to_peer(ip, local_config, local_tx, local_rx, local_running)
             })),
             status: PeerThreadStatus::Started,
+            running: peer_running,
         };
         children.add(ip, peer);
     }
@@ -74,11 +79,14 @@ fn main() {
             EventType::Disconnected => {
                 // If we have disconnected then there is the opportunity to start another thread
                 children.set_status(&received.peer, PeerThreadStatus::Disconnected);
+                logic.set_state(ServerStateType::Disconnected);
                 // Wait for thread, sets state to Finished
+                println!("join thread");
+                children.stop(&received.peer);
                 children.join_thread(&received.peer);
                 children.print();
-                logic.set_state(ServerStateType::Disconnected);
                 if children.all_finished() {
+                    println!("all finished");
                     break;
                 }
             }
@@ -87,6 +95,11 @@ fn main() {
             EventType::Block(block) => logic.on_block(block),
             EventType::Addr(addr) => logic.on_addr(addr),
             EventType::Headers(headers) => logic.on_headers(headers),
+        }
+
+        if let Some(msg) = logic.message_to_send() {
+            // request a block
+            request_tx.send(msg).unwrap();
         }
     }
 }

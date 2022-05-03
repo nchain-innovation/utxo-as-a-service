@@ -1,9 +1,11 @@
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+
 use std::thread;
 use std::time;
 
-use std::sync::{Arc, Mutex};
 use sv::peer::{Peer, SVPeerFilter};
 
 use sv::messages::{Version, NODE_BITCOIN_CASH, PROTOCOL_VERSION};
@@ -13,7 +15,13 @@ use sv::util::secs_since;
 use crate::config::Config;
 use crate::event_handler::{EventHandler, PeerEvent, RequestMessage};
 
-pub fn connect_to_peer(ip: IpAddr, config: Config, tx: mpsc::Sender<PeerEvent>, rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>) {
+pub fn connect_to_peer(
+    ip: IpAddr,
+    config: Config,
+    tx: mpsc::Sender<PeerEvent>,
+    rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
+    running: Arc<AtomicBool>,
+) {
     // Given the ip address and config connect to the peer, quit if timeout occurs
     let port = config.service.port;
     let network = config.get_network().expect("Error decoding config network");
@@ -37,7 +45,9 @@ pub fn connect_to_peer(ip: IpAddr, config: Config, tx: mpsc::Sender<PeerEvent>, 
     // Wait
     let one_second = time::Duration::from_secs(1);
     thread::sleep(one_second);
-    while event_handler.get_elapsed_time() < config.service.timeout_period {
+    while running.load(Ordering::Relaxed)
+        && event_handler.get_elapsed_time() < config.service.timeout_period
+    {
         thread::sleep(one_second);
         // time here to see if we have been asleep
     }
