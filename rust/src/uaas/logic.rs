@@ -60,6 +60,9 @@ impl Logic {
 
     pub fn set_state(&mut self, state: ServerStateType) {
         println!("set state {:?}", &state);
+        if state == ServerStateType::Ready {
+            // do stuff
+        }
         self.state = state;
     }
 
@@ -71,15 +74,22 @@ impl Logic {
         self.block_manager.add_block(block);
 
         if !self.state.is_ready() {
-            self.blocks_downloaded += 1;
-            if self.blocks_downloaded > 499 {
-                // need to request a new inv
-                self.blocks_downloaded = 0;
+            if self.block_manager.has_chain_tip() {
+                self.set_state(ServerStateType::Ready)
+
+            } else {
+                self.blocks_downloaded += 1;
+                // TODO: rethink this
+                if self.blocks_downloaded > 499 {
+                    // need to request a new inv
+                    self.blocks_downloaded = 0;
+                }
             }
         }
     }
 
     pub fn on_tx(&mut self, tx: Tx) {
+        // Handle TX message
         if self.state.is_ready() {
             self.tx_analyser.process_tx(tx);
         } else {
@@ -101,8 +111,9 @@ impl Logic {
             None => true,
         }
     }
+
     fn need_to_request_blocks(&self) -> bool {
-        // return true if need to request a block
+        // Return true if need to request a block
         if self.state.is_ready() {
             false
         } else {
@@ -121,7 +132,8 @@ impl Logic {
             self.last_block_request_time = Some(Instant::now());
 
             let required_hash = self.block_manager.get_last_known_block_hash();
-            Some(RequestMessage::BlockRequest(required_hash.to_string()))
+            dbg!(&required_hash);
+            Some(RequestMessage::BlockRequest(required_hash))
         } else {
             None
         }

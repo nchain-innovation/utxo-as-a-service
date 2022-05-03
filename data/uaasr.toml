@@ -3,17 +3,17 @@ user_agent = "/Bitcoin SV:1.0.9/"
 
 
 # ip = ["18.157.234.254",  "65.21.201.45" ]
-ip = ["18.157.234.254"]
-port = 8333
-network = "Mainnet"
-start_block_hash = "000000000000000006978b93a3811f197a1904f30b64eb244b99b8db01f574f8"
+#ip = ["18.157.234.254"]
+#port = 8333
+#network = "Mainnet"
+#start_block_hash = "000000000000000006978b93a3811f197a1904f30b64eb244b99b8db01f574f8"
 
 
 #ip = [ "176.9.148.163", "167.99.91.85"]
-#ip = [ "176.9.148.163"]
-#port = 18333
-#network = "Testnet"
-#start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
+ip = [ "176.9.148.163"]
+port = 18333
+network = "Testnet"
+start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
 
 
 timeout_period = 120.0

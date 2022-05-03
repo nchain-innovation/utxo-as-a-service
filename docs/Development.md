@@ -39,6 +39,8 @@ Details of the messages and the Bitcoin SV peer to peer protocol can be found in
 * https://wiki.bitcoinsv.io/index.php/Peer-To-Peer_Protocol
 * https://developer.bitcoin.org/reference/p2p_networking.html
 
+
+Note as of Bitcoin SV 1.0.11 bloom filters are no longer supported.
 # Peer Thread Status States
 The peer thread works through the following states:
 
