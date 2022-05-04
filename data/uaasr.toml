@@ -7,16 +7,15 @@ user_agent = "/Bitcoin SV:1.0.9/"
 #port = 8333
 #network = "Mainnet"
 #start_block_hash = "000000000000000006978b93a3811f197a1904f30b64eb244b99b8db01f574f8"
-
+# timeout_period = 120.0
 
 #ip = [ "176.9.148.163", "167.99.91.85"]
 ip = [ "176.9.148.163"]
 port = 18333
 network = "Testnet"
 start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
+timeout_period = 240.0
 
-
-timeout_period = 120.0
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 # mysql_url = "mysql://bnar:bnar-password@localhost:3306/test_db"
 # mysql_url = "mysql://bnar:bnar-password@host.docker.internal:3306/test_db"

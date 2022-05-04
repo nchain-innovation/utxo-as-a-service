@@ -38,6 +38,9 @@ pub struct Logic {
     // Used to keep track of the blocks downloaded, to determine if we need to download any more
     blocks_downloaded: usize,
     last_block_request_time: Option<Instant>,
+
+    // Queue of pending txs - stored here prior to READY state
+    pub tx_queue: Vec<Tx>,
 }
 
 impl Logic {
@@ -55,13 +58,31 @@ impl Logic {
             address_manager: AddressManager::new(config, addr_conn),
             blocks_downloaded: 0,
             last_block_request_time: None,
+            tx_queue: Vec::new(),
         }
     }
 
     pub fn set_state(&mut self, state: ServerStateType) {
-        println!("set state {:?}", &state);
+        // Handles state changes
+
+        assert_ne!(state, self.state);
+
+        println!("set_state({:?})", &state);
         if state == ServerStateType::Ready {
-            // do stuff
+            // Process blocks
+            let start = Instant::now();
+            for (height, block) in self.block_manager.blocks.iter().enumerate() {
+                self.tx_analyser.process_block(block, height);
+            }
+            // Process queued transactions
+            for tx in self.tx_queue.iter() {
+                self.tx_analyser.process_tx(tx, None, None);
+            }
+            self.tx_queue.clear();
+            // Say how long it took
+            let block_count = self.block_manager.blocks.len();
+            let elapsed_time = start.elapsed().as_millis() as f64; //  micros();
+            println!("Processed {} blocks in {} seconds", block_count, elapsed_time/1000.0);
         }
         self.state = state;
     }
@@ -71,12 +92,12 @@ impl Logic {
     }
 
     pub fn on_block(&mut self, block: Block) {
+        // On rx Block
         self.block_manager.add_block(block);
 
         if !self.state.is_ready() {
             if self.block_manager.has_chain_tip() {
                 self.set_state(ServerStateType::Ready)
-
             } else {
                 self.blocks_downloaded += 1;
                 // TODO: rethink this
@@ -91,10 +112,10 @@ impl Logic {
     pub fn on_tx(&mut self, tx: Tx) {
         // Handle TX message
         if self.state.is_ready() {
-            self.tx_analyser.process_tx(tx);
+            self.tx_analyser.process_tx(&tx, None, None);
         } else {
             // Queue up the tx for later processing
-            self.tx_analyser.queue_tx(tx);
+            self.tx_queue.push(tx.clone());
         }
     }
 

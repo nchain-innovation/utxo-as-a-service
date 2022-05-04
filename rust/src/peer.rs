@@ -44,12 +44,22 @@ pub fn connect_to_peer(
 
     // Wait
     let one_second = time::Duration::from_secs(1);
+    let two_seconds = time::Duration::from_secs(2);
     thread::sleep(one_second);
     while running.load(Ordering::Relaxed)
         && event_handler.get_elapsed_time() < config.service.timeout_period
     {
+        let start = time::Instant::now();
         thread::sleep(one_second);
-        // time here to see if we have been asleep
+        // Check time here to see if we have been asleep
+        if start.elapsed() > two_seconds {
+            println!("We have been asleep for {}",  start.elapsed().as_secs());
+            break;
+        }
+
+    }
+    if event_handler.get_elapsed_time() >= config.service.timeout_period {
+        println!("timed out at {} seconds", event_handler.get_elapsed_time());
     }
     peer.disconnect();
 }

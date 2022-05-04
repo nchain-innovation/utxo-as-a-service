@@ -71,8 +71,7 @@ impl ThreadTracker {
         if let Some(peer) = self.children.remove(ip) {
             if let Some(thread) = peer.thread {
                 // wait for it
-                let result = thread.join().unwrap();
-                println!("result={:?}", result);
+                thread.join().unwrap();
 
                 // Create a new entry to replace the existing one
                 let new_peer = PeerThread {

@@ -225,7 +225,8 @@ impl Observer<PeerMessage> for EventHandler {
         if let Ok(msg) = self.recv_msg() {
             match &msg {
                 RequestMessage::BlockRequest(value) => {
-                    println!("block request");
+                    println!("block request {}", &value);
+                    // Build message
                     let mut locator = BlockLocator::default();
                     let hash = Hash256::decode(value).unwrap();
 

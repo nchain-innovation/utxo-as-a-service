@@ -12,7 +12,7 @@ use crate::config::Config;
 pub struct BlockManager {
     start_block_hash: String,
     block_file: String,
-    blocks: Vec<Block>,
+    pub blocks: Vec<Block>,
 }
 
 impl BlockManager {
@@ -54,17 +54,18 @@ impl BlockManager {
 
     fn sort_blocks(&mut self) {
         // Sort the blocks, initally by timestamp (smallest first)
-        self.blocks.sort_by(|a, b| a.header.timestamp.cmp(&b.header.timestamp))
-
+        self.blocks
+            .sort_by(|a, b| a.header.timestamp.cmp(&b.header.timestamp))
     }
 
     pub fn add_block(&mut self, block: Block) {
         let hash = block.header.hash();
         // Check to see if we already have this hash
         let found = self.blocks.iter().find(|x| x.header.hash() == hash);
-        if !found.is_some() {
+        if found.is_none() {
             self.write_block(&block);
             // this just appends to the end of the list
+            // TODO: figure out if want to be cleverer
             self.blocks.push(block);
         }
     }

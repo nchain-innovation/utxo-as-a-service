@@ -19,6 +19,9 @@ This section contains project status related notes.
 ## TODO
 * Add offline detection?
 * Request additional blocks (based on ?)
+* need to check on mainnet
+* May need to support larger p2p messages
+    * add len() to script
 
 
 -----
