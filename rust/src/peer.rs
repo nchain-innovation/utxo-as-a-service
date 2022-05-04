@@ -53,10 +53,11 @@ pub fn connect_to_peer(
         thread::sleep(one_second);
         // Check time here to see if we have been asleep
         if start.elapsed() > two_seconds {
-            println!("We have been asleep for {}",  start.elapsed().as_secs());
+            let asleep_time = start.elapsed().as_millis() as f64;
+            println!("Have been asleep for {} seconds", asleep_time / 1000.0);
+            // If so stop
             break;
         }
-
     }
     if event_handler.get_elapsed_time() >= config.service.timeout_period {
         println!("timed out at {} seconds", event_handler.get_elapsed_time());

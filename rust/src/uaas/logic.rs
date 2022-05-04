@@ -76,13 +76,17 @@ impl Logic {
             }
             // Process queued transactions
             for tx in self.tx_queue.iter() {
-                self.tx_analyser.process_tx(tx, None, None);
+                self.tx_analyser.process_standalone_tx(tx);
             }
             self.tx_queue.clear();
             // Say how long it took
             let block_count = self.block_manager.blocks.len();
-            let elapsed_time = start.elapsed().as_millis() as f64; //  micros();
-            println!("Processed {} blocks in {} seconds", block_count, elapsed_time/1000.0);
+            let elapsed_time = start.elapsed().as_millis() as f64;
+            println!(
+                "Processed {} blocks in {} seconds",
+                block_count,
+                elapsed_time / 1000.0
+            );
         }
         self.state = state;
     }
@@ -112,9 +116,10 @@ impl Logic {
     pub fn on_tx(&mut self, tx: Tx) {
         // Handle TX message
         if self.state.is_ready() {
-            self.tx_analyser.process_tx(&tx, None, None);
+            // Process straight away
+            self.tx_analyser.process_standalone_tx(&tx);
         } else {
-            // Queue up the tx for later processing
+            // Queue up the tx for later processing once in ready state
             self.tx_queue.push(tx.clone());
         }
     }
@@ -125,10 +130,10 @@ impl Logic {
     }
 
     fn sufficient_time_elapsed(&self) -> bool {
-        // Return true if sufficient time has passed since last request (if any)
+        // Return true if sufficient time has passed since last block request (if any)
         match self.last_block_request_time {
-            // more than 4 sec since last request
-            Some(t) => t.elapsed().as_secs() > 4,
+            // More than 10 sec since last request
+            Some(t) => t.elapsed().as_secs() > 10,
             None => true,
         }
     }
@@ -151,9 +156,8 @@ impl Logic {
         if self.need_to_request_blocks() {
             // Update last request time
             self.last_block_request_time = Some(Instant::now());
-
+            // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();
-            dbg!(&required_hash);
             Some(RequestMessage::BlockRequest(required_hash))
         } else {
             None

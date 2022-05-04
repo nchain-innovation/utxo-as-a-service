@@ -23,6 +23,9 @@ This section contains project status related notes.
 * May need to support larger p2p messages
     * add len() to script
 
+* add secondary mempool
+* search for todos
+
 
 -----
 * Python database interface
