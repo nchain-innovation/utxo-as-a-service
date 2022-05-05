@@ -19,6 +19,8 @@ pub struct BlockManager {
     pub block_headers: Vec<BlockHeader>,
     pub hash_to_index: HashMap<Hash256, usize>,
     height: usize,
+    // last block hash we processed
+    last_hash_processed: Hash256,
 }
 
 impl BlockManager {
@@ -29,6 +31,7 @@ impl BlockManager {
             block_headers: Vec::new(),
             hash_to_index: HashMap::new(),
             height: 0,
+            last_hash_processed: Hash256::decode(&config.service.start_block_hash).unwrap(),
         }
         // b.read_blocks(tx_analyser);
         // b.sort_blocks();
@@ -45,7 +48,27 @@ impl BlockManager {
         block.write(&mut file).unwrap();
     }
 
+    fn process_read_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
+        // Process each block as it is read from file
+        let hash = block.header.hash();
+        // Check to see if we already have this hash
+        if !self.hash_to_index.contains_key(&hash) {
+            // Determine if this block makes sense based on previous blocks
+            // that is process them in chain order
+            assert_eq!(self.last_hash_processed, block.header.prev_hash);
+            self.last_hash_processed = hash;
+
+
+            tx_analyser.process_block(&block, self.height);
+            // Store the block header
+            self.hash_to_index.insert(hash, self.height);
+            self.block_headers.push(block.header);
+            self.height += 1;
+        }
+    }
+
     pub fn read_blocks(&mut self, tx_analyser: &mut TxAnalyser) {
+        // On loading check blocks are in the correct order and assert if not
         println!("read blocks");
         let start = Instant::now();
 
@@ -54,17 +77,7 @@ impl BlockManager {
             Ok(mut file) => {
                 // Success - read blocks
                 while let Ok(block) = Block::read(&mut file) {
-                    let hash = block.header.hash();
-                    // Check to see if we already have this hash
-                    if !self.hash_to_index.contains_key(&hash) {
-                        // TODO determine if this block makes sense based on previous blocks
-                        // that is process them in chain order
-                        tx_analyser.process_block(&block, self.height);
-                        // Store the block header
-                        self.hash_to_index.insert(hash, self.height);
-                        self.block_headers.push(block.header);
-                        self.height += 1;
-                    }
+                    self.process_read_block(block, tx_analyser);
                 }
             }
             Err(e) => println!("Unable to open block file {} - {}", &self.block_file, &e),
