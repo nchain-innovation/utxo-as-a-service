@@ -2,4 +2,4 @@ mod address_manager;
 mod block_manager;
 pub mod logic;
 mod tx_analyser;
-mod util;
+pub mod util;

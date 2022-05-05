@@ -23,14 +23,12 @@ use crate::uaas::logic::{Logic, ServerStateType};
 
 fn main() {
     let count = thread::available_parallelism().expect("parallel error");
-    println!("Available Parallelism = {}", count);
+    println!("Available parallelism = {}", count);
 
     let config = match get_config("UAASR_CONFIG", "../data/uaasr.toml") {
         Some(config) => config,
         None => panic!("Unable to read config"),
     };
-
-    //dbg!(&config);
 
     // Decode config
     let ips: Vec<IpAddr> = config

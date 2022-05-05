@@ -2,12 +2,11 @@ use std::collections::HashMap;
 
 use mysql::prelude::*;
 use mysql::PooledConn;
-//use mysql::*;
+use mysql::*;
 
 use crate::config::Config;
 use sv::messages::{Block, OutPoint, Tx, TxOut};
 use sv::script::Script;
-//use sv::util::{Hash256, Serializable};
 use sv::util::Hash256;
 
 /*
@@ -50,7 +49,7 @@ impl TxAnalyser {
             txs: HashMap::new(),
             mempool: HashMap::new(),
             unspent: HashMap::new(),
-            conn: conn,
+            conn,
         }
     }
 
@@ -64,13 +63,13 @@ impl TxAnalyser {
             )
             .unwrap();
 
-        if tables.iter().find(|x| x.as_str() == "tx") == None {
+        if tables.iter().find(|x| x.as_str() == "tx").is_none() {
             self.conn
                 .query_drop(r"CREATE TABLE tx (hash text, height int)")
                 .unwrap();
         }
 
-        if tables.iter().find(|x| x.as_str() == "mempool") == None {
+        if tables.iter().find(|x| x.as_str() == "mempool").is_none() {
             self.conn
                 .query_drop(r"CREATE TABLE mempool (hash text)")
                 .unwrap();
@@ -88,7 +87,7 @@ impl TxAnalyser {
         // Process tx as received in a block
         let hash = tx.hash();
 
-        // Store tx
+        // Store tx - note that we only do this for tx in a block
         let tx_entry = TxEntry {
             tx: tx.clone(),
             height,
@@ -99,26 +98,16 @@ impl TxAnalyser {
             return;
         }
         // TODO write to database
-        /*
-        let tx_insert = self
-            .conn
-            .prep("INSERT INTO tx (hash, height) VALUES (:hash, :height)")
-            .unwrap();
-        // Try to write blob
-        //let mut output : Vec<u8> = Vec::new();
-        //let mut output = String::new();
-        //tx.write(&mut output).unwrap();
-        //dbg!(&tx);
-        self.conn
-            .exec_drop(
-                &tx_insert,
-                params! { "hash" => hash.encode() , "height" => height },
-            )
-            .unwrap();
-        */
+        let tx_insert = format!("INSERT INTO tx VALUES ('{}', {});", &hash.encode(), &height);
+        dbg!(&tx_insert);
+        self.conn.exec_drop(&tx_insert, Params::Empty).unwrap();
+
         // Remove from mempool as now in block
         if let Some(_value) = self.mempool.remove(&hash) {
-            // TODO remove from database
+            // Remove from database
+            let mempool_delete = format!("DELETE FROM mempool WHERE hash='{}';", &hash.encode());
+            // dbg!(&mempool_delete);
+            self.conn.exec_drop(&mempool_delete, Params::Empty).unwrap();
         }
 
         // Process inputs - remove from unspent
@@ -153,27 +142,27 @@ impl TxAnalyser {
     }
 
     pub fn process_block(&mut self, block: &Block, height: usize) {
-        // Given a block process all the tx in it
+        // Given a block process all the txs in it
         for (tx_index, tx) in block.txns.iter().enumerate() {
             self.process_block_tx(tx, height, tx_index);
         }
     }
 
     pub fn process_standalone_tx(&mut self, tx: &Tx) {
-        // Process tx as we receive them, that is a tx that is not in a block
-
+        // Process standalone tx as we receive them
+        // standalone tx are txs that are not in a block
         let hash = tx.hash();
         // Add it to the mempool
         self.mempool.insert(hash, tx.clone());
-        /*
-        // TODO: write to database - mempool table
+
+        // Write mempool entry to database
         let mempool_insert = self
             .conn
             .prep("INSERT INTO mempool (hash) VALUES (:hash)")
             .unwrap();
+
         self.conn
             .exec_drop(&mempool_insert, params! { "hash" => hash.encode()  })
             .unwrap();
-        */
     }
 }

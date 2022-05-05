@@ -10,15 +10,24 @@ This section contains project status related notes.
 * Get basic P2P messages working
 * Set up basic project
 * need to inform child threads their time is up....
+* Add offline detection - done now captures when asleep
 
 ## In Progress
 
 * address issue of only receiving 4 blocks after a get block message.
     * works on testnet
-
+* write mempool to database
+    * add `when added` to mempool so that we can determine when tx expires
 ## TODO
-* Add offline detection?
-* Request additional blocks (based on ?)
+* write block headers to database
+    pub version: u32,
+    pub prev_hash: Hash256,
+    pub merkle_root: Hash256,
+    pub timestamp: u32,
+    pub bits: u32,
+    pub nonce: u32,
+
+* Request additional blocks
 * need to check on mainnet
 * May need to support larger p2p messages
     * add len() to script
@@ -26,16 +35,25 @@ This section contains project status related notes.
 * add secondary mempool
 * search for todos
 
-* write mempool to database
+* need to save state so the same information is not reprocessed
+    * need a state table
+    * save last block processed
+
+
+
+
 * write block headers to database
 * write utxo set to database
 * write tx to database
 
 * unable to write blobs to database
 
+* optimise database types
+* bulk write tx from block into tx table.
+
 
 # Memory usage
-* 05/05/2022 - 242 MB 
+* 05/05/2022 - 242 MB
 
 -----
 * Python database interface

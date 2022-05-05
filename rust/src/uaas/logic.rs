@@ -12,7 +12,6 @@ use crate::event_handler::RequestMessage;
 use super::address_manager::AddressManager;
 use super::block_manager::BlockManager;
 use super::tx_analyser::TxAnalyser;
-use super::util::timestamp_as_string;
 
 // Used to keep track of the server state
 #[derive(Debug, PartialEq)]
@@ -67,9 +66,7 @@ impl Logic {
         self.tx_analyser.create_table();
 
         self.block_manager.read_blocks(&mut self.tx_analyser);
-
     }
-
 
     pub fn set_state(&mut self, state: ServerStateType) {
         // Handles state changes
@@ -87,13 +84,7 @@ impl Logic {
         // On rx Block
         self.last_block_rx_time = Some(Instant::now());
 
-        // Print hash and timestamp
-        println!(
-            "{} - {}",
-            block.header.hash().encode(),
-            timestamp_as_string(block.header.timestamp)
-        );
-
+        // Call the block manager
         self.block_manager.on_block(block, &mut self.tx_analyser);
 
         if !self.state.is_ready() {

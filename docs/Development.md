@@ -61,3 +61,7 @@ The ready state means that the service has caught up with the chain tip.
 This service only keeps block headers in memory - it writes blocks out to the hard disk.
 
 
+Note that if the service is off line for a period the mempool may not be correct.
+That is to say that it may have missed transaction announcements
+
+

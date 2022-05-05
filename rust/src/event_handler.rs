@@ -6,10 +6,11 @@ use std::time;
 use std::sync::{Arc, Mutex};
 use sv::messages::{Addr, Block, BlockLocator, Headers, Inv, InvVect, Message, Tx};
 use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
+use sv::util::rx::Observer;
 use sv::util::Hash256;
 
 use crate::services::decode_services;
-use sv::util::rx::Observer;
+use crate::uaas::util::timestamp_as_string;
 
 // Constants for inv messages
 const TX: u32 = 1;
@@ -33,7 +34,12 @@ impl fmt::Display for EventType {
             EventType::Disconnected => write!(f, "Disconnected"),
             EventType::Addr(addr) => write!(f, "Addr={}", addr.addrs.len()),
             EventType::Tx(tx) => write!(f, "Tx={:?}", tx.hash()),
-            EventType::Block(block) => write!(f, "Block={:?}", block.header.hash()),
+            EventType::Block(block) => write!(
+                f,
+                "Block={:?} - {}",
+                block.header.hash(),
+                timestamp_as_string(block.header.timestamp)
+            ),
             EventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
         }
     }
