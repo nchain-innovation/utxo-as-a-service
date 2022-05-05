@@ -38,6 +38,7 @@ fn main() {
         .expect("Error decoding config ip addresses");
 
     let mut logic = Logic::new(&config);
+    logic.setup();
 
     // Set up channels
     // Used to send messages from child to main

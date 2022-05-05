@@ -33,6 +33,10 @@ This section contains project status related notes.
 
 * unable to write blobs to database
 
+
+# Memory usage
+* 05/05/2022 - 242 MB 
+
 -----
 * Python database interface
 

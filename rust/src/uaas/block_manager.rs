@@ -9,7 +9,7 @@ use sv::util::{Hash256, Serializable};
 
 use crate::config::Config;
 use crate::uaas::tx_analyser::TxAnalyser;
-use crate::uaas::util::timestamp_age_as_sec;
+use crate::uaas::util::{timestamp_age_as_sec, timestamp_as_string};
 
 pub struct BlockManager {
     start_block_hash: String,
@@ -36,9 +36,6 @@ impl BlockManager {
             last_hash_processed: Hash256::decode(&config.service.start_block_hash).unwrap(),
             block_queue: Vec::new(),
         }
-        // b.read_blocks(tx_analyser);
-        // b.sort_blocks();
-        // b
     }
 
     fn write_block(&self, block: &Block) {
@@ -85,7 +82,8 @@ impl BlockManager {
     }
 
     fn process_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
-        // Shared block processing functionality shared with reading from file and receiving blocks
+        // Block processing functionality
+        // This method is shared with reading from file and receiving blocks
         let hash = block.header.hash();
 
         // Determine if this block makes sense based on previous blocks
@@ -104,7 +102,6 @@ impl BlockManager {
         // Check block_queue to see if there are blocks that we can now process
         // loop through until last_hash_processed  == block.header.prev_hash
         // if found then check again
-
         while let Some(block) = self
             .block_queue
             .iter_mut()
@@ -113,7 +110,6 @@ impl BlockManager {
             let prev_hash = self.last_hash_processed;
             // do block processing
             let b = block.clone();
-
             self.write_block(&b);
             self.process_block(b, tx_analyser);
 
@@ -126,21 +122,33 @@ impl BlockManager {
     pub fn on_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
         // Handle block received on P2P network
         let hash = block.header.hash();
+
         // Check to see if we already have this hash - if so ignore it
         if !self.hash_to_index.contains_key(&hash) {
             // check to see if block arrived in correct order
             if block.header.prev_hash == self.last_hash_processed {
                 self.process_block(block.clone(), tx_analyser);
                 self.write_block(&block);
+
                 // Check block_queue to see if there are blocks that we can now process
-                if !self.block_queue.is_empty() {
-                    self.process_block_queue(tx_analyser);
-                }
+                self.process_block_queue(tx_analyser);
             } else {
                 // Store block for later processing
                 self.block_queue.push(block);
             }
-            println!("self.block_queue.len() = {}", self.block_queue.len())
+
+            if !self.block_queue.is_empty() {
+                println!("self.block_queue.len() = {}", self.block_queue.len());
+
+                // print all entries
+                for b in self.block_queue.iter() {
+                    println!(
+                        "q_block = {} {}",
+                        b.header.hash().encode(),
+                        timestamp_as_string(b.header.timestamp)
+                    );
+                }
+            }
         }
     }
 
@@ -149,42 +157,10 @@ impl BlockManager {
         if self.block_headers.is_empty() {
             self.start_block_hash.clone()
         } else {
-            // work through list of blocks and return the last hash that links
-            // start with the known block hash
-            let mut last_hash = Hash256::decode(self.start_block_hash.as_str()).unwrap();
-            // Mapping to speed up lookups
-            let prev_to_hash: HashMap<Hash256, Hash256> = self
-                .block_headers
-                .iter()
-                .map(|b| (b.prev_hash, b.hash()))
-                .collect();
-
-            // While successfully finding the next hash
-            while let Some(hash) = prev_to_hash.get(&last_hash) {
-                last_hash = *hash;
-            }
-
-            last_hash.encode()
+            // Now we know the list is in order we can just return the last entry's hash
+            let header = self.block_headers.last().unwrap();
+            header.hash().encode()
         }
-    }
-
-    fn have_all_predecessors(&self, hash: Hash256) -> bool {
-        // return true if have all predecessors of block
-        // Mapping to speed up lookups
-        let hash_to_prev: HashMap<Hash256, Hash256> = self
-            .block_headers
-            .iter()
-            .map(|b| (b.hash(), b.prev_hash))
-            .collect();
-        let last_hash = Hash256::decode(self.start_block_hash.as_str()).unwrap();
-        let mut good_hash = hash;
-
-        // While successfully finding the next hash
-        while let Some(hash) = hash_to_prev.get(&good_hash) {
-            good_hash = *hash;
-        }
-        // check to see if we got to the root hash
-        good_hash == last_hash
     }
 
     pub fn has_chain_tip(&self) -> bool {
@@ -195,16 +171,10 @@ impl BlockManager {
             false
         } else {
             let diff = timestamp_age_as_sec(self.block_headers.last().unwrap().timestamp);
-            dbg!(&diff);
             // Assume chain tip if
             // * the block time is less that 10 mins ago
-            if diff < 600 {
-                // * and we have all predecessors
-                let block_prev_hash = self.block_headers.last().unwrap().prev_hash;
-                self.have_all_predecessors(block_prev_hash)
-            } else {
-                false
-            }
+            // Note that we know all the predecessors are present in the list
+            diff < 600
         }
     }
 }

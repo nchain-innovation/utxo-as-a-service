@@ -51,7 +51,7 @@ impl Logic {
         let block_conn = pool.get_conn().unwrap();
         let tx_conn = pool.get_conn().unwrap();
         let addr_conn = pool.get_conn().unwrap();
-        let mut logic = Logic {
+        Logic {
             state: ServerStateType::Starting,
             tx_analyser: TxAnalyser::new(config, tx_conn),
             block_manager: BlockManager::new(config, block_conn),
@@ -59,38 +59,23 @@ impl Logic {
             blocks_downloaded: 0,
             last_block_rx_time: None,
             need_to_request_blocks: true,
-        };
-        logic.block_manager.read_blocks(&mut logic.tx_analyser);
-        logic
+        }
     }
+
+    pub fn setup(&mut self) {
+        // Do any start up component setup required
+        self.tx_analyser.create_table();
+
+        self.block_manager.read_blocks(&mut self.tx_analyser);
+
+    }
+
 
     pub fn set_state(&mut self, state: ServerStateType) {
         // Handles state changes
-
+        // Ensure that the state changes
         assert_ne!(state, self.state);
-
         println!("set_state({:?})", &state);
-        if state == ServerStateType::Ready {
-            // Process blocks
-            /*
-            let start = Instant::now();
-            for (height, block) in self.block_manager.blocks.iter().enumerate() {
-                self.tx_analyser.process_block(block, height);
-            }
-            // Process queued transactions
-
-            // Say how long it took
-            let block_count = self.block_manager.block_headers.len();
-            let elapsed_time = start.elapsed().as_millis() as f64;
-            println!(
-                "Processed {} blocks in {} seconds",
-                block_count,
-                elapsed_time / 1000.0
-            );
-            */
-            // TODO: may want to check to see if tx still in mempool
-            // should do this after every block anyway
-        }
         self.state = state;
     }
 
@@ -115,6 +100,7 @@ impl Logic {
             if self.block_manager.has_chain_tip() {
                 self.set_state(ServerStateType::Ready);
                 self.blocks_downloaded = 0;
+                self.need_to_request_blocks = false;
             } else {
                 self.blocks_downloaded += 1;
                 if self.blocks_downloaded > 498 {
@@ -155,17 +141,19 @@ impl Logic {
     }
 
     pub fn message_to_send(&mut self) -> Option<RequestMessage> {
-        // Return a message to send, if any
-        dbg!(self.blocks_downloaded );
-        dbg!(self.need_to_request_blocks);
+        // Return a message to send tp request blocks, if any
+        if !self.state.is_ready() {
+            // no debug info once in ready mode
+            dbg!(self.blocks_downloaded);
+            dbg!(self.need_to_request_blocks);
+        }
         if self.need_to_request_blocks() {
             self.blocks_downloaded = 0;
             self.need_to_request_blocks = false;
 
-
             // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();
-            println!("Requesting more blocks hash = {}", &required_hash);
+            println!("Requesting more blocks from hash = {}", &required_hash);
             Some(RequestMessage::BlockRequest(required_hash))
         } else {
             None

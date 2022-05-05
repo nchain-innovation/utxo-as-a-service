@@ -46,18 +46,15 @@ pub struct TxAnalyser {
 
 impl TxAnalyser {
     pub fn new(_config: &Config, conn: PooledConn) -> Self {
-        let mut tx_anal = TxAnalyser {
+        TxAnalyser {
             txs: HashMap::new(),
             mempool: HashMap::new(),
             unspent: HashMap::new(),
             conn: conn,
-            // p2pkh_scripts: HashMap::new(),
-        };
-        // tx_anal.create_table();
-        tx_anal
+        }
     }
 
-    fn create_table(&mut self) {
+    pub fn create_table(&mut self) {
         // Create tables, if required
         // Check for the tables
         let tables: Vec<String> = self
