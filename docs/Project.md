@@ -7,14 +7,14 @@ This section contains project status related notes.
 * Add `toml` configuration file
 * get inv messages working
 * Open MySQL database in Python
-
-## In Progress
 * Get basic P2P messages working
 * Set up basic project
 * need to inform child threads their time is up....
 
-* address issue of only receiving 4 blocks after a get block message.
+## In Progress
 
+* address issue of only receiving 4 blocks after a get block message.
+    * works on testnet
 
 ## TODO
 * Add offline detection?
@@ -26,6 +26,12 @@ This section contains project status related notes.
 * add secondary mempool
 * search for todos
 
+* write mempool to database
+* write block headers to database
+* write utxo set to database
+* write tx to database
+
+* unable to write blobs to database
 
 -----
 * Python database interface

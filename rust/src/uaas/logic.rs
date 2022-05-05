@@ -1,4 +1,5 @@
 use std::time::Instant;
+
 // use mysql::prelude::*;
 //use mysql::*;
 use mysql::Pool;
@@ -11,6 +12,7 @@ use crate::event_handler::RequestMessage;
 use super::address_manager::AddressManager;
 use super::block_manager::BlockManager;
 use super::tx_analyser::TxAnalyser;
+use super::util::timestamp_as_string;
 
 // Used to keep track of the server state
 #[derive(Debug, PartialEq)]
@@ -37,10 +39,8 @@ pub struct Logic {
     address_manager: AddressManager,
     // Used to keep track of the blocks downloaded, to determine if we need to download any more
     blocks_downloaded: usize,
-    last_block_request_time: Option<Instant>,
-
-    // Queue of pending txs - stored here prior to READY state
-    pub tx_queue: Vec<Tx>,
+    last_block_rx_time: Option<Instant>,
+    need_to_request_blocks: bool,
 }
 
 impl Logic {
@@ -51,15 +51,17 @@ impl Logic {
         let block_conn = pool.get_conn().unwrap();
         let tx_conn = pool.get_conn().unwrap();
         let addr_conn = pool.get_conn().unwrap();
-        Logic {
+        let mut logic = Logic {
             state: ServerStateType::Starting,
-            block_manager: BlockManager::new(config, block_conn),
             tx_analyser: TxAnalyser::new(config, tx_conn),
+            block_manager: BlockManager::new(config, block_conn),
             address_manager: AddressManager::new(config, addr_conn),
             blocks_downloaded: 0,
-            last_block_request_time: None,
-            tx_queue: Vec::new(),
-        }
+            last_block_rx_time: None,
+            need_to_request_blocks: true,
+        };
+        logic.block_manager.read_blocks(&mut logic.tx_analyser);
+        logic
     }
 
     pub fn set_state(&mut self, state: ServerStateType) {
@@ -70,23 +72,24 @@ impl Logic {
         println!("set_state({:?})", &state);
         if state == ServerStateType::Ready {
             // Process blocks
+            /*
             let start = Instant::now();
             for (height, block) in self.block_manager.blocks.iter().enumerate() {
                 self.tx_analyser.process_block(block, height);
             }
             // Process queued transactions
-            for tx in self.tx_queue.iter() {
-                self.tx_analyser.process_standalone_tx(tx);
-            }
-            self.tx_queue.clear();
+
             // Say how long it took
-            let block_count = self.block_manager.blocks.len();
+            let block_count = self.block_manager.block_headers.len();
             let elapsed_time = start.elapsed().as_millis() as f64;
             println!(
                 "Processed {} blocks in {} seconds",
                 block_count,
                 elapsed_time / 1000.0
             );
+            */
+            // TODO: may want to check to see if tx still in mempool
+            // should do this after every block anyway
         }
         self.state = state;
     }
@@ -97,17 +100,27 @@ impl Logic {
 
     pub fn on_block(&mut self, block: Block) {
         // On rx Block
+        self.last_block_rx_time = Some(Instant::now());
+
+        // Print hash and timestamp
+        println!(
+            "{} - {}",
+            block.header.hash().encode(),
+            timestamp_as_string(block.header.timestamp)
+        );
+
         self.block_manager.add_block(block);
 
         if !self.state.is_ready() {
             if self.block_manager.has_chain_tip() {
-                self.set_state(ServerStateType::Ready)
+                self.set_state(ServerStateType::Ready);
+                self.blocks_downloaded = 0;
+
             } else {
                 self.blocks_downloaded += 1;
-                // TODO: rethink this
-                if self.blocks_downloaded > 499 {
+                if self.blocks_downloaded > 498 {
                     // need to request a new inv
-                    self.blocks_downloaded = 0;
+                    self.need_to_request_blocks = true;
                 }
             }
         }
@@ -115,13 +128,8 @@ impl Logic {
 
     pub fn on_tx(&mut self, tx: Tx) {
         // Handle TX message
-        if self.state.is_ready() {
-            // Process straight away
-            self.tx_analyser.process_standalone_tx(&tx);
-        } else {
-            // Queue up the tx for later processing once in ready state
-            self.tx_queue.push(tx.clone());
-        }
+        // Process straight away - goes to mempool
+        self.tx_analyser.process_standalone_tx(&tx);
     }
 
     pub fn on_addr(&mut self, addr: Addr) {
@@ -130,10 +138,10 @@ impl Logic {
     }
 
     fn sufficient_time_elapsed(&self) -> bool {
-        // Return true if sufficient time has passed since last block request (if any)
-        match self.last_block_request_time {
-            // More than 10 sec since last request
-            Some(t) => t.elapsed().as_secs() > 10,
+        // Return true if sufficient time has passed since last block rx (if any)
+        match self.last_block_rx_time {
+            // More than 4 sec since last request
+            Some(t) => t.elapsed().as_secs() > 2,
             None => true,
         }
     }
@@ -143,21 +151,20 @@ impl Logic {
         if self.state.is_ready() {
             false
         } else {
-            match self.blocks_downloaded {
-                0 => self.sufficient_time_elapsed(),
-                499 => self.sufficient_time_elapsed(),
-                _ => false,
-            }
+            self.need_to_request_blocks && self.sufficient_time_elapsed()
         }
     }
 
     pub fn message_to_send(&mut self) -> Option<RequestMessage> {
         // Return a message to send, if any
         if self.need_to_request_blocks() {
-            // Update last request time
-            self.last_block_request_time = Some(Instant::now());
+
+            self.need_to_request_blocks = false;
+            self.blocks_downloaded = 0;
+
             // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();
+            println!("Requesting more blocks hash = {}", &required_hash);
             Some(RequestMessage::BlockRequest(required_hash))
         } else {
             None

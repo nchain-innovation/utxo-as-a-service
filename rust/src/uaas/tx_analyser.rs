@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
+use mysql::prelude::*;
 use mysql::PooledConn;
-
-use sv::messages::{Block, OutPoint, Tx, TxOut};
-use sv::script::Script;
-use sv::util::Hash256;
+//use mysql::*;
 
 use crate::config::Config;
+use sv::messages::{Block, OutPoint, Tx, TxOut};
+use sv::script::Script;
+//use sv::util::{Hash256, Serializable};
+use sv::util::Hash256;
 
 /*
     in - unlock_script - script sig
@@ -36,17 +38,45 @@ pub struct TxAnalyser {
 
     // Unspent tx
     unspent: HashMap<OutPoint, UnspentEntry>,
-    // Address to script & tx mapping - can be replaced by collections
+    // database connection
+    conn: PooledConn,
+    // Address to script & tx mapping - replaced by collections
     // p2pkh_scripts: HashMap<String, P2PKH_Entry>,
 }
 
 impl TxAnalyser {
-    pub fn new(_config: &Config, _conn: PooledConn) -> Self {
-        TxAnalyser {
+    pub fn new(_config: &Config, conn: PooledConn) -> Self {
+        let mut tx_anal = TxAnalyser {
             txs: HashMap::new(),
             mempool: HashMap::new(),
             unspent: HashMap::new(),
+            conn: conn,
             // p2pkh_scripts: HashMap::new(),
+        };
+        // tx_anal.create_table();
+        tx_anal
+    }
+
+    fn create_table(&mut self) {
+        // Create tables, if required
+        // Check for the tables
+        let tables: Vec<String> = self
+            .conn
+            .query(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
+            )
+            .unwrap();
+
+        if tables.iter().find(|x| x.as_str() == "tx") == None {
+            self.conn
+                .query_drop(r"CREATE TABLE tx (hash text, height int)")
+                .unwrap();
+        }
+
+        if tables.iter().find(|x| x.as_str() == "mempool") == None {
+            self.conn
+                .query_drop(r"CREATE TABLE mempool (hash text)")
+                .unwrap();
         }
     }
 
@@ -71,9 +101,28 @@ impl TxAnalyser {
             // We must have already processed this tx in a block
             return;
         }
-
+        // TODO write to database
+        /*
+        let tx_insert = self
+            .conn
+            .prep("INSERT INTO tx (hash, height) VALUES (:hash, :height)")
+            .unwrap();
+        // Try to write blob
+        //let mut output : Vec<u8> = Vec::new();
+        //let mut output = String::new();
+        //tx.write(&mut output).unwrap();
+        //dbg!(&tx);
+        self.conn
+            .exec_drop(
+                &tx_insert,
+                params! { "hash" => hash.encode() , "height" => height },
+            )
+            .unwrap();
+        */
         // Remove from mempool as now in block
-        // TODO remove from database
+        if let Some(_value) = self.mempool.remove(&hash) {
+            // TODO remove from database
+        }
 
         // Process inputs - remove from unspent
         if tx_index == 0 {
@@ -119,6 +168,15 @@ impl TxAnalyser {
         let hash = tx.hash();
         // Add it to the mempool
         self.mempool.insert(hash, tx.clone());
+        /*
         // TODO: write to database - mempool table
+        let mempool_insert = self
+            .conn
+            .prep("INSERT INTO mempool (hash) VALUES (:hash)")
+            .unwrap();
+        self.conn
+            .exec_drop(&mempool_insert, params! { "hash" => hash.encode()  })
+            .unwrap();
+        */
     }
 }

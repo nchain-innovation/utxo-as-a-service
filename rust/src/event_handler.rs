@@ -113,7 +113,6 @@ impl EventHandler {
             event: EventType::Addr(addr.clone()),
         };
         self.send_msg(msg);
-        //}
     }
 
     fn on_inv(&self, inv: &Inv, peer: &Arc<Peer>) {
@@ -123,6 +122,7 @@ impl EventHandler {
         for i in inv.objects.iter() {
             match i.obj_type {
                 TX | BLOCK => objects.push(i.clone()),
+                // ignore all others
                 _ => {}
             }
         }
@@ -154,7 +154,7 @@ impl EventHandler {
     }
 
     fn on_headers(&self, headers: &Headers, peer: &Arc<Peer>) {
-        // println!("on_tx {:?}", tx);
+        // println!("on_on_headers {:?}", headers);
         let msg = PeerEvent {
             time: time::SystemTime::now(),
             peer: peer.ip,
@@ -225,7 +225,6 @@ impl Observer<PeerMessage> for EventHandler {
         if let Ok(msg) = self.recv_msg() {
             match &msg {
                 RequestMessage::BlockRequest(value) => {
-                    println!("block request {}", &value);
                     // Build message
                     let mut locator = BlockLocator::default();
                     let hash = Hash256::decode(value).unwrap();
