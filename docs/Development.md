@@ -46,3 +46,18 @@ The peer thread works through the following states:
 
 ![States](diagrams/threadstates.png)
 
+# Notes
+This service processes blocks before reaching the ready state.
+However it only processes blocks in the correct order. If blocks arrive out of order they are queued for later processing.
+
+
+
+This service writes the blocks to the disk in the correct order and asserts if reading them out of order.
+
+Tx are placed in the mempool prior to the service reaching the ready state.
+
+The ready state means that the service has caught up with the chain tip.
+
+This service only keeps block headers in memory - it writes blocks out to the hard disk.
+
+

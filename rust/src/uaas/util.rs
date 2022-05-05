@@ -1,7 +1,7 @@
 use chrono::prelude::DateTime;
 use chrono::Utc;
 
-use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn timestamp_as_string(timestamp: u32) -> String {
     // Convert block timestamp to something readable
@@ -14,7 +14,7 @@ pub fn timestamp_as_string(timestamp: u32) -> String {
 
 pub fn timestamp_age_as_sec(timestamp: u32) -> u64 {
     // Return the age of the block timestamp (against current time) in seconds
-    let block_timestamp :u64 = timestamp.into();
+    let block_timestamp: u64 = timestamp.into();
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -109,13 +109,12 @@ impl Logic {
             timestamp_as_string(block.header.timestamp)
         );
 
-        self.block_manager.add_block(block);
+        self.block_manager.on_block(block, &mut self.tx_analyser);
 
         if !self.state.is_ready() {
             if self.block_manager.has_chain_tip() {
                 self.set_state(ServerStateType::Ready);
                 self.blocks_downloaded = 0;
-
             } else {
                 self.blocks_downloaded += 1;
                 if self.blocks_downloaded > 498 {
@@ -140,8 +139,8 @@ impl Logic {
     fn sufficient_time_elapsed(&self) -> bool {
         // Return true if sufficient time has passed since last block rx (if any)
         match self.last_block_rx_time {
-            // More than 4 sec since last request
-            Some(t) => t.elapsed().as_secs() > 2,
+            // More than x sec since last block
+            Some(t) => t.elapsed().as_secs() > 10,
             None => true,
         }
     }
@@ -151,16 +150,18 @@ impl Logic {
         if self.state.is_ready() {
             false
         } else {
-            self.need_to_request_blocks && self.sufficient_time_elapsed()
+            self.need_to_request_blocks || self.sufficient_time_elapsed()
         }
     }
 
     pub fn message_to_send(&mut self) -> Option<RequestMessage> {
         // Return a message to send, if any
+        dbg!(self.blocks_downloaded );
+        dbg!(self.need_to_request_blocks);
         if self.need_to_request_blocks() {
-
-            self.need_to_request_blocks = false;
             self.blocks_downloaded = 0;
+            self.need_to_request_blocks = false;
+
 
             // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();
