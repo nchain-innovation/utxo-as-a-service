@@ -13,8 +13,6 @@ use crate::config::Config;
 use crate::uaas::tx_analyser::TxAnalyser;
 use crate::uaas::util::{timestamp_age_as_sec, timestamp_as_string};
 
-
-
 #[derive(Debug)]
 // database header structure
 struct DBHeader {
@@ -28,7 +26,6 @@ struct DBHeader {
     nonce: u32,
 }
 
-
 pub struct BlockManager {
     start_block_hash: String,
     block_file: String,
@@ -38,7 +35,7 @@ pub struct BlockManager {
     // BlockManager status
     // last block hash we processed
     last_hash_processed: Hash256,
-    last_height_processed : usize,
+    last_height_processed: usize,
 
     height: usize,
 
@@ -58,7 +55,7 @@ impl BlockManager {
             hash_to_index: HashMap::new(),
             height: 0,
             last_hash_processed: Hash256::decode(&config.service.start_block_hash).unwrap(),
-            last_height_processed : 0,
+            last_height_processed: 0,
             block_queue: Vec::new(),
             conn,
         }
@@ -92,21 +89,30 @@ impl BlockManager {
         }
     }
 
-
     fn load_headers(&mut self) {
         // load headers from database
 
-        let headers = self.conn.query_map(
-            "SELECT * FROM blocks",
-            |(_height, _hash, version, prev_hash , merkle_root , timestamp , bits, nonce)| {
-                DBHeader {
-                    _height, _hash, version, prev_hash , merkle_root , timestamp , bits, nonce,
-                }
-            },
-        ).unwrap();
+        let headers = self
+            .conn
+            .query_map(
+                "SELECT * FROM blocks",
+                |(_height, _hash, version, prev_hash, merkle_root, timestamp, bits, nonce)| {
+                    DBHeader {
+                        _height,
+                        _hash,
+                        version,
+                        prev_hash,
+                        merkle_root,
+                        timestamp,
+                        bits,
+                        nonce,
+                    }
+                },
+            )
+            .unwrap();
 
         for b in headers {
-            let block_header = BlockHeader{
+            let block_header = BlockHeader {
                 version: b.version,
                 prev_hash: Hash256::decode(&b.prev_hash).unwrap(),
                 merkle_root: Hash256::decode(&b.merkle_root).unwrap(),
