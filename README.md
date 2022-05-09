@@ -8,7 +8,6 @@ The two components read the same configuration file and share data using databas
 ![Service Deployment](docs/diagrams/deployment.png)
 
 
-
 This project uses the following Bitcoin SV Rust library for processing peer to peer (P2P) messages:
 https://github.com/brentongunning/rust-sv
 
@@ -22,6 +21,8 @@ To build:
 cd rust
 cargo build
 ```
+Note that this projec
+
 
 To run:
 ```bash

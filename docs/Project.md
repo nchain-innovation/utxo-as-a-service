@@ -11,21 +11,16 @@ This section contains project status related notes.
 * Set up basic project
 * need to inform child threads their time is up....
 * Add offline detection - done now captures when asleep
+* write block headers to database
 
 ## In Progress
+change format of status table.
 
 * address issue of only receiving 4 blocks after a get block message.
     * works on testnet
 * write mempool to database
     * add `when added` to mempool so that we can determine when tx expires
 ## TODO
-* write block headers to database
-    pub version: u32,
-    pub prev_hash: Hash256,
-    pub merkle_root: Hash256,
-    pub timestamp: u32,
-    pub bits: u32,
-    pub nonce: u32,
 
 * Request additional blocks
 * need to check on mainnet
@@ -54,6 +49,7 @@ This section contains project status related notes.
 
 # Memory usage
 * 05/05/2022 - 242 MB
+* 06/05/2022 - 261 MB
 
 -----
 * Python database interface

@@ -45,7 +45,8 @@ pub struct Logic {
 impl Logic {
     pub fn new(config: &Config) -> Self {
         // Set up database connections for the componets
-        let pool = Pool::new(&config.service.mysql_url).unwrap();
+        let pool = Pool::new(&config.service.mysql_url)
+            .expect("Problem connecting to database. Check database is connected and configuration is correct.\n");
 
         let block_conn = pool.get_conn().unwrap();
         let tx_conn = pool.get_conn().unwrap();
@@ -63,9 +64,8 @@ impl Logic {
 
     pub fn setup(&mut self) {
         // Do any start up component setup required
-        self.tx_analyser.create_table();
-
-        self.block_manager.read_blocks(&mut self.tx_analyser);
+        self.tx_analyser.setup();
+        self.block_manager.setup(&mut self.tx_analyser);
     }
 
     pub fn set_state(&mut self, state: ServerStateType) {
@@ -94,7 +94,7 @@ impl Logic {
                 self.need_to_request_blocks = false;
             } else {
                 self.blocks_downloaded += 1;
-                if self.blocks_downloaded > 498 {
+                if self.blocks_downloaded > 499 {
                     // need to request a new inv
                     self.need_to_request_blocks = true;
                 }
