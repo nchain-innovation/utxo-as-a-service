@@ -147,7 +147,7 @@ impl Logic {
             self.blocks_downloaded = 0;
             self.need_to_request_blocks = false;
             // reset the request time
-            // self.last_block_rx_time = Some(Instant::now());
+            self.last_block_rx_time = Some(Instant::now());
 
             // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();

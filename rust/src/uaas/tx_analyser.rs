@@ -94,6 +94,20 @@ impl TxAnalyser {
                 )
                 .unwrap();
         }
+
+        // utxo
+        if !tables.iter().any(|x| x.as_str() == "utxo") {
+            self.conn
+                .query_drop(
+                    r"CREATE TABLE utxo (
+                    hash text,
+                    pos int unsigned,
+                    satoshis bigint unsigned,
+                    lock_script text,
+                    height int unsigned)",
+                )
+                .unwrap();
+        }
     }
 
     pub fn setup(&mut self) {
@@ -126,7 +140,7 @@ impl TxAnalyser {
 
         if let Some(_prev) = self.txs.insert(hash, tx_entry) {
             // We must have already processed this tx in a block
-            assert!(false, "should not get here as it indicates that we have processed the same tx twice in a block"); // should not get here!
+            panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
             return;
         }
 
@@ -134,7 +148,6 @@ impl TxAnalyser {
         if let Some(_value) = self.mempool.remove(&hash) {
             // Remove from database
             let mempool_delete = format!("DELETE FROM mempool WHERE hash='{}';", &hash.encode());
-            // dbg!(&mempool_delete);
             self.conn.exec_drop(&mempool_delete, Params::Empty).unwrap();
         }
 
@@ -145,6 +158,13 @@ impl TxAnalyser {
             for vin in tx.inputs.iter() {
                 // Remove from unspent
                 self.unspent.remove(&vin.prev_output);
+                // Remove from utxo table
+                let utxo_delete = format!(
+                    "DELETE FROM utxo WHERE hash='{}' pos={};",
+                    &hash.encode(),
+                    &vin.prev_output.index
+                );
+                self.conn.exec_drop(&utxo_delete, Params::Empty).unwrap();
             }
         }
 
@@ -168,6 +188,17 @@ impl TxAnalyser {
                     height,
                 };
                 self.unspent.insert(outpoint, new_entry);
+                // database
+                let utxo_insert = format!(
+                    "INSERT INTO utxo VALUES ('{}', {}, {}, '{:?}', {});",
+                    &hash.encode(),
+                    &index,
+                    &vout.satoshis,
+                    &vout.lock_script.clone(),
+                    height,
+                );
+                dbg!(&utxo_insert);
+                self.conn.exec_drop(&utxo_insert, Params::Empty).unwrap();
             }
         }
     }
@@ -197,25 +228,24 @@ impl TxAnalyser {
         // Given the tx attempt to determine the fee
         // or return 0
         0
-
     }
     pub fn process_standalone_tx(&mut self, tx: &Tx) {
         // Process standalone tx as we receive them.
         // Note standalone tx are txs that are not in a block.
         let hash = tx.hash();
-        let now = SystemTime::now()
+        let age =  SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
         let locktime = tx.lock_time;
-        let fee = self.calc_fee(&tx);
+        let fee = self.calc_fee(tx);
         // Add it to the mempool
         let mempool_entry = MempoolEntry {
             tx: tx.clone(),
-            age: now,
-            locktime: locktime,
-            fee: fee,
+            age,
+            locktime,
+            fee,
         };
         self.mempool.insert(hash, mempool_entry);
 
@@ -225,7 +255,7 @@ impl TxAnalyser {
             &hash.encode(),
             &locktime,
             &fee,
-            &now,
+            &age,
         );
         self.conn.exec_drop(&mempool_insert, Params::Empty).unwrap();
     }

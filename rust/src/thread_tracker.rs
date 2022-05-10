@@ -41,7 +41,12 @@ impl ThreadTracker {
 
     pub fn print(&self) {
         for (ip, child) in &self.children {
-            println!("ip={}, result={:?}, time={}s", ip, child, child.started_at.elapsed().as_secs());
+            println!(
+                "ip={}, result={:?}, time={}s",
+                ip,
+                child,
+                child.started_at.elapsed().as_secs()
+            );
         }
     }
 
@@ -71,7 +76,9 @@ impl ThreadTracker {
         // Joins the thread (wait for it to finish)
         // remove required to move thread out of HashMap
         if let Some(peer) = self.children.remove(ip) {
+            // Determine when thread started
             let started_at = peer.started_at;
+            
             if let Some(thread) = peer.thread {
                 // wait for it
                 thread.join().unwrap();
@@ -81,8 +88,7 @@ impl ThreadTracker {
                     thread: None,
                     status: PeerThreadStatus::Finished,
                     running: Arc::new(AtomicBool::new(false)),
-                    started_at: started_at,
-
+                    started_at,
                 };
                 self.children.insert(*ip, new_peer);
             }

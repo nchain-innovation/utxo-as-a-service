@@ -39,7 +39,6 @@ pub fn connect_to_peer(
         ..Default::default()
     };
 
-
     dbg!(&version);
     let peer = Peer::connect(ip, port, network, version, SVPeerFilter::new(0));
 

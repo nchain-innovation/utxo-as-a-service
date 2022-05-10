@@ -25,11 +25,12 @@ This section contains project status related notes.
 * Write tx to database - txid and block index written
     * bulk write tx from block into tx table.
 
-## In Progress
-
 * write mempool to database
     * add `time` (when added) to mempool so that we can determine when tx expires
     * add `fee` so that we can determine the min fee
+
+## In Progress
+
 
 * Check on mainnet
 * Write utxo set to database
@@ -40,6 +41,7 @@ This section contains project status related notes.
 * Mainnet nodes disconnect
     * appears to work if you request the tip (or close to it)
     * even if you set the start_height: 738839 in version
+    * we get disconnected if we keep asking for the current tip
 
 
 * May need to support larger p2p messages
