@@ -28,6 +28,8 @@ pub struct UnspentEntry {
 pub struct MempoolEntry {
     tx: Tx,
     age: u64,
+    locktime: u32,
+    fee: u64,
 }
 
 // Used to store all txs (in blocks)
@@ -86,6 +88,8 @@ impl TxAnalyser {
                 .query_drop(
                     r"CREATE TABLE mempool (
                     hash text,
+                    locktime int unsigned,
+                    fee bigint unsigned,
                     time int unsigned)",
                 )
                 .unwrap();
@@ -122,7 +126,7 @@ impl TxAnalyser {
 
         if let Some(_prev) = self.txs.insert(hash, tx_entry) {
             // We must have already processed this tx in a block
-            assert_eq!(1, 2); // should not get here!
+            assert!(false, "should not get here as it indicates that we have processed the same tx twice in a block"); // should not get here!
             return;
         }
 
@@ -177,7 +181,7 @@ impl TxAnalyser {
         let hashes: Vec<String> = block.txns.iter().map(|b| b.hash().encode()).collect();
         //  .query_drop(r"CREATE TABLE tx (hash text, height int)")
 
-        // write to database tx table
+        // Batch write tx to database table
         //let tx_insert = format!("INSERT INTO tx (hash, height) VALUES (:hash, :height)", &hash.encode(), &height);
         self.conn
             .exec_batch(
@@ -189,6 +193,12 @@ impl TxAnalyser {
             .unwrap();
     }
 
+    fn calc_fee(&self, _tx: &Tx) -> u64 {
+        // Given the tx attempt to determine the fee
+        // or return 0
+        0
+
+    }
     pub fn process_standalone_tx(&mut self, tx: &Tx) {
         // Process standalone tx as we receive them.
         // Note standalone tx are txs that are not in a block.
@@ -198,18 +208,24 @@ impl TxAnalyser {
             .unwrap()
             .as_secs();
 
+        let locktime = tx.lock_time;
+        let fee = self.calc_fee(&tx);
         // Add it to the mempool
         let mempool_entry = MempoolEntry {
             tx: tx.clone(),
             age: now,
+            locktime: locktime,
+            fee: fee,
         };
         self.mempool.insert(hash, mempool_entry);
 
         // Write mempool entry to database
         let mempool_insert = format!(
-            "INSERT INTO mempool VALUES ('{}', {});",
+            "INSERT INTO mempool VALUES ('{}', {}, {}, {});",
             &hash.encode(),
-            &now
+            &locktime,
+            &fee,
+            &now,
         );
         self.conn.exec_drop(&mempool_insert, Params::Empty).unwrap();
     }

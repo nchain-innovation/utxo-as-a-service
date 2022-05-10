@@ -224,8 +224,8 @@ impl Observer<PeerMessage> for EventHandler {
             Message::Tx(tx) => self.on_tx(tx, &event.peer),
             Message::Headers(headers) => self.on_headers(headers, &event.peer),
 
-            _msg => {
-                // println!("default {:?}", msg)
+            msg => {
+                println!("default {:?}", msg)
             }
         }
 

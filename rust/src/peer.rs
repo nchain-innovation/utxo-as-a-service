@@ -35,6 +35,7 @@ pub fn connect_to_peer(
         user_agent: config.service.user_agent,
         relay: true, // This is required to receive Tx messages
         nonce: rng.gen::<u64>(),
+        start_height: 738839,
         ..Default::default()
     };
 

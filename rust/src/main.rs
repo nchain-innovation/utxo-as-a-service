@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Instant;
 
 mod config;
 mod event_handler;
@@ -107,6 +108,7 @@ fn main() {
             })),
             status: PeerThreadStatus::Started,
             running: peer_running,
+            started_at: Instant::now(),
         };
         children.add(ip, peer);
     }

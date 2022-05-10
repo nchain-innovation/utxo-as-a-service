@@ -2,8 +2,8 @@
 user_agent = "/Bitcoin SV:1.0.09/"
 
 
-# ip = ["18.157.234.254"] # Works until we request blocks
-# ip = ["18.192.253.59"]
+# ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
+ip = ["18.192.253.59"] # Same as above
 # ip = ["13.86.34.113"]
 # ,  "65.21.201.45" ]
 # ip = ["18.157.234.254"]
@@ -15,13 +15,14 @@ user_agent = "/Bitcoin SV:1.0.09/"
 # ip = ["18.157.234.254"]
 # ip = ["3.67.20.166"] - dropped us
 # ip = ["52.28.166.147"] - dropped us
-ip = ["23.92.74.110"]
+# ip = ["23.92.74.110"] - dropped after requesting block
 port = 8333
 network = "Mainnet"
 # start_block_hash = "00000000000001027009c5e762a2f7bbc1250d40ef0413507aaad908416c185f"
 # start_block_hash = "000000000000001e56b211100ca15a8a1748d8993963fe516199b06af72cbed7" - testnet!
 # start_block_hash = "00000000000000000fd958c6394b325253b8146d618de0aeb1fddfd1d9434d85" - only 6 blocks ago but can still fail
-start_block_hash = "00000000000000000c19f3f214c572f4e9244fb27e8b818dfd49ad6a5c5b23e9"
+#start_block_hash = "00000000000000000c19f3f214c572f4e9244fb27e8b818dfd49ad6a5c5b23e9"
+start_block_hash = "000000000000000006b44510c3d5285fa8616b7a6ce76e0ba7ec97706c7cb9c0" # current tip
 timeout_period = 120.0
 
 #ip = [ "176.9.148.163", "167.99.91.85"]
