@@ -8,7 +8,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
 use sv::messages::{Block, OutPoint, Tx, TxOut};
-use sv::script::Script;
 use sv::util::Hash256;
 
 /*
@@ -17,10 +16,10 @@ use sv::util::Hash256;
 
 */
 
-// Used to store the unspent txs
+// Used to store the unspent txs (UTXO)
 pub struct UnspentEntry {
     satoshis: i64,
-    lock_script: Script,
+    // lock_script: Script, - have seen some very large script lengths here
     height: usize,
 }
 
@@ -103,7 +102,7 @@ impl TxAnalyser {
                     hash text,
                     pos int unsigned,
                     satoshis bigint unsigned,
-                    lock_script text,
+
                     height int unsigned)",
                 )
                 .unwrap();
@@ -141,7 +140,6 @@ impl TxAnalyser {
         if let Some(_prev) = self.txs.insert(hash, tx_entry) {
             // We must have already processed this tx in a block
             panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
-            return;
         }
 
         // Remove from mempool as now in block
@@ -160,7 +158,7 @@ impl TxAnalyser {
                 self.unspent.remove(&vin.prev_output);
                 // Remove from utxo table
                 let utxo_delete = format!(
-                    "DELETE FROM utxo WHERE hash='{}' pos={};",
+                    "DELETE FROM utxo WHERE hash='{}' AND pos={};",
                     &hash.encode(),
                     &vin.prev_output.index
                 );
@@ -184,20 +182,20 @@ impl TxAnalyser {
 
                 let new_entry = UnspentEntry {
                     satoshis: vout.satoshis,
-                    lock_script: vout.lock_script.clone(),
+                    // lock_script: vout.lock_script.clone(),
                     height,
                 };
                 self.unspent.insert(outpoint, new_entry);
                 // database
                 let utxo_insert = format!(
-                    "INSERT INTO utxo VALUES ('{}', {}, {}, '{:?}', {});",
+                    "INSERT INTO utxo VALUES ('{}', {}, {}, {});",
                     &hash.encode(),
                     &index,
                     &vout.satoshis,
-                    &vout.lock_script.clone(),
+                    //&vout.lock_script.clone(),
                     height,
                 );
-                dbg!(&utxo_insert);
+                //dbg!(&utxo_insert);
                 self.conn.exec_drop(&utxo_insert, Params::Empty).unwrap();
             }
         }
@@ -213,7 +211,6 @@ impl TxAnalyser {
         //  .query_drop(r"CREATE TABLE tx (hash text, height int)")
 
         // Batch write tx to database table
-        //let tx_insert = format!("INSERT INTO tx (hash, height) VALUES (:hash, :height)", &hash.encode(), &height);
         self.conn
             .exec_batch(
                 "INSERT INTO tx (hash, height) VALUES (:hash, :height)",
@@ -224,16 +221,37 @@ impl TxAnalyser {
             .unwrap();
     }
 
-    fn calc_fee(&self, _tx: &Tx) -> u64 {
+    fn calc_fee(&self, tx: &Tx) -> i64 {
         // Given the tx attempt to determine the fee
-        // or return 0
-        0
+
+        let mut inputs = 0i64;
+        for vin in tx.inputs.iter() {
+            if let Some(entry) = self.unspent.get(&vin.prev_output) {
+                inputs += entry.satoshis;
+            }
+        }
+
+        if inputs == 0 {
+            0
+        } else {
+            // Determine the difference between the inputs and the outputs
+            let outputs: i64 = tx.outputs.iter().map(|vout| vout.satoshis).sum();
+
+            let fee = outputs - inputs;
+            println!("fee={} ({} - {}", fee, outputs, inputs);
+            if fee < 0 {
+                0
+            } else {
+                fee
+            }
+        }
     }
+
     pub fn process_standalone_tx(&mut self, tx: &Tx) {
         // Process standalone tx as we receive them.
         // Note standalone tx are txs that are not in a block.
         let hash = tx.hash();
-        let age =  SystemTime::now()
+        let age = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
@@ -245,7 +263,7 @@ impl TxAnalyser {
             tx: tx.clone(),
             age,
             locktime,
-            fee,
+            fee: fee.try_into().unwrap(),
         };
         self.mempool.insert(hash, mempool_entry);
 

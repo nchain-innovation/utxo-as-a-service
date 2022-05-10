@@ -78,7 +78,7 @@ impl ThreadTracker {
         if let Some(peer) = self.children.remove(ip) {
             // Determine when thread started
             let started_at = peer.started_at;
-            
+
             if let Some(thread) = peer.thread {
                 // wait for it
                 thread.join().unwrap();

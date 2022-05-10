@@ -29,8 +29,10 @@ This section contains project status related notes.
     * add `time` (when added) to mempool so that we can determine when tx expires
     * add `fee` so that we can determine the min fee
 
-## In Progress
+* Dont write duplicate blockheaders to blocks.
+* Time between block requests should be configurable (logic.rs)
 
+## In Progress
 
 * Check on mainnet
 * Write utxo set to database
@@ -56,8 +58,6 @@ This section contains project status related notes.
 * Read headers using REST API
 
 
-
-
 * unable to write blobs to database
 
 * optimise database types
@@ -66,9 +66,9 @@ This section contains project status related notes.
 
 
 # Memory usage
-* 05/05/2022 - 242 MB
-* 06/05/2022 - 261 MB
-
+* 05/05/2022 - 242 MB - mainnet
+* 06/05/2022 - 261 MB - mainnet
+* 10/06/2022 - 51 MB - testnet
 -----
 * Python database interface
 

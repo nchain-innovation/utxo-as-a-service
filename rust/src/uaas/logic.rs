@@ -40,6 +40,9 @@ pub struct Logic {
     blocks_downloaded: usize,
     last_block_rx_time: Option<Instant>,
     need_to_request_blocks: bool,
+
+    // Used to determine the time between requesting blocks
+    block_request_period: u64,
 }
 
 impl Logic {
@@ -59,6 +62,7 @@ impl Logic {
             blocks_downloaded: 0,
             last_block_rx_time: None,
             need_to_request_blocks: true,
+            block_request_period: config.service.block_request_period,
         }
     }
 
@@ -70,7 +74,7 @@ impl Logic {
         self.block_manager.setup(&mut self.tx_analyser);
 
         // Reset the request time
-        self.last_block_rx_time = Some(Instant::now());
+        // self.last_block_rx_time = Some(Instant::now());
     }
 
     pub fn set_state(&mut self, state: ServerStateType) {
@@ -122,7 +126,7 @@ impl Logic {
         // Return true if sufficient time has passed since last block rx (if any)
         match self.last_block_rx_time {
             // More than x sec since last block
-            Some(t) => t.elapsed().as_secs() > 10,
+            Some(t) => t.elapsed().as_secs() > self.block_request_period,
             None => true,
         }
     }
@@ -147,7 +151,7 @@ impl Logic {
             self.blocks_downloaded = 0;
             self.need_to_request_blocks = false;
             // reset the request time
-            self.last_block_rx_time = Some(Instant::now());
+            //self.last_block_rx_time = Some(Instant::now());
 
             // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();

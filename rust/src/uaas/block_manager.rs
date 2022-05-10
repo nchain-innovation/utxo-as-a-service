@@ -91,6 +91,7 @@ impl BlockManager {
 
     fn load_headers(&mut self) {
         // load headers from database
+        let start = Instant::now();
 
         let headers = self
             .conn
@@ -120,11 +121,20 @@ impl BlockManager {
                 bits: b.bits,
                 nonce: b.nonce,
             };
+            // Store the block header
+            let hash = block_header.hash();
+            self.hash_to_index.insert(hash, self.height);
             self.block_headers.push(block_header);
+            self.height += 1;
         }
+        println!(
+            "Loaded {} headers in {} seconds",
+            self.block_headers.len(),
+            start.elapsed().as_secs()
+        );
     }
 
-    pub fn setup(&mut self, tx_analyser: &mut TxAnalyser) {
+    pub fn setup(&mut self, _tx_analyser: &mut TxAnalyser) {
         // Does all the startup stuff a BlockManager needs to do
         self.create_tables();
         self.load_headers();
@@ -134,7 +144,8 @@ impl BlockManager {
         }
         self.last_height_processed = self.block_headers.len();
 
-        self.read_blocks(tx_analyser);
+        // we no longer read in the blocks from the file
+        // self.read_blocks(tx_analyser);
     }
 
     fn process_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {

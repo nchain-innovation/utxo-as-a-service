@@ -10,6 +10,7 @@ pub struct Service {
     pub port: u16,
     pub network: String,
     pub timeout_period: f64,
+    pub block_request_period: u64,
     pub mysql_url: String,
     pub start_block_hash: String,
 }

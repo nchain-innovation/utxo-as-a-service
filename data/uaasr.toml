@@ -1,8 +1,8 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.09/"
 
-
-ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
+# Mainnet
+# ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
 # ip = ["18.192.253.59"] # Same as above
 # ip = ["13.86.34.113"]
 # ip = ["18.157.234.254"]
@@ -15,34 +15,36 @@ ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
 # ip = ["3.67.20.166"] - dropped us
 # ip = ["52.28.166.147"] - dropped us
 # ip = ["23.92.74.110"] # - dropped after requesting block
-port = 8333
-network = "Mainnet"
-start_block_hash = "000000000000000004c01dee645e2ab6ecc08cfa92685e026ba397fdce86aaaf" # current tip
-timeout_period = 120.0
-
-#ip = [ "176.9.148.163", "167.99.91.85"]
-#ip = [ "176.9.148.163"]
-#port = 18333
-#network = "Testnet"
-#start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
-# Note need a larger timeout on testnet
-#timeout_period = 240.0
+#port = 8333
+#network = "Mainnet"
+#start_block_hash = "000000000000000004c01dee645e2ab6ecc08cfa92685e026ba397fdce86aaaf" # current tip
+#timeout_period = 120.0
 
 # Testnet
-#mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+#ip = [ "176.9.148.163", "167.99.91.85"]
+ip = [ "176.9.148.163"]
+port = 18333
+network = "Testnet"
+start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
+# Note need a larger timeout on testnet
+timeout_period = 240.0
+block_request_period = 3
+# Testnet
+mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 
 # Mainnet
-mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
+#mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
 
 # mysql_url = "mysql://bnar:bnar-password@localhost:3306/test_db"
 # mysql_url = "mysql://bnar:bnar-password@host.docker.internal:3306/test_db"
 
 [shared]
-# Testnet
-# block_file = "../data/block.dat"
-
 # Mainnet
-block_file = "../data/main-block.dat"
+#block_file = "../data/main-block.dat"
+
+# Testnet
+block_file = "../data/block.dat"
+
 
 [python]
 host = "host.docker.internal"
