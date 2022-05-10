@@ -11,13 +11,10 @@ pub struct AddressManager {
 
 impl AddressManager {
     pub fn new(_config: &Config, conn: PooledConn) -> Self {
-        let mut a = AddressManager {
+        AddressManager {
             addresses: Vec::new(),
             conn,
-        };
-        a.create_table();
-        a.read_table();
-        a
+        }
     }
 
     fn create_table(&mut self) {
@@ -31,15 +28,9 @@ impl AddressManager {
             )
             .unwrap();
 
-        if tables.iter().find(|x| x.as_str() == "addr") == None {
+        if !tables.iter().any(|x| x.as_str() == "addr") {
             self.conn
-                .query_drop(
-                    r"CREATE TABLE addr (
-                ip text,
-                services int,
-                port int
-            )",
-                )
+                .query_drop("CREATE TABLE addr (ip text, services int, port int);")
                 .unwrap();
         }
     }
@@ -53,6 +44,12 @@ impl AddressManager {
         for c in contents {
             self.addresses.push(c);
         }
+    }
+
+    pub fn setup(&mut self) {
+        // Do startup setup stuff
+        self.create_table();
+        self.read_table();
     }
 
     pub fn on_addr(&mut self, addr: Addr) {

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
+use rand::Rng;
 use std::thread;
 use std::time;
 
@@ -25,6 +26,7 @@ pub fn connect_to_peer(
     // Given the ip address and config connect to the peer, quit if timeout occurs
     let port = config.service.port;
     let network = config.get_network().expect("Error decoding config network");
+    let mut rng = rand::thread_rng();
 
     let version = Version {
         version: PROTOCOL_VERSION,
@@ -32,8 +34,12 @@ pub fn connect_to_peer(
         timestamp: secs_since(time::UNIX_EPOCH) as i64,
         user_agent: config.service.user_agent,
         relay: true, // This is required to receive Tx messages
+        nonce: rng.gen::<u64>(),
         ..Default::default()
     };
+
+
+    dbg!(&version);
     let peer = Peer::connect(ip, port, network, version, SVPeerFilter::new(0));
 
     // Setup Event handler

@@ -95,7 +95,7 @@ impl BlockManager {
         let headers = self
             .conn
             .query_map(
-                "SELECT * FROM blocks",
+                "SELECT * FROM blocks ORDER BY height",
                 |(_height, _hash, version, prev_hash, merkle_root, timestamp, bits, nonce)| {
                     DBHeader {
                         _height,
@@ -210,7 +210,6 @@ impl BlockManager {
             header.bits,
             header.nonce
         );
-        dbg!(&blocks_insert);
         self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
     }
 
@@ -271,14 +270,15 @@ impl BlockManager {
 
             if !self.block_queue.is_empty() {
                 println!("self.block_queue.len() = {}", self.block_queue.len());
-
-                // print all block_queue entries
-                for b in self.block_queue.iter() {
-                    println!(
-                        "q_block = {} {}",
-                        b.header.hash().encode(),
-                        timestamp_as_string(b.header.timestamp)
-                    );
+                if self.block_queue.len() < 5 {
+                    // print all block_queue entries
+                    for b in self.block_queue.iter() {
+                        println!(
+                            "q_block = {} {}",
+                            b.header.hash().encode(),
+                            timestamp_as_string(b.header.timestamp)
+                        );
+                    }
                 }
             }
         }

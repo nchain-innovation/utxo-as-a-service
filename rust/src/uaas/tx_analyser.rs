@@ -101,10 +101,10 @@ impl TxAnalyser {
         // Return true if the transaction output is spendable,
         // and therefore should go in the unspent outputs (UTXO) set.
         // OP_FALSE OP_RETURN (0x00, 0x61) is known to be unspendable.
-        // dbg!(&vout.lock_script.0);
-        // dbg!(&vout.lock_script.0[0..2]);
+
         if vout.lock_script.0.len() < 2 {
-            false
+            // We are assuming that [] is spendable
+            true
         } else {
             vout.lock_script.0[0..2] != vec![0x00, 0x6a]
         }
@@ -177,7 +177,7 @@ impl TxAnalyser {
         let hashes: Vec<String> = block.txns.iter().map(|b| b.hash().encode()).collect();
         //  .query_drop(r"CREATE TABLE tx (hash text, height int)")
 
-        // TODO write to database tx table
+        // write to database tx table
         //let tx_insert = format!("INSERT INTO tx (hash, height) VALUES (:hash, :height)", &hash.encode(), &height);
         self.conn
             .exec_batch(
@@ -211,7 +211,6 @@ impl TxAnalyser {
             &hash.encode(),
             &now
         );
-        dbg!(&mempool_insert);
         self.conn.exec_drop(&mempool_insert, Params::Empty).unwrap();
     }
 }

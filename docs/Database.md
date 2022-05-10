@@ -88,3 +88,8 @@ To start the MySQL database in the docker container:
 ```bash
 docker start my-sql
 ```
+
+# MySQL Workbench (Optional)
+MySQL Workbench provides a simple GUI for browsing the database.
+
+To download MySQL Workbench use the following link https://dev.mysql.com/downloads/workbench/

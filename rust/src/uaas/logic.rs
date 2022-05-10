@@ -64,8 +64,13 @@ impl Logic {
 
     pub fn setup(&mut self) {
         // Do any start up component setup required
+        self.address_manager.setup();
+
         self.tx_analyser.setup();
         self.block_manager.setup(&mut self.tx_analyser);
+
+        // Reset the request time
+        self.last_block_rx_time = Some(Instant::now());
     }
 
     pub fn set_state(&mut self, state: ServerStateType) {
@@ -95,7 +100,7 @@ impl Logic {
             } else {
                 self.blocks_downloaded += 1;
                 if self.blocks_downloaded > 499 {
-                    // need to request a new inv
+                    // need to request more blocks
                     self.need_to_request_blocks = true;
                 }
             }
@@ -127,7 +132,7 @@ impl Logic {
         if self.state.is_ready() {
             false
         } else {
-            self.need_to_request_blocks || self.sufficient_time_elapsed()
+            self.need_to_request_blocks && self.sufficient_time_elapsed()
         }
     }
 
@@ -141,6 +146,8 @@ impl Logic {
         if self.need_to_request_blocks() {
             self.blocks_downloaded = 0;
             self.need_to_request_blocks = false;
+            // reset the request time
+            // self.last_block_rx_time = Some(Instant::now());
 
             // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();

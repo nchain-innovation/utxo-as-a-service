@@ -1,28 +1,52 @@
 [service]
-user_agent = "/Bitcoin SV:1.0.9/"
+user_agent = "/Bitcoin SV:1.0.09/"
 
 
-# ip = ["18.157.234.254",  "65.21.201.45" ]
-#ip = ["18.157.234.254"]
-#port = 8333
-#network = "Mainnet"
-#start_block_hash = "000000000000000006978b93a3811f197a1904f30b64eb244b99b8db01f574f8"
-# timeout_period = 120.0
+# ip = ["18.157.234.254"] # Works until we request blocks
+# ip = ["18.192.253.59"]
+# ip = ["13.86.34.113"]
+# ,  "65.21.201.45" ]
+# ip = ["18.157.234.254"]
+#ip = [    "162.55.95.167"]
+# ip = ["65.21.201.45" ]
+
+# ip = ["62.210.211.20"] # version 1.0.6  - did not connect
+# ip = ["65.21.201.45"]
+# ip = ["18.157.234.254"]
+# ip = ["3.67.20.166"] - dropped us
+# ip = ["52.28.166.147"] - dropped us
+ip = ["23.92.74.110"]
+port = 8333
+network = "Mainnet"
+# start_block_hash = "00000000000001027009c5e762a2f7bbc1250d40ef0413507aaad908416c185f"
+# start_block_hash = "000000000000001e56b211100ca15a8a1748d8993963fe516199b06af72cbed7" - testnet!
+# start_block_hash = "00000000000000000fd958c6394b325253b8146d618de0aeb1fddfd1d9434d85" - only 6 blocks ago but can still fail
+start_block_hash = "00000000000000000c19f3f214c572f4e9244fb27e8b818dfd49ad6a5c5b23e9"
+timeout_period = 120.0
 
 #ip = [ "176.9.148.163", "167.99.91.85"]
-ip = [ "176.9.148.163"]
-port = 18333
-network = "Testnet"
-start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
+#ip = [ "176.9.148.163"]
+#port = 18333
+#network = "Testnet"
+#start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
 # Note need a larger timeout on testnet
-timeout_period = 240.0
+#timeout_period = 240.0
 
-mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+# Testnet
+#mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+
+# Mainnet
+mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
+
 # mysql_url = "mysql://bnar:bnar-password@localhost:3306/test_db"
 # mysql_url = "mysql://bnar:bnar-password@host.docker.internal:3306/test_db"
 
 [shared]
-block_file = "../data/block.dat"
+# Testnet
+# block_file = "../data/block.dat"
+
+# Mainnet
+block_file = "../data/main-block.dat"
 
 [python]
 host = "host.docker.internal"

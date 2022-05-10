@@ -58,6 +58,18 @@ The service provides a REST API with a Swagger interface at http://localhost:501
 The service needs to be started with the `-web` command line parameter
 The service with webserver application can be started in the Docker container as follows:
 
+## Configuration
+The configuration of the service is set in `data/uaasr.toml` file.
+This is read when the service starts up.
+
+For more details about the configuration file see [here](docs/Configuration.md).
+
+Note that to reset what the service is looking for in terms of blocks the following needs to be reset (as they contain the state of the service):
+* Config file `/data/uaasr.toml`
+* Block data file `data/main-block.dat`
+* Database tables - `block`
+
+
 ## Directories
 The following directories exist in this project:
 ```
@@ -76,6 +88,9 @@ These directories contain the following:
 * `rust/data` - Configuration, data and logs used and created by the service
 * `rust/src` - Service source code in Rust
 * `python/src` - Python REST web interface to UaaS
+
+
+
 
 
 ## Developemnt

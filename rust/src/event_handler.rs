@@ -176,8 +176,10 @@ impl Observer<PeerConnected> for EventHandler {
         self.update_timer();
 
         let version = event.peer.version().expect("failed to get version!");
+
+        dbg!(&version);
         let detail = format!(
-            "user_agent={}, services={} ({:?})",
+            "user_agent={}, services={:x} ({:?})",
             version.user_agent,
             version.tx_addr.services,
             decode_services(version.tx_addr.services)

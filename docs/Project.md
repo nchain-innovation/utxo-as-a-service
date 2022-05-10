@@ -12,14 +12,13 @@ This section contains project status related notes.
 * need to inform child threads their time is up....
 * Add offline detection - done now captures when asleep
 * write block headers to database
-
+* write mempool to database
+    * add `time` (when added) to mempool so that we can determine when tx expires
+* remove status table
 ## In Progress
-change format of status table.
 
 * address issue of only receiving 4 blocks after a get block message.
     * works on testnet
-* write mempool to database
-    * add `when added` to mempool so that we can determine when tx expires
 ## TODO
 
 * Request additional blocks
@@ -34,9 +33,6 @@ change format of status table.
     * need a state table
     * save last block processed
 
-
-
-
 * write block headers to database
 * write utxo set to database
 * write tx to database
@@ -45,6 +41,8 @@ change format of status table.
 
 * optimise database types
 * bulk write tx from block into tx table.
+
+* add logging
 
 
 # Memory usage

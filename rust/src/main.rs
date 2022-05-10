@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate chrono;
+extern crate rand;
 
 use std::net::IpAddr;
 use std::sync::atomic::AtomicBool;
@@ -16,10 +17,54 @@ mod thread_tracker;
 mod uaas;
 
 use crate::config::get_config;
-use crate::event_handler::EventType;
+use crate::event_handler::{EventType, PeerEvent, RequestMessage};
 use crate::peer::connect_to_peer;
 use crate::thread_tracker::{PeerThread, PeerThreadStatus, ThreadTracker};
 use crate::uaas::logic::{Logic, ServerStateType};
+
+fn message_processor(
+    children: &mut ThreadTracker,
+    logic: &mut Logic,
+    rx: &mpsc::Receiver<PeerEvent>,
+    request_tx: &mpsc::Sender<RequestMessage>,
+) {
+    //for received in rx {
+    while let Ok(received) = rx.recv() {
+        println!("{}", received);
+        match received.event {
+            EventType::Connected(_) => {
+                children.set_status(&received.peer, PeerThreadStatus::Connected);
+                children.print();
+                logic.set_state(ServerStateType::Connected);
+            }
+
+            EventType::Disconnected => {
+                // If we have disconnected then there is the opportunity to start another thread
+                children.set_status(&received.peer, PeerThreadStatus::Disconnected);
+                logic.set_state(ServerStateType::Disconnected);
+                // Wait for thread, sets state to Finished
+                println!("join thread");
+                children.stop(&received.peer);
+                children.join_thread(&received.peer);
+                children.print();
+                if children.all_finished() {
+                    println!("all finished");
+                    break;
+                }
+            }
+
+            EventType::Tx(tx) => logic.on_tx(tx),
+            EventType::Block(block) => logic.on_block(block),
+            EventType::Addr(addr) => logic.on_addr(addr),
+            EventType::Headers(headers) => logic.on_headers(headers),
+        }
+
+        if let Some(msg) = logic.message_to_send() {
+            // request a block
+            request_tx.send(msg).unwrap();
+        }
+    }
+}
 
 fn main() {
     let count = thread::available_parallelism().expect("parallel error");
@@ -67,39 +112,5 @@ fn main() {
     }
 
     // Process messages
-    for received in rx {
-        println!("{}", received);
-        match received.event {
-            EventType::Connected(_) => {
-                children.set_status(&received.peer, PeerThreadStatus::Connected);
-                children.print();
-                logic.set_state(ServerStateType::Connected);
-            }
-
-            EventType::Disconnected => {
-                // If we have disconnected then there is the opportunity to start another thread
-                children.set_status(&received.peer, PeerThreadStatus::Disconnected);
-                logic.set_state(ServerStateType::Disconnected);
-                // Wait for thread, sets state to Finished
-                println!("join thread");
-                children.stop(&received.peer);
-                children.join_thread(&received.peer);
-                children.print();
-                if children.all_finished() {
-                    println!("all finished");
-                    break;
-                }
-            }
-
-            EventType::Tx(tx) => logic.on_tx(tx),
-            EventType::Block(block) => logic.on_block(block),
-            EventType::Addr(addr) => logic.on_addr(addr),
-            EventType::Headers(headers) => logic.on_headers(headers),
-        }
-
-        if let Some(msg) = logic.message_to_send() {
-            // request a block
-            request_tx.send(msg).unwrap();
-        }
-    }
+    message_processor(&mut children, &mut logic, &rx, &request_tx);
 }
