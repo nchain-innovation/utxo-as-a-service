@@ -1,14 +1,14 @@
 use std::collections::HashMap;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mysql::prelude::*;
 use mysql::PooledConn;
 use mysql::*;
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::config::Config;
 use sv::messages::{Block, OutPoint, Tx, TxOut};
 use sv::util::Hash256;
+
+use crate::config::Config;
 
 /*
     in - unlock_script - script sig
@@ -33,16 +33,30 @@ struct UtxoEntry {
 
 // Used to store all txs (in mempool)
 pub struct MempoolEntry {
-    tx: Tx,
-    age: u64,
+    tx: Option<Tx>,
     locktime: u32,
     fee: u64,
+    age: u64,
+}
+
+// Used for loading tx from mempool table
+pub struct MempoolDB {
+    pub hash: String,
+    locktime: u32,
+    fee: u64,
+    age: u64,
 }
 
 // Used to store all txs (in blocks)
 pub struct TxEntry {
-    tx: Tx,
+    tx: Option<Tx>,
     height: usize,
+}
+
+// Used for loading tx from tx table
+struct HashHeight {
+    pub hash: String,
+    pub height: usize,
 }
 
 pub struct TxAnalyser {
@@ -120,9 +134,123 @@ impl TxAnalyser {
         }
     }
 
+    fn load_tx(&mut self) {
+        // load tx hash and height from database
+        let start = Instant::now();
+
+        let txs: Vec<HashHeight> = self
+            .conn
+            .query_map("SELECT * FROM tx ORDER BY height", |(hash, height)| {
+                HashHeight {
+                    hash: hash,
+                    height: height,
+                }
+            })
+            .unwrap();
+
+        for tx in txs {
+            let tx_entry = TxEntry {
+                tx: None,
+                height: tx.height,
+            };
+            let hash = Hash256::decode(&tx.hash).unwrap();
+            self.txs.insert(hash, tx_entry);
+        }
+        println!(
+            "Loaded {} txs in {} seconds",
+            self.txs.len(),
+            start.elapsed().as_millis() as f64 / 1000.0
+        );
+    }
+
+    fn load_mempool(&mut self) {
+        // load tx hash and height from database
+        let start = Instant::now();
+
+        let txs: Vec<MempoolDB> = self
+            .conn
+            .query_map(
+                "SELECT * FROM mempool ORDER BY time",
+                |(hash, locktime, fee, time)| MempoolDB {
+                    hash: hash,
+                    locktime: locktime,
+                    fee: fee,
+                    age: time,
+                },
+            )
+            .unwrap();
+
+        for tx in txs {
+            let mempool_entry = MempoolEntry {
+                tx: None,
+                age: tx.age,
+                locktime: tx.locktime,
+                fee: tx.fee,
+            };
+            let hash = Hash256::decode(&tx.hash).unwrap();
+            self.mempool.insert(hash, mempool_entry);
+        }
+
+        println!(
+            "Loaded {} mempool in {} seconds",
+            self.txs.len(),
+            start.elapsed().as_millis() as f64 / 1000.0
+        );
+    }
+
+    fn load_utxo(&mut self) {
+        // load outpoints from database
+        let start = Instant::now();
+
+        let txs: Vec<UtxoEntry> = self
+            .conn
+            .query_map(
+                "SELECT * FROM mempool ORDER BY time",
+                |(hash, pos, satoshis, height)| UtxoEntry {
+                    hash: hash,
+                    pos: pos,
+                    satoshis: satoshis,
+                    height: height,
+                },
+            )
+            .unwrap();
+
+        for tx in txs {
+            let hash = Hash256::decode(&tx.hash).unwrap();
+
+            let outpoint = OutPoint {
+                hash: hash,
+                index: tx.pos,
+            };
+            let utxo_entry = UnspentEntry {
+                satoshis: tx.satoshis,
+                height: tx.height,
+            };
+            // add to list
+            self.unspent.insert(outpoint, utxo_entry);
+        }
+
+        println!(
+            "Loaded {} utxo in {} seconds",
+            self.txs.len(),
+            start.elapsed().as_millis() as f64 / 1000.0
+        );
+    }
+
+    fn read_tables(&mut self) {
+        // load tx - Note  - can't load the tx as we dont store the original tx
+        self.load_tx();
+        // load mempool
+        self.load_mempool();
+        // load utxo
+        self.load_utxo();
+    }
+
     pub fn setup(&mut self) {
         // Do the startup setup that is required for tx analyser
         self.create_tables();
+
+        self.read_tables();
     }
 
     fn is_spendable(&self, vout: &TxOut) -> bool {
@@ -144,7 +272,7 @@ impl TxAnalyser {
 
         // Store tx - note that we only do this for tx in a block
         let tx_entry = TxEntry {
-            tx: tx.clone(),
+            tx: Some(tx.clone()),
             height,
         };
 
@@ -204,6 +332,7 @@ impl TxAnalyser {
                 };
                 // add to list
                 self.unspent.insert(outpoint, new_entry);
+
                 // Record for batch write to utxo table
                 let utxo_entry = UtxoEntry {
                     hash: hash.encode(),
@@ -261,7 +390,7 @@ impl TxAnalyser {
             let outputs: i64 = tx.outputs.iter().map(|vout| vout.satoshis).sum();
 
             let fee = inputs - outputs;
-            println!("fee={} ({} - {}", fee, inputs,  outputs);
+            println!("fee={} ({} - {})", fee, inputs, outputs);
             if fee < 0 {
                 0
             } else {
@@ -283,7 +412,7 @@ impl TxAnalyser {
         let fee = self.calc_fee(tx);
         // Add it to the mempool
         let mempool_entry = MempoolEntry {
-            tx: tx.clone(),
+            tx: Some(tx.clone()),
             age,
             locktime,
             fee: fee.try_into().unwrap(),

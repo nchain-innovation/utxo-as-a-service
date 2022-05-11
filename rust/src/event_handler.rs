@@ -177,7 +177,7 @@ impl Observer<PeerConnected> for EventHandler {
 
         let version = event.peer.version().expect("failed to get version!");
 
-        dbg!(&version);
+        // dbg!(&version);
         let detail = format!(
             "user_agent={}, services={:x} ({:?})",
             version.user_agent,
@@ -224,8 +224,8 @@ impl Observer<PeerMessage> for EventHandler {
             Message::Tx(tx) => self.on_tx(tx, &event.peer),
             Message::Headers(headers) => self.on_headers(headers, &event.peer),
 
-            msg => {
-                println!("default {:?}", msg)
+            _msg => {
+                //println!("default {:?}", msg)
             }
         }
 

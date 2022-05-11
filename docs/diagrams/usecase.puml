@@ -3,7 +3,7 @@ title UTXO as a Service P2P message handling
 top to bottom direction
 'right to left direction
 
-actor peer_node as pn
+cloud peer_node as pn
 
 package "Database" {
     database Mempool
