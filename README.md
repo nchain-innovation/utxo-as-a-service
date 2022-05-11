@@ -93,7 +93,22 @@ These directories contain the following:
 
 
 
-## Developemnt
+## Development
+The following diagram shows how the Rust UaaS processes individual `transactions` and `blocks` from peer nodes.
+![Usecase](docs/diagrams/usecase.png)
+
+The key point to note that as `transactions` (or `tx`) are received they are placed in the `mempool` table in the database.
+
+When `blocks` are received:
+1) the `tx` are removed from the `mempool` and added to the `txs` table
+2) The `tx` input `outpoints` are removed from the `UTXO` table
+3) The `tx` output `outpoint` are added to the `UTXO` table
+
+
+Another key point to note is that this means that blocks and transaction can be processed prior to the block tip being obtained.
+
+The only constraint is that the blocks must be processed in order. This is achieved by ensuring that the `prev_hash` field of the block matches the `hash` of the last block processed, all other blocks are placed on a queue for later processing.
+
 Project development details can be found [here](docs/Development.md).
 
 Project status notes can be found [here](docs/Project.md).

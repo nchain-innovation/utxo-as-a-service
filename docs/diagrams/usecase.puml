@@ -1,0 +1,28 @@
+@startuml
+title UTXO as a Service P2P message handling
+top to bottom direction
+'right to left direction
+
+actor peer_node as pn
+
+package "Database" {
+    database Mempool
+    database Txs
+    database UTXO
+}
+
+package "UaaS Rust" {
+    pn -down-> (On Transaction) :tx
+
+    (On Transaction) ..> (Mempool): add_tx
+
+    pn -down-> (On Block) :block
+
+    (On Block) ..> (Mempool): remove_tx
+    (On Block) ..> (Txs): add_tx
+    (On Block) ..> (UTXO): update_outpoints
+
+}
+
+
+@enduml

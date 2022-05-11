@@ -28,7 +28,7 @@ network = "Testnet"
 start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
 # Note need a larger timeout on testnet
 timeout_period = 240.0
-block_request_period = 3
+block_request_period = 75
 # Testnet
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 

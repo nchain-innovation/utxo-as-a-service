@@ -260,6 +260,8 @@ impl BlockManager {
     }
 
     pub fn on_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
+        let start = Instant::now();
+
         // Handle block received on P2P network
         let hash = block.header.hash();
 
@@ -293,6 +295,12 @@ impl BlockManager {
                 }
             }
         }
+        let elapsed_time = start.elapsed().as_millis() as f64;
+        println!(
+            "Block processing took {} seconds",
+            elapsed_time / 1000.0
+        );
+
     }
 
     pub fn get_last_known_block_hash(&self) -> String {
