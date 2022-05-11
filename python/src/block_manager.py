@@ -1,4 +1,6 @@
 from typing import List, Dict, Any, MutableMapping
+import datetime
+
 from mysql.connector import connect
 
 
@@ -28,9 +30,12 @@ class BlockManager:
             cursor.execute(query)
             retval = []
             for x in cursor:
+                timestamp = datetime.datetime.fromtimestamp(x[5])
+
                 retval.append({
                     "height": x[0], "hash": x[1], "version": x[2], "prev_hash": x[3], "merkle_root": x[4],
-                    "timestamp": x[5], "bits": x[6], "nonce": x[7]
+                    "timestamp": timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    "bits": x[6], "nonce": x[7]
                 })
             return retval
 
@@ -53,9 +58,11 @@ class BlockManager:
             cursor.execute(query)
             retval = []
             for x in cursor:
+                timestamp = datetime.datetime.fromtimestamp(x[5])
                 retval.append({
                     "height": x[0], "hash": x[1], "version": x[2], "prev_hash": x[3], "merkle_root": x[4],
-                    "timestamp": x[5], "bits": x[6], "nonce": x[7]
+                    "timestamp": timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    "bits": x[6], "nonce": x[7]
                 })
             return retval
 
