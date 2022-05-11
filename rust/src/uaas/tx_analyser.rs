@@ -158,6 +158,8 @@ impl TxAnalyser {
         }
 
         // Process inputs - remove from unspent
+        let mut utxo_deletes: Vec<&OutPoint> = Vec::new();
+
         if tx_index == 0 {
             // if is coinbase - nothing to process as these won't be in the unspent
         } else {
@@ -165,21 +167,23 @@ impl TxAnalyser {
                 // Remove from unspent
                 self.unspent.remove(&vin.prev_output);
                 // Remove from utxo table
-                let utxo_delete = format!(
-                    "DELETE FROM utxo WHERE hash='{}' AND pos={};",
-                    &hash.encode(),
-                    &vin.prev_output.index
-                );
-                self.conn.exec_drop(&utxo_delete, Params::Empty).unwrap();
+                utxo_deletes.push(&vin.prev_output);
             }
         }
+        // bulk/batch delete utxo table entries
+        self.conn
+            .exec_batch(
+                "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
+                utxo_deletes
+                    .iter()
+                    .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index,  }),
+            )
+            .unwrap();
 
         // Collection processing
         // TODO add here
-        /*
-        dbg!(&tx);
-        dbg!(&tx.hash());
-        */
+
+        // Record for batch write to utxo table
         let mut utxo_entries: Vec<UtxoEntry> = Vec::new();
 
         // Process outputs - add to unspent
@@ -197,7 +201,7 @@ impl TxAnalyser {
                 };
                 // add to list
                 self.unspent.insert(outpoint, new_entry);
-
+                // Record for batch write to utxo table
                 let utxo_entry = UtxoEntry {
                     hash: hash.encode(),
                     pos: index.try_into().unwrap(),

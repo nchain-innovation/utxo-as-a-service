@@ -33,13 +33,14 @@ This section contains project status related notes.
 * Time between block requests should be configurable (logic.rs)
 
 ## In Progress
+* Bulk write to utxo set in tx
+* Bulk delete from utxo set in tx
 
 * Check on mainnet
 * Write utxo set to database
 
 ## TODO
 
-* bulk write to utxo set in tx
 * use blocktime to age tx
 
 * Request additional blocks
