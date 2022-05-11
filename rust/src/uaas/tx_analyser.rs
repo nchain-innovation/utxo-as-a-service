@@ -81,6 +81,7 @@ impl TxAnalyser {
             .unwrap();
 
         if !tables.iter().any(|x| x.as_str() == "tx") {
+            println!("Table tx not found - creating");
             self.conn
                 .query_drop(
                     r"CREATE TABLE tx (
@@ -91,6 +92,7 @@ impl TxAnalyser {
         }
 
         if !tables.iter().any(|x| x.as_str() == "mempool") {
+            println!("Table mempool not found - creating");
             self.conn
                 .query_drop(
                     r"CREATE TABLE mempool (
@@ -104,6 +106,7 @@ impl TxAnalyser {
 
         // utxo
         if !tables.iter().any(|x| x.as_str() == "utxo") {
+            println!("Table utxo not found - creating");
             self.conn
                 .query_drop(
                     r"CREATE TABLE utxo (

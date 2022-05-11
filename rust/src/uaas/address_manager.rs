@@ -29,6 +29,7 @@ impl AddressManager {
             .unwrap();
 
         if !tables.iter().any(|x| x.as_str() == "addr") {
+            println!("Table addr not found - creating");
             self.conn
                 .query_drop("CREATE TABLE addr (ip text, services int, port int);")
                 .unwrap();

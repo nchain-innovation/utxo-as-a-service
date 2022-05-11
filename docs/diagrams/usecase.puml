@@ -9,6 +9,7 @@ package "Database" {
     database Mempool
     database Txs
     database UTXO
+    database Blocks
 }
 
 package "UaaS Rust" {
@@ -25,6 +26,7 @@ package "UaaS Rust" {
     (On Block) .down.> (Txs): add_tx
     (On Block) .down.> (UTXO): update_outpoints
 
+    (On Block) .down.> (Blocks): add_blockheader
 
     (On Block) <.right.> BlockQueue: push/pop
 

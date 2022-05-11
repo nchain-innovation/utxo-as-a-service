@@ -72,6 +72,7 @@ impl BlockManager {
             .unwrap();
 
         if !tables.iter().any(|x| x.as_str() == "blocks") {
+            println!("Table blocks not found - creating");
             self.conn
                 .query_drop(
                     r"CREATE TABLE blocks (
@@ -296,11 +297,7 @@ impl BlockManager {
             }
         }
         let elapsed_time = start.elapsed().as_millis() as f64;
-        println!(
-            "Block processing took {} seconds",
-            elapsed_time / 1000.0
-        );
-
+        println!("Block processing took {} seconds", elapsed_time / 1000.0);
     }
 
     pub fn get_last_known_block_hash(&self) -> String {

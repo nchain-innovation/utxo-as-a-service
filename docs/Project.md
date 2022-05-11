@@ -32,14 +32,17 @@ This section contains project status related notes.
 * Dont write duplicate blockheaders to blocks.
 * Time between block requests should be configurable (logic.rs)
 
-## In Progress
 * Bulk write to utxo set in tx
 * Bulk delete from utxo set in tx
+* Print created databases on startup
+## In Progress
+* Load txs from database on startup
 
 * Check on mainnet
 * Write utxo set to database
 
 ## TODO
+Get web interface working
 
 * use blocktime to age tx
 
@@ -48,7 +51,6 @@ This section contains project status related notes.
     * Appears to work if you request the tip (or close to it)
     * Still occurs even if you set the start_height: 738839 in version
     * Got disconnected when we kept asking for the current tip
-
 
 * May need to support larger p2p messages
     * add len() to script
