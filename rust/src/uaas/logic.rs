@@ -136,7 +136,7 @@ impl Logic {
         if self.state.is_ready() {
             false
         } else {
-            self.need_to_request_blocks && self.sufficient_time_elapsed()
+            self.need_to_request_blocks || self.sufficient_time_elapsed()
         }
     }
 

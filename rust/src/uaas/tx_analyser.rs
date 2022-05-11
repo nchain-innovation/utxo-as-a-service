@@ -19,8 +19,16 @@ use sv::util::Hash256;
 // Used to store the unspent txs (UTXO)
 pub struct UnspentEntry {
     satoshis: i64,
-    // lock_script: Script, - have seen some very large script lengths here
+    // lock_script: Script, - have seen some very large script lengths here - removed for now
     height: usize,
+}
+
+// UtxoEntry - used to store data into utxo table
+struct UtxoEntry {
+    pub hash: String,
+    pub pos: u32,
+    pub satoshis: i64,
+    pub height: usize,
 }
 
 // Used to store all txs (in mempool)
@@ -172,6 +180,8 @@ impl TxAnalyser {
         dbg!(&tx);
         dbg!(&tx.hash());
         */
+        let mut utxo_entries: Vec<UtxoEntry> = Vec::new();
+
         // Process outputs - add to unspent
         for (index, vout) in tx.outputs.iter().enumerate() {
             if self.is_spendable(vout) {
@@ -185,20 +195,27 @@ impl TxAnalyser {
                     // lock_script: vout.lock_script.clone(),
                     height,
                 };
+                // add to list
                 self.unspent.insert(outpoint, new_entry);
-                // database
-                let utxo_insert = format!(
-                    "INSERT INTO utxo VALUES ('{}', {}, {}, {});",
-                    &hash.encode(),
-                    &index,
-                    &vout.satoshis,
-                    //&vout.lock_script.clone(),
-                    height,
-                );
-                //dbg!(&utxo_insert);
-                self.conn.exec_drop(&utxo_insert, Params::Empty).unwrap();
+
+                let utxo_entry = UtxoEntry {
+                    hash: hash.encode(),
+                    pos: index.try_into().unwrap(),
+                    satoshis: vout.satoshis,
+                    height: height,
+                };
+                utxo_entries.push(utxo_entry);
             }
         }
+        // bulk/batch write tx output to utxo table
+        self.conn
+            .exec_batch(
+                "INSERT INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
+                utxo_entries
+                    .iter()
+                    .map(|x| params! {"hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height }),
+            )
+            .unwrap();
     }
 
     pub fn process_block(&mut self, block: &Block, height: usize) {
@@ -208,7 +225,6 @@ impl TxAnalyser {
         }
         // write txs to database
         let hashes: Vec<String> = block.txns.iter().map(|b| b.hash().encode()).collect();
-        //  .query_drop(r"CREATE TABLE tx (hash text, height int)")
 
         // Batch write tx to database table
         self.conn

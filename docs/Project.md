@@ -39,41 +39,45 @@ This section contains project status related notes.
 
 ## TODO
 
+* bulk write to utxo set in tx
+* use blocktime to age tx
+
 * Request additional blocks
 * Mainnet nodes disconnect
-    * appears to work if you request the tip (or close to it)
-    * even if you set the start_height: 738839 in version
-    * we get disconnected if we keep asking for the current tip
+    * Appears to work if you request the tip (or close to it)
+    * Still occurs even if you set the start_height: 738839 in version
+    * Got disconnected when we kept asking for the current tip
 
 
 * May need to support larger p2p messages
     * add len() to script
 
+*
 * add secondary mempool - what determines secondary mempool ?
     * https://wiki.bitcoinsv.io/index.php/Transaction_Pools
 
 
-* search for todos
+
+* Search for todos
 
 * Read headers using REST API
-
-
 * unable to write blobs to database
-
 * optimise database types
 
 * add logging
-
+* Update documentation on Configuration settings
 
 # Memory usage
 * 05/05/2022 - 242 MB - mainnet
 * 06/05/2022 - 261 MB - mainnet
-* 10/06/2022 - 51 MB - testnet
+* 10/06/2022 - 51..98.9MB - testnet now with large utxo set
 -----
 * Python database interface
 
 * Connect to `mainnet` and `testnet`
 * Prove `addr` message received
+
+
 
 * Print out time and peer with event (CSV)
 * Timeout if message not received for a period..
@@ -90,3 +94,15 @@ This section contains project status related notes.
 
 # Notes
 * This service will not have a 'prune' feature. This increased the complexity of the orignal Python UaaS project for limited gain.
+
+Tx with 4000 outputs
+https://test.whatsonchain.com/tx/4cfb227905ae215eda4515f0d3c7ced86cecbb7ea964f29fed454094fb11c5be
+Note the whole block is filled with them
+
+
+Tx with non-zero locktime
+https://test.whatsonchain.com/tx/52422e31e46673709226c48a4482e180a5f6c02b832e6285b9f908697d2792d6
+
+
+Block with lots of OP_RETURN and multisig
+https://test.whatsonchain.com/block/00000000000217ccba9ce86db2c867cc81c7aceb89ba241f83083890d6a0f6a0
