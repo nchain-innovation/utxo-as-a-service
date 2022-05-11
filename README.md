@@ -49,6 +49,11 @@ Once the `uaas-web` image has been build, to run the service use the following s
 ```bash
 cd python
 ./run.sh
+Running in Docker
+INFO:     Started server process [14]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:5010 (Press CTRL+C to quit)
 ```
 ## Web Interface
 The service provides a REST API with a Swagger interface at http://localhost:5010/docs
@@ -83,14 +88,11 @@ The following directories exist in this project:
 
 ```
 These directories contain the following:
+* `data` - Configuration, data and logs used and created by the service
 * `docs` - Project documentation
 * `docs/diagrams` - PlantUML diagrams and source in support of the documentation
-* `rust/data` - Configuration, data and logs used and created by the service
 * `rust/src` - Service source code in Rust
 * `python/src` - Python REST web interface to UaaS
-
-
-
 
 
 ## Development

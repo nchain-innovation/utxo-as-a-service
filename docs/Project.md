@@ -10,7 +10,10 @@ This section contains project status related notes.
 * Get basic P2P messages working
 * Set up basic project
 * need to inform child threads their time is up....
+
 * Add offline detection - done now captures when asleep
+* Request additional blocks
+
 * write mempool to database
     * add `time` (when added) to mempool so that we can determine when tx expires
 
@@ -40,17 +43,17 @@ This section contains project status related notes.
 * Write utxo set to database
 * Load txs from database on startup
 ## In Progress
-* Load txs from database on startup
 
 * Check on mainnet
 
 
 ## TODO
-Get web interface working
+* Get web interface working
+
+* Determine the file offset to locate blocks in block file (data/block.dat)
 
 * use blocktime to age tx
 
-* Request additional blocks
 * Mainnet nodes disconnect
     * Appears to work if you request the tip (or close to it)
     * Still occurs even if you set the start_height: 738839 in version

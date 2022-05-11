@@ -5,6 +5,8 @@ import uvicorn
 import os
 
 from address_manager import address_manager
+from tx_analyser import tx_analyser
+from block_manager import block_manager
 from util import load_config
 
 
@@ -40,6 +42,8 @@ def main():
     """
     config = load_config("../data/uaasr.toml")
     address_manager.set_config(config)
+    tx_analyser.set_config(config)
+    block_manager.set_config(config)
     run_webserver(config["web_interface"])
 
 

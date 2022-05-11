@@ -4,7 +4,8 @@ from typing import Any, MutableMapping, Dict
 
 from util import load_config
 from address_manager import address_manager
-
+from tx_analyser import tx_analyser
+from block_manager import block_manager
 
 tags_metadata = [
     {
@@ -70,8 +71,27 @@ def get_status() -> Dict[str, Any]:
     }
 
 
-@app.get("/addr", tags=["Status"])
+@app.get("/addr", tags=["Addresses"])
 def get_addr() -> Dict[str, Any]:
     """ Return the peer addresses seen by the service"""
 
     return address_manager.get_peers()
+
+
+@app.get("/tx/mempool", tags=["Tx"])
+def get_mempool() -> Dict[str, Any]:
+    """ Return the mempool seen by the service"""
+
+    return tx_analyser.get_mempool()
+
+
+@app.get("/block/latest", tags=["Block"])
+def get_latest_blocks() -> Dict[str, Any]:
+    """ Return the latest blocks seen by the service"""
+    return block_manager.get_latest_blocks()
+
+
+@app.get("/block/height", tags=["Block"])
+def get_block_at_height(height: int) -> Dict[str, Any]:
+    """ Return the block at the given height"""
+    return block_manager.get_block(height)
