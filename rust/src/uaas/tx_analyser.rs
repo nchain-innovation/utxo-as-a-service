@@ -260,8 +260,8 @@ impl TxAnalyser {
             // Determine the difference between the inputs and the outputs
             let outputs: i64 = tx.outputs.iter().map(|vout| vout.satoshis).sum();
 
-            let fee = outputs - inputs;
-            println!("fee={} ({} - {}", fee, outputs, inputs);
+            let fee = inputs - outputs;
+            println!("fee={} ({} - {}", fee, inputs,  outputs);
             if fee < 0 {
                 0
             } else {

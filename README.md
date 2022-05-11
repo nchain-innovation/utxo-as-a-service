@@ -103,7 +103,7 @@ When `blocks` are received:
 1) the `tx` are removed from the `mempool` and added to the `txs` table
 2) The `tx` input `outpoints` are removed from the `UTXO` table
 3) The `tx` output `outpoint` are added to the `UTXO` table
-4) The `blockheader` is added to the `Blocks` table
+4) The Block's `blockheader` is added to the `Blocks` table
 
 Another point to note is that this means that blocks and transaction can be processed prior to the block tip being obtained.
 

@@ -17,7 +17,7 @@ This section contains project status related notes.
 * need to save state so the same information is not reprocessed
     * need a state table
     * save last block processed
-    * remove status table - we can determine this information from the blocks table
+    * remove status table - we can determine this information from the blocks table!
 
 * address issue of only receiving 4 blocks after a get block message.
     * works on testnet
@@ -35,6 +35,7 @@ This section contains project status related notes.
 * Bulk write to utxo set in tx
 * Bulk delete from utxo set in tx
 * Print created databases on startup
+* Fix fee calculation
 ## In Progress
 * Load txs from database on startup
 
@@ -74,13 +75,13 @@ Get web interface working
 * 05/05/2022 - 242 MB - mainnet
 * 06/05/2022 - 261 MB - mainnet
 * 10/06/2022 - 51..98.9MB - testnet now with large utxo set
+* 11/06/2022 - 5.4 MB - testnet
+
 -----
 * Python database interface
 
 * Connect to `mainnet` and `testnet`
 * Prove `addr` message received
-
-
 
 * Print out time and peer with event (CSV)
 * Timeout if message not received for a period..
