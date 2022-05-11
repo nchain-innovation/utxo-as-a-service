@@ -12,15 +12,21 @@ package "Database" {
 }
 
 package "UaaS Rust" {
+
+    queue BlockQueue
+
     pn -down-> (On Transaction) :tx
 
-    (On Transaction) ..> (Mempool): add_tx
+    (On Transaction) .down.> (Mempool): add_tx
 
     pn -down-> (On Block) :block
 
-    (On Block) ..> (Mempool): remove_tx
-    (On Block) ..> (Txs): add_tx
-    (On Block) ..> (UTXO): update_outpoints
+    (On Block) .down.> (Mempool): remove_tx
+    (On Block) .down.> (Txs): add_tx
+    (On Block) .down.> (UTXO): update_outpoints
+
+
+    (On Block) <.right.> BlockQueue: push/pop
 
 }
 
