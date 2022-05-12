@@ -25,7 +25,8 @@ user_agent = "/Bitcoin SV:1.0.09/"
 ip = [ "176.9.148.163"]
 port = 18333
 network = "Testnet"
-start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
+# start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
+start_block_hash = "00000000000000130ef328e48bd058bc963f43e2616eb00411a8e8c2694b2d58"
 # Note need a larger timeout on testnet
 timeout_period = 240.0
 block_request_period = 75
@@ -39,7 +40,7 @@ mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 #   * utxo
 #   * mempool
 # prior to starting the service
-startup_load_from_database = true
+startup_load_from_database = false
 
 # Mainnet
 #mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"

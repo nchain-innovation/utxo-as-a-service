@@ -17,11 +17,13 @@ use crate::config::Config;
 
 */
 
+const NOT_IN_BLOCK: i32 = -1; // use -1 to indicate that this tx is not in block
+
 // Used to store the unspent txs (UTXO)
 pub struct UnspentEntry {
     satoshis: i64,
     // lock_script: Script, - have seen some very large script lengths here - removed for now
-    height: usize,
+    height: i32, // use -1 to indicate that tx is not in block
 }
 
 // UtxoEntry - used to store data into utxo table
@@ -29,7 +31,7 @@ struct UtxoEntry {
     pub hash: String,
     pub pos: u32,
     pub satoshis: i64,
-    pub height: usize,
+    pub height: i32,
 }
 
 // Used to store all txs (in mempool)
@@ -100,7 +102,7 @@ impl TxAnalyser {
             self.conn
                 .query_drop(
                     r"CREATE TABLE tx (
-                    hash text,
+                    hash varchar(64),
                     height int unsigned);",
                 )
                 .unwrap();
@@ -111,7 +113,7 @@ impl TxAnalyser {
             self.conn
                 .query_drop(
                     r"CREATE TABLE mempool (
-                    hash text,
+                    hash varchar(64),
                     locktime int unsigned,
                     fee bigint unsigned,
                     time int unsigned)",
@@ -125,12 +127,16 @@ impl TxAnalyser {
             self.conn
                 .query_drop(
                     r"CREATE TABLE utxo (
-                    hash text,
+                    hash varchar(64),
                     pos int unsigned,
                     satoshis bigint unsigned,
-
-                    height int unsigned)",
+                    height int)",
                 )
+                .unwrap();
+
+            // index
+            self.conn
+                .query_drop(r"CREATE INDEX hash_pos ON utxo (hash, pos);")
                 .unwrap();
         }
     }
@@ -264,56 +270,12 @@ impl TxAnalyser {
         }
     }
 
-    pub fn process_block_tx(&mut self, tx: &Tx, height: usize, tx_index: usize) {
-        // Process tx as received in a block
-        let hash = tx.hash();
-
-        // Store tx - note that we only do this for tx in a block
-        let tx_entry = TxEntry {
-            tx: Some(tx.clone()),
-            height,
-        };
-
-        if let Some(_prev) = self.txs.insert(hash, tx_entry) {
-            // We must have already processed this tx in a block
-            panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
-        }
-
-        // Remove from mempool as now in block
-        if let Some(_value) = self.mempool.remove(&hash) {
-            // Remove from database
-            let mempool_delete = format!("DELETE FROM mempool WHERE hash='{}';", &hash.encode());
-            self.conn.exec_drop(&mempool_delete, Params::Empty).unwrap();
-        }
-
-        // Process inputs - remove from unspent
-        let mut utxo_deletes: Vec<&OutPoint> = Vec::new();
-
-        if tx_index == 0 {
-            // if is coinbase - nothing to process as these won't be in the unspent
-        } else {
-            for vin in tx.inputs.iter() {
-                // Remove from unspent
-                self.unspent.remove(&vin.prev_output);
-                // Remove from utxo table
-                utxo_deletes.push(&vin.prev_output);
-            }
-        }
-        // bulk/batch delete utxo table entries
-        self.conn
-            .exec_batch(
-                "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
-                utxo_deletes
-                    .iter()
-                    .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index,  }),
-            )
-            .unwrap();
-
-        // Collection processing
-        // TODO add here
-
+    fn process_tx_outputs(&mut self, tx: &Tx, height: i32) {
+        // process the tx outputs and place them in the unspents
         // Record for batch write to utxo table
         let mut utxo_entries: Vec<UtxoEntry> = Vec::new();
+
+        let hash = tx.hash();
 
         // Process outputs - add to unspent
         for (index, vout) in tx.outputs.iter().enumerate() {
@@ -347,12 +309,66 @@ impl TxAnalyser {
                 "INSERT INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
                 utxo_entries
                     .iter()
-                    .map(|x| params! {"hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height }),
+                    .map(|x| params! {
+                        "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height
+                    }),
             )
             .unwrap();
     }
 
-    pub fn process_block(&mut self, block: &Block, height: usize) {
+    pub fn process_block_tx(&mut self, tx: &Tx, height: i32, tx_index: usize) {
+        // Process tx as received in a block
+        let hash = tx.hash();
+
+        // Store tx - note that we only do this for tx in a block
+        let tx_entry = TxEntry {
+            tx: Some(tx.clone()),
+            height: height.try_into().unwrap(),
+        };
+
+        if let Some(_prev) = self.txs.insert(hash, tx_entry) {
+            // We must have already processed this tx in a block
+            panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
+        }
+
+        // Remove from mempool as now in block
+        if let Some(_value) = self.mempool.remove(&hash) {
+            // Remove from database
+            let mempool_delete = format!("DELETE FROM mempool WHERE hash='{}';", &hash.encode());
+            self.conn.exec_drop(&mempool_delete, Params::Empty).unwrap();
+        }
+
+        // Process inputs - remove from unspent
+        let mut utxo_deletes: Vec<&OutPoint> = Vec::new();
+
+        if tx_index == 0 {
+            // if is coinbase - nothing to process as these won't be in the unspent
+        } else {
+            for vin in tx.inputs.iter() {
+                // Remove from unspent
+                self.unspent.remove(&vin.prev_output);
+                // Remove from utxo table
+                utxo_deletes.push(&vin.prev_output);
+            }
+        }
+        // bulk/batch delete utxo table entries
+        self.conn
+            .exec_batch(
+                "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
+                utxo_deletes
+                    .iter()
+                    .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
+            )
+            .unwrap();
+
+        // Collection processing
+        // TODO add here
+
+        // Process outputs
+        self.process_tx_outputs(tx, height);
+    }
+
+    pub fn process_block(&mut self, block: &Block, height: i32) {
         // Given a block process all the txs in it
         for (tx_index, tx) in block.txns.iter().enumerate() {
             self.process_block_tx(tx, height, tx_index);
@@ -366,7 +382,7 @@ impl TxAnalyser {
                 "INSERT INTO tx (hash, height) VALUES (:hash, :height)",
                 hashes
                     .iter()
-                    .map(|h| params! {"hash" => h, "height" => height }),
+                    .map(|h| params! {"hash" => h, "height" => height}),
             )
             .unwrap();
     }
@@ -419,5 +435,8 @@ impl TxAnalyser {
             &age,
         );
         self.conn.exec_drop(&mempool_insert, Params::Empty).unwrap();
+
+        // Process outputs
+        self.process_tx_outputs(tx, NOT_IN_BLOCK);
     }
 }

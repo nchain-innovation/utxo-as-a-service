@@ -19,6 +19,7 @@ package "UaaS Rust" {
     pn -down-> (On Transaction) :tx
 
     (On Transaction) .down.> (Mempool): add_tx
+    (On Transaction) .down.> (UTXO): update_outpoints
 
     pn -down-> (On Block) :block
 
@@ -28,7 +29,7 @@ package "UaaS Rust" {
 
     (On Block) .down.> (Blocks): add_blockheader
 
-    (On Block) <.right.> BlockQueue: push/pop
+    (On Block) <.left.> BlockQueue: push/pop
 
 }
 

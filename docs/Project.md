@@ -44,13 +44,14 @@ This section contains project status related notes.
 * Load txs from database on startup
 ## In Progress
 * Get web interface working
-
 * Check on mainnet
 
 
 ## TODO
 
 * Add option to start the service from block file rather than the database
+* add mempool to the utxo set
+
 
 * Add collections
 

@@ -79,10 +79,10 @@ impl BlockManager {
                 .query_drop(
                     r"CREATE TABLE blocks (
                     height int unsigned,
-                    hash text,
+                    hash varchar(64),
                     version int unsigned,
-                    prev_hash text,
-                    merkle_root text,
+                    prev_hash varchar(64),
+                    merkle_root varchar(64),
                     timestamp int unsigned,
                     bits int unsigned,
                     nonce int unsigned
@@ -141,13 +141,13 @@ impl BlockManager {
         // Block processing functionality
         // This method is shared with reading from file and receiving blocks
         let hash = block.header.hash();
-
+        dbg!(&hash);
         // Determine if this block makes sense based on previous blocks
         // that is process them in chain order
         assert_eq!(self.last_hash_processed, block.header.prev_hash);
         self.last_hash_processed = hash;
 
-        tx_analyser.process_block(&block, self.height);
+        tx_analyser.process_block(&block, self.height.try_into().unwrap());
         // Store the block header
         self.hash_to_index.insert(hash, self.height);
         self.block_headers.push(block.header);
@@ -156,9 +156,8 @@ impl BlockManager {
 
     fn store_block(&mut self, header: &BlockHeader) {
         // Write the block header to a database
-        //.query_drop(r"CREATE TABLE blocks (
-        //    height int, hash text, version int, prev_hash text, merkle_root text, timestamp int, bits int, nonce int)")
-        let index = self.height - 1;
+        // Needs to be called before process block as process block increments the self.height
+        let index = self.height;
 
         let blocks_insert = format!(
             "INSERT INTO blocks
@@ -226,6 +225,8 @@ impl BlockManager {
 
     fn write_block(&mut self, block: &Block) {
         // Write a block to a block file - only for blocks received on network
+        // Needs to be called before process block as process block increments the self.height
+
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -269,8 +270,8 @@ impl BlockManager {
         if !self.hash_to_index.contains_key(&hash) {
             // check to see if block arrived in correct order
             if block.header.prev_hash == self.last_hash_processed {
-                self.process_block(block.clone(), tx_analyser);
                 self.write_block(&block);
+                self.process_block(block.clone(), tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process
                 self.process_block_queue(tx_analyser);
