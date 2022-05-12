@@ -43,12 +43,19 @@ This section contains project status related notes.
 * Write utxo set to database
 * Load txs from database on startup
 ## In Progress
+* Get web interface working
 
 * Check on mainnet
 
 
 ## TODO
-* Get web interface working
+
+* Add option to start the service from block file rather than the database
+
+* Add collections
+
+* Add ability to get tx
+* add ability to get block
 
 * Determine the file offset to locate blocks in block file (data/block.dat)
 

@@ -78,11 +78,22 @@ def get_addr() -> Dict[str, Any]:
     return address_manager.get_peers()
 
 
+@app.get("/tx", tags=["Tx"])
+def get_tx(hash: str) -> Dict[str, Any]:
+    """ Return the tx entry identified by hash"""
+    return tx_analyser.get_tx_entry(hash)
+
+
 @app.get("/tx/mempool", tags=["Tx"])
 def get_mempool() -> Dict[str, Any]:
     """ Return the mempool seen by the service"""
-
     return tx_analyser.get_mempool()
+
+
+@app.get("/tx/utxo", tags=["Tx"])
+def get_utxo(hash: str) -> Dict[str, Any]:
+    """ Return the utxo entry identified by hash"""
+    return tx_analyser.get_utxo_entry(hash)
 
 
 @app.get("/block/latest", tags=["Block"])

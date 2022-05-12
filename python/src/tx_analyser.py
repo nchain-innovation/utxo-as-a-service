@@ -1,3 +1,4 @@
+import datetime
 from typing import List, Dict, Any, MutableMapping
 from mysql.connector import connect
 
@@ -28,13 +29,66 @@ class TxAnalyser:
             cursor.execute(query)
             retval = []
             for x in cursor:
-                retval.append({"hash": f"{x[0]}", "locktime": x[1], "fee": x[2], "time": x[3], })
+                timestamp = datetime.datetime.fromtimestamp(x[3])
+                retval.append({
+                    "hash": f"{x[0]}", "locktime": x[1], "fee": x[2],
+                    "time": timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                })
             return retval
 
     def get_mempool(self) -> Dict[str, List[Dict[str, Any]]]:
         """ Return a dictionary of mempool"""
         return {
             "mempool": self._read_mempool(),
+        }
+
+    def _read_utxo(self, hash: str) -> List[Dict[str, Any]]:
+        # Read mempool from database
+        with connect(
+            host=self.host,
+            user=self.user,
+            password=self.password,
+            database=self.database,
+        ) as connection:
+            query = (f"SELECT * FROM utxo WHERE hash = '{hash}';")
+            cursor = connection.cursor()
+            cursor.execute(query)
+            retval = []
+            for x in cursor:
+                retval.append({
+                    "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2],
+                    "height": x[3]
+                })
+            return retval
+
+    def get_utxo_entry(self, hash: str) -> Dict[str, List[Dict[str, Any]]]:
+        """ Return the utxo entry identified by heash"""
+        return {
+            "utxo": self._read_utxo(hash),
+        }
+
+    def _read_tx(self, hash: str) -> List[Dict[str, Any]]:
+        # Read mempool from database
+        with connect(
+            host=self.host,
+            user=self.user,
+            password=self.password,
+            database=self.database,
+        ) as connection:
+            query = (f"SELECT * FROM tx WHERE hash = '{hash}';")
+            cursor = connection.cursor()
+            cursor.execute(query)
+            retval = []
+            for x in cursor:
+                retval.append({
+                    "hash": f"{x[0]}", "height": x[1]
+                })
+            return retval
+
+    def get_tx_entry(self, hash: str) -> Dict[str, List[Dict[str, Any]]]:
+        """ Return the utxo entry identified by heash"""
+        return {
+            "tx": self._read_tx(hash),
         }
 
 
