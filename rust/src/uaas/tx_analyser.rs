@@ -1,3 +1,4 @@
+use std::cmp;
 use std::collections::HashMap;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -141,10 +142,7 @@ impl TxAnalyser {
         let txs: Vec<HashHeight> = self
             .conn
             .query_map("SELECT * FROM tx ORDER BY height", |(hash, height)| {
-                HashHeight {
-                    hash: hash,
-                    height: height,
-                }
+                HashHeight { hash, height }
             })
             .unwrap();
 
@@ -172,9 +170,9 @@ impl TxAnalyser {
             .query_map(
                 "SELECT * FROM mempool ORDER BY time",
                 |(hash, locktime, fee, time)| MempoolDB {
-                    hash: hash,
-                    locktime: locktime,
-                    fee: fee,
+                    hash,
+                    locktime,
+                    fee,
                     age: time,
                 },
             )
@@ -207,10 +205,10 @@ impl TxAnalyser {
             .query_map(
                 "SELECT * FROM mempool ORDER BY time",
                 |(hash, pos, satoshis, height)| UtxoEntry {
-                    hash: hash,
-                    pos: pos,
-                    satoshis: satoshis,
-                    height: height,
+                    hash,
+                    pos,
+                    satoshis,
+                    height,
                 },
             )
             .unwrap();
@@ -219,7 +217,7 @@ impl TxAnalyser {
             let hash = Hash256::decode(&tx.hash).unwrap();
 
             let outpoint = OutPoint {
-                hash: hash,
+                hash,
                 index: tx.pos,
             };
             let utxo_entry = UnspentEntry {
@@ -338,7 +336,7 @@ impl TxAnalyser {
                     hash: hash.encode(),
                     pos: index.try_into().unwrap(),
                     satoshis: vout.satoshis,
-                    height: height,
+                    height,
                 };
                 utxo_entries.push(utxo_entry);
             }
@@ -374,29 +372,22 @@ impl TxAnalyser {
     }
 
     fn calc_fee(&self, tx: &Tx) -> i64 {
-        // Given the tx attempt to determine the fee
-
+        // Given the tx attempt to determine the fee, return 0 if unable to calculate
         let mut inputs = 0i64;
         for vin in tx.inputs.iter() {
             if let Some(entry) = self.unspent.get(&vin.prev_output) {
                 inputs += entry.satoshis;
-            }
-        }
-
-        if inputs == 0 {
-            0
-        } else {
-            // Determine the difference between the inputs and the outputs
-            let outputs: i64 = tx.outputs.iter().map(|vout| vout.satoshis).sum();
-
-            let fee = inputs - outputs;
-            println!("fee={} ({} - {})", fee, inputs, outputs);
-            if fee < 0 {
-                0
             } else {
-                fee
+                // if any of the inputs are missing then return 0
+                return 0;
             }
         }
+        let outputs: i64 = tx.outputs.iter().map(|vout| vout.satoshis).sum();
+        // Determine the difference between the inputs and the outputs
+        let fee = inputs - outputs;
+        //println!("fee={} ({} - {})", fee, inputs, outputs);
+        // Don't return a negative fee, it must be at least 0
+        cmp::max(0i64, fee)
     }
 
     pub fn process_standalone_tx(&mut self, tx: &Tx) {
