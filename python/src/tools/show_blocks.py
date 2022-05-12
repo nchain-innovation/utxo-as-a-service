@@ -33,13 +33,13 @@ def main(fname: str) -> None:
 
     # Sort by hash
     # new_blocks = sort_blocks_by_hash_from_last(blocks)
-    # new_blocks = sort_blocks_by_hash_from_first(blocks)
+    #new_blocks = sort_blocks_by_hash_from_first(blocks)
 
     # Display blocks
-    display_blocks(blocks)
+    # display_blocks(blocks)
 
     # Check for gaps
-    # check_for_gaps(new_blocks)
+    check_for_gaps(blocks)
 
 
 if __name__ == '__main__':

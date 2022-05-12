@@ -141,7 +141,8 @@ impl BlockManager {
         // Block processing functionality
         // This method is shared with reading from file and receiving blocks
         let hash = block.header.hash();
-        dbg!(&hash);
+        println!("process_block = {} {}", &hash.encode(), timestamp_as_string(block.header.timestamp));
+
         // Determine if this block makes sense based on previous blocks
         // that is process them in chain order
         assert_eq!(self.last_hash_processed, block.header.prev_hash);
@@ -154,7 +155,7 @@ impl BlockManager {
         self.height += 1;
     }
 
-    fn store_block(&mut self, header: &BlockHeader) {
+    fn write_block_to_database(&mut self, header: &BlockHeader) {
         // Write the block header to a database
         // Needs to be called before process block as process block increments the self.height
         let index = self.height;
@@ -174,14 +175,67 @@ impl BlockManager {
         self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
     }
 
+    fn process_block_queue(&mut self, tx_analyser: &mut TxAnalyser, write_to_file: bool) {
+        // Check block_queue to see if there are blocks that we can now process
+        // loop through until last_hash_processed  == block.header.prev_hash
+        // if found then check again
+        while let Some(block) = self
+            .block_queue
+            .iter_mut()
+            .find(|block| block.header.prev_hash == self.last_hash_processed)
+        {
+            let prev_hash = self.last_hash_processed;
+            // do block processing
+            let b = block.clone();
+            if write_to_file {
+                self.write_block_to_file(&b);
+            }
+            // write to database
+            self.write_block_to_database(&b.header);
+
+            self.process_block(b, tx_analyser);
+
+            // Remove block from list
+            self.block_queue
+                .retain(|block| block.header.prev_hash != prev_hash);
+        }
+    }
+
+    fn print_block_queue(&self) {
+        if !self.block_queue.is_empty() {
+            println!("self.block_queue.len() = {}", self.block_queue.len());
+            if self.block_queue.len() < 5 {
+                // print all block_queue entries
+                for b in self.block_queue.iter() {
+                    println!(
+                        "q_block = {} {}",
+                        b.header.hash().encode(),
+                        timestamp_as_string(b.header.timestamp)
+                    );
+                }
+            }
+        }
+    }
+
     fn process_read_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
         // Process each block as it is read from file
         let hash = block.header.hash();
-        // Check to see if we already have this hash
+        // Check to see if we already have this hash && blocks are in correct order
         if !self.hash_to_index.contains_key(&hash) {
-            self.store_block(&block.header);
-            self.process_block(block, tx_analyser);
+            if self.last_hash_processed == block.header.prev_hash {
+                self.write_block_to_database(&block.header);
+                self.process_block(block, tx_analyser);
+
+                // Check block_queue to see if there are blocks that we can now process
+                self.process_block_queue(tx_analyser, false);
+            } else {
+                // Store block for later processing - if it is not already present
+                if self.block_queue.iter().all(|b| b.header.hash() != hash) {
+                    self.block_queue.push(block);
+                }
+            }
         }
+        self.print_block_queue();
     }
 
     fn read_blocks(&mut self, tx_analyser: &mut TxAnalyser) {
@@ -223,7 +277,7 @@ impl BlockManager {
         }
     }
 
-    fn write_block(&mut self, block: &Block) {
+    fn write_block_to_file(&mut self, block: &Block) {
         // Write a block to a block file - only for blocks received on network
         // Needs to be called before process block as process block increments the self.height
 
@@ -234,30 +288,6 @@ impl BlockManager {
             .unwrap();
 
         block.write(&mut file).unwrap();
-
-        // write to database
-        self.store_block(&block.header);
-    }
-
-    fn process_block_queue(&mut self, tx_analyser: &mut TxAnalyser) {
-        // Check block_queue to see if there are blocks that we can now process
-        // loop through until last_hash_processed  == block.header.prev_hash
-        // if found then check again
-        while let Some(block) = self
-            .block_queue
-            .iter_mut()
-            .find(|block| block.header.prev_hash == self.last_hash_processed)
-        {
-            let prev_hash = self.last_hash_processed;
-            // do block processing
-            let b = block.clone();
-            self.write_block(&b);
-            self.process_block(b, tx_analyser);
-
-            // Remove block from list
-            self.block_queue
-                .retain(|block| block.header.prev_hash != prev_hash);
-        }
     }
 
     pub fn on_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
@@ -270,31 +300,21 @@ impl BlockManager {
         if !self.hash_to_index.contains_key(&hash) {
             // check to see if block arrived in correct order
             if block.header.prev_hash == self.last_hash_processed {
-                self.write_block(&block);
+                self.write_block_to_file(&block);
+                // write to database
+                self.write_block_to_database(&block.header);
+
                 self.process_block(block.clone(), tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process
-                self.process_block_queue(tx_analyser);
+                self.process_block_queue(tx_analyser, true);
             } else {
                 // Store block for later processing - if it is not already present
                 if self.block_queue.iter().all(|b| b.header.hash() != hash) {
                     self.block_queue.push(block);
                 }
             }
-
-            if !self.block_queue.is_empty() {
-                println!("self.block_queue.len() = {}", self.block_queue.len());
-                if self.block_queue.len() < 5 {
-                    // print all block_queue entries
-                    for b in self.block_queue.iter() {
-                        println!(
-                            "q_block = {} {}",
-                            b.header.hash().encode(),
-                            timestamp_as_string(b.header.timestamp)
-                        );
-                    }
-                }
-            }
+            self.print_block_queue();
         }
         let elapsed_time = start.elapsed().as_millis() as f64;
         println!("Block processing took {} seconds", elapsed_time / 1000.0);
