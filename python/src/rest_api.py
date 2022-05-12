@@ -6,6 +6,7 @@ from util import load_config
 from address_manager import address_manager
 from tx_analyser import tx_analyser
 from block_manager import block_manager
+from logic import logic
 
 tags_metadata = [
     {
@@ -60,15 +61,7 @@ def root() -> Dict[str, str]:
 @app.get("/status", tags=["Status"])
 def get_status() -> Dict[str, Any]:
     """ Return the current service status (should be `Ready`)"""
-    # Placeholder for now
-    service_status = "Ready"
-    return {
-        'status': service_status,
-        'network': config['service']['network'],
-        'number_of_blocks': 0,
-        'number_of_tx': 0,
-        'number_of_utxo': 0,
-    }
+    return logic.get_status()
 
 
 @app.get("/addr", tags=["Addresses"])

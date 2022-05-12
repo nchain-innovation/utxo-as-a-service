@@ -87,8 +87,9 @@ This section contains project status related notes.
 # Memory usage
 * 05/05/2022 - 242 MB - mainnet
 * 06/05/2022 - 261 MB - mainnet
-* 10/06/2022 - 51..98.9MB - testnet now with large utxo set
-* 11/06/2022 - 15.4MB on loading from database- testnet
+* 10/05/2022 - 51..98.9MB - testnet now with large utxo set
+* 11/05/2022 - 15.4MB on loading from database- testnet
+* 12/05/2022 - 195 MB on loading from file on startup (189 queued blocks)- testnet
 
 -----
 * Python database interface

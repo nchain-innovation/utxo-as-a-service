@@ -33,8 +33,9 @@ block_request_period = 75
 # Testnet
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 
-# The option here is to load the data from the database (prefered), or from a file (maybe useful)
-# if reading from the file, would expect to delete the tables:
+# The startup_load_from_database option is to load the data from the database (prefered),
+# or from a file (maybe useful - particularly if we change the database structure)
+# When reading from the file, would expect to delete the following tables prior to starting the service:
 #   * blocks
 #   * tx
 #   * utxo
