@@ -134,10 +134,11 @@ impl TxAnalyser {
                 )
                 .unwrap();
 
-            // index
+            /* index
             self.conn
                 .query_drop(r"CREATE INDEX hash_pos ON utxo (hash, pos);")
                 .unwrap();
+            */
         }
     }
 
@@ -316,28 +317,8 @@ impl TxAnalyser {
             .unwrap();
     }
 
-    pub fn process_block_tx(&mut self, tx: &Tx, height: i32, tx_index: usize) {
-        // Process tx as received in a block
-        let hash = tx.hash();
 
-        // Store tx - note that we only do this for tx in a block
-        let tx_entry = TxEntry {
-            tx: Some(tx.clone()),
-            height: height.try_into().unwrap(),
-        };
-
-        if let Some(_prev) = self.txs.insert(hash, tx_entry) {
-            // We must have already processed this tx in a block
-            panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
-        }
-
-        // Remove from mempool as now in block
-        if let Some(_value) = self.mempool.remove(&hash) {
-            // Remove from database
-            let mempool_delete = format!("DELETE FROM mempool WHERE hash='{}';", &hash.encode());
-            self.conn.exec_drop(&mempool_delete, Params::Empty).unwrap();
-        }
-
+    fn process_tx_inputs(&mut self, tx: &Tx, tx_index: usize) {
         // Process inputs - remove from unspent
         let mut utxo_deletes: Vec<&OutPoint> = Vec::new();
 
@@ -360,12 +341,42 @@ impl TxAnalyser {
                     .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
             )
             .unwrap();
+    }
 
-        // Collection processing
-        // TODO add here
+
+    pub fn process_block_tx(&mut self, tx: &Tx, height: i32, tx_index: usize) {
+        // Process tx as received in a block
+        let hash = tx.hash();
+
+        // Store tx - note that we only do this for tx in a block
+        let tx_entry = TxEntry {
+            tx: Some(tx.clone()),
+            height: height.try_into().unwrap(),
+        };
+
+        if let Some(_prev) = self.txs.insert(hash, tx_entry) {
+            // We must have already processed this tx in a block
+            panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
+        }
+
+        // Remove from mempool & utxo as now in block
+        if let Some(_value) = self.mempool.remove(&hash) {
+            // Remove from mempool
+            let mempool_delete = format!("DELETE FROM mempool WHERE hash='{}';", &hash.encode());
+            self.conn.exec_drop(&mempool_delete, Params::Empty).unwrap();
+            // remove from utxo
+            let utxo_delete = format!("DELETE FROM utxo WHERE hash='{}';", &hash.encode());
+            self.conn.exec_drop(&utxo_delete, Params::Empty).unwrap();
+        }
+
+        // process inputs
+        self.process_tx_inputs(tx, tx_index);
 
         // Process outputs
         self.process_tx_outputs(tx, height);
+
+        // Collection processing
+        // TODO add here
     }
 
     pub fn process_block(&mut self, block: &Block, height: i32) {

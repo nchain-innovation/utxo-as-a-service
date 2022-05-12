@@ -42,16 +42,20 @@ This section contains project status related notes.
 * Fix fee calculation
 * Write utxo set to database
 * Load txs from database on startup
+* Add option to start the service from block file rather than the database
+
+
 ## In Progress
 * Get web interface working
+    * status message working
+    * Read headers using REST API
+
 * Check on mainnet
+
+* add mempool to the utxo set
 
 
 ## TODO
-
-* Add option to start the service from block file rather than the database
-* add mempool to the utxo set
-
 
 * Add collections
 
@@ -77,7 +81,6 @@ This section contains project status related notes.
 
 * Search for TODOs
 
-* Read headers using REST API
 * unable to write blobs to database
 * optimise database types
 

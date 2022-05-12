@@ -33,15 +33,14 @@ block_request_period = 75
 # Testnet
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 
-# The startup_load_from_database option is to load the data from the database (prefered),
-# or from a file (maybe useful - particularly if we change the database structure)
-# When reading from the file, would expect to delete the following tables prior to starting the service:
-#   * blocks
-#   * tx
-#   * utxo
-#   * mempool
-# prior to starting the service
-startup_load_from_database = false
+# The startup_load_from_database option is to load the data from the database, or from a file.
+# Normally you would load from the database using the setting:
+#   startup_load_from_database = true
+# Loading from a file is useful the database structure is changed and we and want to repopulate the data.
+# Note when reading from the file, would expect to delete the following tables:
+#   * blocks, tx, utxo, mempool
+# Prior to starting the service.
+startup_load_from_database = true
 
 # Mainnet
 #mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
