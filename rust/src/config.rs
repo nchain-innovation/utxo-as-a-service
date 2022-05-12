@@ -13,6 +13,7 @@ pub struct Service {
     pub block_request_period: u64,
     pub mysql_url: String,
     pub start_block_hash: String,
+    pub startup_load_from_database: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]

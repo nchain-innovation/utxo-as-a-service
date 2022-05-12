@@ -28,6 +28,9 @@ struct DBHeader {
 
 pub struct BlockManager {
     start_block_hash: String,
+    // Startup read data from database or file
+    startup_load_from_database: bool,
+
     block_file: String,
 
     pub block_headers: Vec<BlockHeader>,
@@ -35,7 +38,6 @@ pub struct BlockManager {
     // BlockManager status
     // last block hash we processed
     last_hash_processed: Hash256,
-    last_height_processed: usize,
 
     height: usize,
 
@@ -50,12 +52,12 @@ impl BlockManager {
     pub fn new(config: &Config, conn: PooledConn) -> Self {
         BlockManager {
             start_block_hash: config.service.start_block_hash.clone(),
+            startup_load_from_database: config.service.startup_load_from_database,
             block_file: config.shared.block_file.clone(),
             block_headers: Vec::new(),
             hash_to_index: HashMap::new(),
             height: 0,
             last_hash_processed: Hash256::decode(&config.service.start_block_hash).unwrap(),
-            last_height_processed: 0,
             block_queue: Vec::new(),
             conn,
         }
@@ -135,20 +137,6 @@ impl BlockManager {
         );
     }
 
-    pub fn setup(&mut self, _tx_analyser: &mut TxAnalyser) {
-        // Does all the startup stuff a BlockManager needs to do
-        self.create_tables();
-        self.load_headers();
-        // Set the status
-        if let Some(last_header) = self.block_headers.last() {
-            self.last_hash_processed = last_header.hash();
-        }
-        self.last_height_processed = self.block_headers.len();
-
-        // we no longer read in the blocks from the file
-        // self.read_blocks(tx_analyser);
-    }
-
     fn process_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
         // Block processing functionality
         // This method is shared with reading from file and receiving blocks
@@ -166,17 +154,34 @@ impl BlockManager {
         self.height += 1;
     }
 
+    fn store_block(&mut self, header: &BlockHeader) {
+        // Write the block header to a database
+        //.query_drop(r"CREATE TABLE blocks (
+        //    height int, hash text, version int, prev_hash text, merkle_root text, timestamp int, bits int, nonce int)")
+        let index = self.height - 1;
+
+        let blocks_insert = format!(
+            "INSERT INTO blocks
+            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {});",
+            index,
+            header.hash().encode(),
+            header.version,
+            header.prev_hash.encode(),
+            header.merkle_root.encode(),
+            header.timestamp,
+            header.bits,
+            header.nonce
+        );
+        self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
+    }
+
     fn process_read_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
         // Process each block as it is read from file
         let hash = block.header.hash();
         // Check to see if we already have this hash
         if !self.hash_to_index.contains_key(&hash) {
-            // Only process the blocks that we havent already processed
-            if self.height <= self.last_height_processed {
-                self.height += 1;
-            } else {
-                self.process_block(block, tx_analyser);
-            }
+            self.store_block(&block.header);
+            self.process_block(block, tx_analyser);
         }
     }
 
@@ -204,29 +209,23 @@ impl BlockManager {
         );
     }
 
-    fn store_block(&mut self, header: &BlockHeader) {
-        // Write the block header to a database
-        //.query_drop(r"CREATE TABLE blocks (
-        //    height int, hash text, version int, prev_hash text, merkle_root text, timestamp int, bits int, nonce int)")
-        let index = self.height - 1;
-
-        let blocks_insert = format!(
-            "INSERT INTO blocks
-            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {});",
-            index,
-            header.hash().encode(),
-            header.version,
-            header.prev_hash.encode(),
-            header.merkle_root.encode(),
-            header.timestamp,
-            header.bits,
-            header.nonce
-        );
-        self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
+    pub fn setup(&mut self, tx_analyser: &mut TxAnalyser) {
+        // Does all the startup stuff a BlockManager needs to do
+        self.create_tables();
+        if self.startup_load_from_database {
+            self.load_headers();
+            // Set the status
+            if let Some(last_header) = self.block_headers.last() {
+                self.last_hash_processed = last_header.hash();
+            }
+        } else {
+            // Read in the blocks from the file
+            self.read_blocks(tx_analyser);
+        }
     }
 
     fn write_block(&mut self, block: &Block) {
-        // Write a block to a block file
+        // Write a block to a block file - only for blocks received on network
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
