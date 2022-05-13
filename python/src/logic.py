@@ -51,11 +51,11 @@ class Logic:
         return {
             "status": {
                 "network": self.network,
-                'last_block_time': self._get_last_block_time(),
-                'number_of_blocks': self._get_no_of_entries("SELECT COUNT(*) FROM blocks;"),
-                'number_of_tx': self._get_no_of_entries("SELECT COUNT(*) FROM tx;"),
-                'number_of_utxo': self._get_no_of_entries("SELECT COUNT(*) FROM utxo;"),
-                'number_of_mempool': self._get_no_of_entries("SELECT COUNT(*) FROM mempool;"),
+                'last block time': self._get_last_block_time(),
+                'number of blocks': self._get_no_of_entries("SELECT COUNT(*) FROM blocks;"),
+                'number of txs': self._get_no_of_entries("SELECT COUNT(*) FROM tx;"),
+                'number of utxo entries': self._get_no_of_entries("SELECT COUNT(*) FROM utxo;"),
+                'number of mempool entries': self._get_no_of_entries("SELECT COUNT(*) FROM mempool;"),
             }
         }
 
