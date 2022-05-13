@@ -15,11 +15,16 @@ package Service {
 
     component "UaaS\n(Rust)" as UaaS
 
+    database blocks
+
     package DockerContainer_MySQL {
         database MySQL
     }
     UaaS --> MySQL
     WebService <-- MySQL
+
+    UaaS --> blocks
+    WebService <-- blocks
 
 
     PeerNode --> UaaS: P2P Messages

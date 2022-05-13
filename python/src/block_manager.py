@@ -87,16 +87,6 @@ class BlockManager:
                 print(f"x = {x}")
 
             return retval[0][0]
-            """
-            for x in cursor:
-                timestamp = datetime.datetime.fromtimestamp(x[5])
-                retval.append({
-                    "height": x[0], "hash": x[1], "version": x[2], "prev_hash": x[3], "merkle_root": x[4],
-                    "timestamp": timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-                    "bits": x[6], "nonce": x[7], "offset": x[8]
-                })
-            return retval
-            """
 
     def get_block(self, height: int) -> Dict[str, Dict[str, Any]]:
         # Return the block at the given height

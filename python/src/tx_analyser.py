@@ -2,6 +2,8 @@ import datetime
 from typing import List, Dict, Any, MutableMapping
 from mysql.connector import connect
 
+from util import load_block_at_offset
+
 
 class TxAnalyser:
     def __init__(self):
@@ -9,12 +11,14 @@ class TxAnalyser:
         self.user: str
         self.password: str
         self.database: str
+        self.block_file: str
 
     def set_config(self, config: MutableMapping[str, Any]):
         self.host = config["python"]["host"]
         self.user = config["python"]["user"]
         self.password = config["python"]["password"]
         self.database = config["python"]["database"]
+        self.block_file = config["shared"]["block_file"]
 
     def _read_mempool(self) -> List[Dict[str, Any]]:
         # Read mempool from database
@@ -85,10 +89,33 @@ class TxAnalyser:
                 })
             return retval
 
-    def get_tx_entry(self, hash: str) -> Dict[str, List[Dict[str, Any]]]:
-        """ Return the utxo entry identified by heash"""
+    def _read_block_offset(self, hash: str) -> int:
+        # Read block offset based on tx hash from database
+        with connect(
+            host=self.host,
+            user=self.user,
+            password=self.password,
+            database=self.database,
+        ) as connection:
+            query = (
+                f"SELECT offset FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height where uaas_db.tx.hash='{hash}';")
+            cursor = connection.cursor()
+            cursor.execute(query)
+            retval = []
+            for x in cursor:
+                retval.append(x)
+                print(f"x = {x}")
+
+            return retval[0][0]
+
+    def get_tx_entry(self, hash: str) -> Dict[str, Dict[str, Any]]:
+        """ Return the utxo entry identified by hash"""
+        offset = self._read_block_offset(hash)
+        block = load_block_at_offset(self.block_file, offset)
+        tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
+
         return {
-            "tx": self._read_tx(hash),
+            "tx": tx.to_dict(),
         }
 
 
