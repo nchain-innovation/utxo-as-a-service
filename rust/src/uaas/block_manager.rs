@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
+use std::io::Seek;
 use std::time::Instant;
 
 use mysql::prelude::*;
@@ -24,6 +25,13 @@ struct DBHeader {
     timestamp: u32,
     bits: u32,
     nonce: u32,
+    position: u64,
+}
+
+// Used to record the block with a position in the block file
+struct BlockWithPosition {
+    pub position: Option<u64>,
+    pub block: Block,
 }
 
 pub struct BlockManager {
@@ -42,7 +50,9 @@ pub struct BlockManager {
     height: usize,
 
     // Queue of blocks that have arrived out of order - for later proceessing
-    block_queue: Vec<Block>,
+    // we have changed to hashmap indexed by prev_hash for quicker processing
+    // block_queue: Vec<Block>,
+    block_queue: HashMap<Hash256, BlockWithPosition>,
 
     // Database connection
     conn: PooledConn,
@@ -58,7 +68,7 @@ impl BlockManager {
             hash_to_index: HashMap::new(),
             height: 0,
             last_hash_processed: Hash256::decode(&config.service.start_block_hash).unwrap(),
-            block_queue: Vec::new(),
+            block_queue: HashMap::new(),
             conn,
         }
     }
@@ -85,14 +95,15 @@ impl BlockManager {
                     merkle_root varchar(64),
                     timestamp int unsigned,
                     bits int unsigned,
-                    nonce int unsigned
+                    nonce int unsigned,
+                    offset bigint unsigned
                 );",
                 )
                 .unwrap();
         }
     }
 
-    fn load_headers(&mut self) {
+    fn load_blockheaders_from_database(&mut self) {
         // load headers from database
         let start = Instant::now();
 
@@ -100,7 +111,17 @@ impl BlockManager {
             .conn
             .query_map(
                 "SELECT * FROM blocks ORDER BY height",
-                |(_height, _hash, version, prev_hash, merkle_root, timestamp, bits, nonce)| {
+                |(
+                    _height,
+                    _hash,
+                    version,
+                    prev_hash,
+                    merkle_root,
+                    timestamp,
+                    bits,
+                    nonce,
+                    position,
+                )| {
                     DBHeader {
                         _height,
                         _hash,
@@ -110,6 +131,7 @@ impl BlockManager {
                         timestamp,
                         bits,
                         nonce,
+                        position,
                     }
                 },
             )
@@ -141,7 +163,11 @@ impl BlockManager {
         // Block processing functionality
         // This method is shared with reading from file and receiving blocks
         let hash = block.header.hash();
-        println!("process_block = {} {}", &hash.encode(), timestamp_as_string(block.header.timestamp));
+        println!(
+            "process_block = {} {}",
+            &hash.encode(),
+            timestamp_as_string(block.header.timestamp)
+        );
 
         // Determine if this block makes sense based on previous blocks
         // that is process them in chain order
@@ -155,14 +181,14 @@ impl BlockManager {
         self.height += 1;
     }
 
-    fn write_block_to_database(&mut self, header: &BlockHeader) {
+    fn write_blockheader_to_database(&mut self, header: &BlockHeader, position: u64) {
         // Write the block header to a database
         // Needs to be called before process block as process block increments the self.height
         let index = self.height;
 
         let blocks_insert = format!(
             "INSERT INTO blocks
-            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {});",
+            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {}, {});",
             index,
             header.hash().encode(),
             header.version,
@@ -170,7 +196,8 @@ impl BlockManager {
             header.merkle_root.encode(),
             header.timestamp,
             header.bits,
-            header.nonce
+            header.nonce,
+            position
         );
         self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
     }
@@ -179,25 +206,31 @@ impl BlockManager {
         // Check block_queue to see if there are blocks that we can now process
         // loop through until last_hash_processed  == block.header.prev_hash
         // if found then check again
-        while let Some(block) = self
-            .block_queue
-            .iter_mut()
-            .find(|block| block.header.prev_hash == self.last_hash_processed)
-        {
-            let prev_hash = self.last_hash_processed;
+
+        // Remove block from block_queue
+        while let Some(blockwithpos) = self.block_queue.remove(&self.last_hash_processed) {
             // do block processing
-            let b = block.clone();
+
+            let b = blockwithpos.block.clone();
             if write_to_file {
-                self.write_block_to_file(&b);
+                let pos = self.write_block_to_file(&b);
+                // write to database
+                self.write_blockheader_to_database(&b.header, pos);
+                // this should only be the case if postion has not been set
+                assert_eq!(blockwithpos.position, None);
+            } else {
+                // TODO get pos off queue
+                match blockwithpos.position {
+                    Some(pos) =>
+                    // write to database
+                    {
+                        self.write_blockheader_to_database(&b.header, pos)
+                    }
+                    None => panic!("should not get here as we dont have the pos in file..."),
+                }
             }
-            // write to database
-            self.write_block_to_database(&b.header);
 
             self.process_block(b, tx_analyser);
-
-            // Remove block from list
-            self.block_queue
-                .retain(|block| block.header.prev_hash != prev_hash);
         }
     }
 
@@ -206,39 +239,44 @@ impl BlockManager {
             println!("self.block_queue.len() = {}", self.block_queue.len());
             if self.block_queue.len() < 5 {
                 // print all block_queue entries
-                for b in self.block_queue.iter() {
+                for (_k, v) in self.block_queue.iter() {
                     println!(
                         "q_block = {} {}",
-                        b.header.hash().encode(),
-                        timestamp_as_string(b.header.timestamp)
+                        v.block.header.hash().encode(),
+                        timestamp_as_string(v.block.header.timestamp)
                     );
                 }
             }
         }
     }
 
-    fn process_read_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
+    fn process_read_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser, position: u64) {
         // Process each block as it is read from file
         let hash = block.header.hash();
         // Check to see if we already have this hash && blocks are in correct order
         if !self.hash_to_index.contains_key(&hash) {
             if self.last_hash_processed == block.header.prev_hash {
-                self.write_block_to_database(&block.header);
+                self.write_blockheader_to_database(&block.header, position);
                 self.process_block(block, tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process
                 self.process_block_queue(tx_analyser, false);
             } else {
                 // Store block for later processing - if it is not already present
-                if self.block_queue.iter().all(|b| b.header.hash() != hash) {
-                    self.block_queue.push(block);
+                if !self.block_queue.contains_key(&block.header.prev_hash) {
+                    let prev_hash = block.header.prev_hash;
+                    let entry = BlockWithPosition {
+                        position: Some(position),
+                        block: block,
+                    };
+                    self.block_queue.insert(prev_hash, entry);
                 }
             }
         }
         self.print_block_queue();
     }
 
-    fn read_blocks(&mut self, tx_analyser: &mut TxAnalyser) {
+    fn read_blocks_from_file(&mut self, tx_analyser: &mut TxAnalyser) {
         // On loading check blocks are in the correct order and assert if not
         println!("read blocks");
         let start = Instant::now();
@@ -246,9 +284,11 @@ impl BlockManager {
         // Read blocks from a file
         match OpenOptions::new().read(true).open(&self.block_file) {
             Ok(mut file) => {
+                let mut position = file.stream_position().unwrap();
                 // Success - read blocks
                 while let Ok(block) = Block::read(&mut file) {
-                    self.process_read_block(block, tx_analyser);
+                    self.process_read_block(block, tx_analyser, position);
+                    position = file.stream_position().unwrap();
                 }
             }
             Err(e) => println!("Unable to open block file {} - {}", &self.block_file, &e),
@@ -266,18 +306,18 @@ impl BlockManager {
         // Does all the startup stuff a BlockManager needs to do
         self.create_tables();
         if self.startup_load_from_database {
-            self.load_headers();
-            // Set the status
+            self.load_blockheaders_from_database();
+            // Set the status - note that the height is updated by the load_blockheaders_from_database method
             if let Some(last_header) = self.block_headers.last() {
                 self.last_hash_processed = last_header.hash();
             }
         } else {
             // Read in the blocks from the file
-            self.read_blocks(tx_analyser);
+            self.read_blocks_from_file(tx_analyser);
         }
     }
 
-    fn write_block_to_file(&mut self, block: &Block) {
+    fn write_block_to_file(&mut self, block: &Block) -> u64 {
         // Write a block to a block file - only for blocks received on network
         // Needs to be called before process block as process block increments the self.height
 
@@ -286,11 +326,14 @@ impl BlockManager {
             .append(true)
             .open(&self.block_file)
             .unwrap();
-
+        //let pos = file.stream_len().unwrap();
+        let pos = file.stream_position().unwrap();
         block.write(&mut file).unwrap();
+        pos
     }
 
     pub fn on_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
+        // On receiving block
         let start = Instant::now();
 
         // Handle block received on P2P network
@@ -300,18 +343,23 @@ impl BlockManager {
         if !self.hash_to_index.contains_key(&hash) {
             // check to see if block arrived in correct order
             if block.header.prev_hash == self.last_hash_processed {
-                self.write_block_to_file(&block);
+                let pos = self.write_block_to_file(&block);
                 // write to database
-                self.write_block_to_database(&block.header);
-
+                self.write_blockheader_to_database(&block.header, pos);
                 self.process_block(block.clone(), tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process
                 self.process_block_queue(tx_analyser, true);
             } else {
                 // Store block for later processing - if it is not already present
-                if self.block_queue.iter().all(|b| b.header.hash() != hash) {
-                    self.block_queue.push(block);
+
+                let prev_hash = block.header.prev_hash;
+                if !self.block_queue.contains_key(&block.header.prev_hash) {
+                    let entry = BlockWithPosition {
+                        position: None,
+                        block,
+                    };
+                    self.block_queue.insert(prev_hash, entry);
                 }
             }
             self.print_block_queue();

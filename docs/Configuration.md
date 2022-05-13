@@ -3,7 +3,7 @@
 Configuration for this service can be found in the `data\uaas.toml` toml file.
 
 
-NOTE THIS DOCUMENT IS STILL DRAFT!!!!
+**** NOTE THIS DOCUMENT IS STILL DRAFT/WIP !!!! ***
 
 ## Network
 This identifies the blockchain network that the service connects to, either `testnet3` or `mainnet`.

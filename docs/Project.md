@@ -43,16 +43,19 @@ This section contains project status related notes.
 * Write utxo set to database
 * Load txs from database on startup
 * Add option to start the service from block file rather than the database
-
+* Add mempool outpoints to the utxo set
+* Check height is set correctly after a startup database load
 
 ## In Progress
+* Determine the file offset to locate blocks in block file (data/block.dat)
+
+
 * Get web interface working
     * status message working
     * Read headers using REST API
 
 * Check on mainnet
 
-* add mempool to the utxo set
 
 
 ## TODO
@@ -62,7 +65,6 @@ This section contains project status related notes.
 * Add ability to get tx
 * add ability to get block
 
-* Determine the file offset to locate blocks in block file (data/block.dat)
 
 * use blocktime to age tx
 

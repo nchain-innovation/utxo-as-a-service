@@ -317,7 +317,6 @@ impl TxAnalyser {
             .unwrap();
     }
 
-
     fn process_tx_inputs(&mut self, tx: &Tx, tx_index: usize) {
         // Process inputs - remove from unspent
         let mut utxo_deletes: Vec<&OutPoint> = Vec::new();
@@ -342,7 +341,6 @@ impl TxAnalyser {
             )
             .unwrap();
     }
-
 
     pub fn process_block_tx(&mut self, tx: &Tx, height: i32, tx_index: usize) {
         // Process tx as received in a block

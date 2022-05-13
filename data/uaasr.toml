@@ -29,18 +29,20 @@ start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b
 
 # Note need a larger timeout on testnet
 timeout_period = 240.0
-block_request_period = 75
+
+# This is the time the service will wait after the last block before requesting another
+block_request_period = 80
 # Testnet
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 
-# The startup_load_from_database option is to load the data from the database, or from a file.
+# The startup_load_from_database option makes the service load the data from the database on startup, or from a file.
 # Normally you would load from the database using the setting:
 #   startup_load_from_database = true
-# Loading from a file is useful the database structure is changed and we and want to repopulate the data.
+# Loading from a file is useful the database structure is changed and we and want to repopulate the data without having to redownload all the blocks.
 # Note when reading from the file, would expect to delete the following tables:
 #   * blocks, tx, utxo, mempool
 # Prior to starting the service.
-startup_load_from_database = true
+startup_load_from_database = false
 
 # Mainnet
 #mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"

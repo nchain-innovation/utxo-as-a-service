@@ -36,10 +36,10 @@ def main(fname: str) -> None:
     # new_blocks = sort_blocks_by_hash_from_first(blocks)
 
     # Display blocks
-    # display_blocks(blocks)
+    display_blocks(blocks)
 
     # Check for gaps
-    check_for_gaps(blocks)
+    # check_for_gaps(blocks)
 
 
 if __name__ == '__main__':
