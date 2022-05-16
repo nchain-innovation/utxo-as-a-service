@@ -359,9 +359,6 @@ impl TxAnalyser {
 
         // Remove from mempool & utxo as now in block
         if let Some(_value) = self.mempool.remove(&hash) {
-            // Remove from mempool
-            let mempool_delete = format!("DELETE FROM mempool WHERE hash='{}';", &hash.encode());
-            self.conn.exec_drop(&mempool_delete, Params::Empty).unwrap();
             // remove from utxo
             let utxo_delete = format!("DELETE FROM utxo WHERE hash='{}';", &hash.encode());
             self.conn.exec_drop(&utxo_delete, Params::Empty).unwrap();
@@ -382,10 +379,18 @@ impl TxAnalyser {
         for (tx_index, tx) in block.txns.iter().enumerate() {
             self.process_block_tx(tx, height, tx_index);
         }
-        // write txs to database
+        // Batch processing here
         let hashes: Vec<String> = block.txns.iter().map(|b| b.hash().encode()).collect();
 
-        // Batch write tx to database table
+        // Batch Delete from mempool
+        self.conn
+            .exec_batch(
+                "DELETE FROM mempool WHERE hash = :hash;",
+                hashes.iter().map(|x| params! {"hash" => x}),
+            )
+            .unwrap();
+
+        // Batch write tx to tx database table
         self.conn
             .exec_batch(
                 "INSERT INTO tx (hash, height) VALUES (:hash, :height)",
