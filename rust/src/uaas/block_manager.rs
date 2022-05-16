@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::Seek;
+use std::io::{Seek, SeekFrom};
 use std::time::Instant;
 
 use mysql::prelude::*;
@@ -320,16 +320,13 @@ impl BlockManager {
     }
 
     fn write_block_to_file(&mut self, block: &Block) -> u64 {
-        // Write a block to a block file - only for blocks received on network
-        // Needs to be called before process block as process block increments the self.height
-
+        // Write a block to a block file - should only be called for blocks received on network
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.block_file)
             .unwrap();
-        //let pos = file.stream_len().unwrap();
-        let pos = file.stream_position().unwrap();
+        let pos = file.seek(SeekFrom::End(0)).unwrap();
         block.write(&mut file).unwrap();
         pos
     }
@@ -348,6 +345,7 @@ impl BlockManager {
                 let pos = self.write_block_to_file(&block);
                 // write to database
                 self.write_blockheader_to_database(&block.header, pos);
+                // Note process_block increments the self.height
                 self.process_block(block.clone(), tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process

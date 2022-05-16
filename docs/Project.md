@@ -48,6 +48,7 @@ This section contains project status related notes.
 
 ## In Progress
 * Determine the file offset to locate blocks in block file (data/block.dat)
+    * found issue where on_block was setting offset to 0
 
 * Get web interface working
     * status message working

@@ -29,6 +29,9 @@ class Database:
             retval = []
             for x in cursor:
                 retval.append(x)
+            connection.commit()
+            cursor.close()
+            connection.close()
             return retval
 
 
