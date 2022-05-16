@@ -14,7 +14,6 @@ use crate::config::Config;
 use crate::uaas::tx_analyser::TxAnalyser;
 use crate::uaas::util::{timestamp_age_as_sec, timestamp_as_string};
 
-#[derive(Debug)]
 // database header structure
 struct DBHeader {
     _height: u32,
@@ -25,7 +24,7 @@ struct DBHeader {
     timestamp: u32,
     bits: u32,
     nonce: u32,
-    position: u64,
+    _position: u64,
 }
 
 // Used to record the block with a position in the block file
@@ -131,7 +130,7 @@ impl BlockManager {
                         timestamp,
                         bits,
                         nonce,
-                        position,
+                        _position: position,
                     }
                 },
             )
@@ -267,7 +266,7 @@ impl BlockManager {
                     let prev_hash = block.header.prev_hash;
                     let entry = BlockWithPosition {
                         position: Some(position),
-                        block: block,
+                        block,
                     };
                     self.block_queue.insert(prev_hash, entry);
                 }

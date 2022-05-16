@@ -49,23 +49,16 @@ This section contains project status related notes.
 ## In Progress
 * Determine the file offset to locate blocks in block file (data/block.dat)
 
-
 * Get web interface working
     * status message working
     * Read headers using REST API
+    * Add ability to get tx
+    * add ability to get block
 
 * Check on mainnet
 
-
-
 ## TODO
-
 * Add collections
-
-* Add ability to get tx
-* add ability to get block
-
-
 * use blocktime to age tx
 
 * Mainnet nodes disconnect
@@ -76,13 +69,10 @@ This section contains project status related notes.
 * May need to support larger p2p messages
     * add len() to script
 
-*
 * add secondary mempool - what determines secondary mempool ?
     * https://wiki.bitcoinsv.io/index.php/Transaction_Pools
 
-
 * Search for TODOs
-
 * unable to write blobs to database
 * optimise database types
 

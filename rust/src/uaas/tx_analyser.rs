@@ -23,7 +23,7 @@ const NOT_IN_BLOCK: i32 = -1; // use -1 to indicate that this tx is not in block
 pub struct UnspentEntry {
     satoshis: i64,
     // lock_script: Script, - have seen some very large script lengths here - removed for now
-    height: i32, // use -1 to indicate that tx is not in block
+    _height: i32, // use -1 to indicate that tx is not in block
 }
 
 // UtxoEntry - used to store data into utxo table
@@ -36,10 +36,10 @@ struct UtxoEntry {
 
 // Used to store all txs (in mempool)
 pub struct MempoolEntry {
-    tx: Option<Tx>,
-    locktime: u32,
-    fee: u64,
-    age: u64,
+    _tx: Option<Tx>,
+    _locktime: u32,
+    _fee: u64,
+    _age: u64,
 }
 
 // Used for loading tx from mempool table
@@ -52,8 +52,8 @@ pub struct MempoolDB {
 
 // Used to store all txs (in blocks)
 pub struct TxEntry {
-    tx: Option<Tx>,
-    height: usize,
+    _tx: Option<Tx>,
+    _height: usize,
 }
 
 // Used for loading tx from tx table
@@ -155,8 +155,8 @@ impl TxAnalyser {
 
         for tx in txs {
             let tx_entry = TxEntry {
-                tx: None,
-                height: tx.height,
+                _tx: None,
+                _height: tx.height,
             };
             let hash = Hash256::decode(&tx.hash).unwrap();
             self.txs.insert(hash, tx_entry);
@@ -187,10 +187,10 @@ impl TxAnalyser {
 
         for tx in txs {
             let mempool_entry = MempoolEntry {
-                tx: None,
-                age: tx.age,
-                locktime: tx.locktime,
-                fee: tx.fee,
+                _tx: None,
+                _age: tx.age,
+                _locktime: tx.locktime,
+                _fee: tx.fee,
             };
             let hash = Hash256::decode(&tx.hash).unwrap();
             self.mempool.insert(hash, mempool_entry);
@@ -198,7 +198,7 @@ impl TxAnalyser {
 
         println!(
             "Loaded {} mempool in {} seconds",
-            self.txs.len(),
+            self.mempool.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );
     }
@@ -229,7 +229,7 @@ impl TxAnalyser {
             };
             let utxo_entry = UnspentEntry {
                 satoshis: tx.satoshis,
-                height: tx.height,
+                _height: tx.height,
             };
             // add to list
             self.unspent.insert(outpoint, utxo_entry);
@@ -237,7 +237,7 @@ impl TxAnalyser {
 
         println!(
             "Loaded {} utxo in {} seconds",
-            self.txs.len(),
+            self.unspent.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );
     }
@@ -289,7 +289,7 @@ impl TxAnalyser {
                 let new_entry = UnspentEntry {
                     satoshis: vout.satoshis,
                     // lock_script: vout.lock_script.clone(),
-                    height,
+                    _height: height,
                 };
                 // add to list
                 self.unspent.insert(outpoint, new_entry);
@@ -348,8 +348,8 @@ impl TxAnalyser {
 
         // Store tx - note that we only do this for tx in a block
         let tx_entry = TxEntry {
-            tx: Some(tx.clone()),
-            height: height.try_into().unwrap(),
+            _tx: Some(tx.clone()),
+            _height: height.try_into().unwrap(),
         };
 
         if let Some(_prev) = self.txs.insert(hash, tx_entry) {
@@ -428,10 +428,10 @@ impl TxAnalyser {
         let fee = self.calc_fee(tx);
         // Add it to the mempool
         let mempool_entry = MempoolEntry {
-            tx: Some(tx.clone()),
-            age,
-            locktime,
-            fee: fee.try_into().unwrap(),
+            _tx: Some(tx.clone()),
+            _age: age,
+            _locktime: locktime,
+            _fee: fee.try_into().unwrap(),
         };
         self.mempool.insert(hash, mempool_entry);
 
