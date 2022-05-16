@@ -3,7 +3,7 @@ import sys
 
 sys.path.append('..')
 
-from util import load_block_at_offset
+from blockfile import load_block_at_offset
 
 
 def main():

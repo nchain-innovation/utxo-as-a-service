@@ -1,17 +1,11 @@
 import datetime
-from typing import List, Dict, Any, MutableMapping
+from typing import List, Dict, Any
 
-from util import load_block_at_offset
 from database import database
+from blockfile import blockfile
 
 
 class TxAnalyser:
-    def __init__(self):
-        self.block_file: str
-
-    def set_config(self, config: MutableMapping[str, Any]):
-        self.block_file = config["shared"]["block_file"]
-
     def _read_mempool(self) -> List[Dict[str, Any]]:
         # Read mempool from database
         result = database.query("SELECT * FROM mempool")
@@ -50,7 +44,7 @@ class TxAnalyser:
     def get_tx_entry(self, hash: str) -> Dict[str, Dict[str, Any]]:
         """ Return the utxo entry identified by hash"""
         offset = self._read_block_offset(hash)
-        block = load_block_at_offset(self.block_file, offset)
+        block = blockfile.load_at_offset(offset)
         tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
         return {
             "tx": tx.to_dict(),

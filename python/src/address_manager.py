@@ -1,11 +1,8 @@
-from typing import List, Dict, Any, MutableMapping
+from typing import List, Dict, Any
 from database import database
 
 
 class AddressManager:
-
-    def set_config(self, config: MutableMapping[str, Any]):
-        pass
 
     def _read_peers(self) -> List[Dict[str, Any]]:
         # Read peers from database

@@ -114,22 +114,3 @@ def sort_blocks_by_hash_from_first(blocks: List[CBlock]) -> List[CBlock]:
 
             new_blocks.append(b)
     return new_blocks
-
-
-# Blockheaders
-def load_block_at_offset(fname: str, offset: int) -> CBlock:
-    """ Load the block at an offset in a file
-    """
-    block = CBlock()
-    try:
-        with open(fname, "rb") as fh:
-            fh.seek(offset)
-            f = BytesIO(fh.read())
-            block.deserialize(f)
-    except FileNotFoundError as e:
-        print(f"load_blocks - File not found: {e}")
-    else:
-        # Calculate the hashes
-        block.rehash()
-        list(map(lambda x: x.rehash(), block.vtx))
-    return block

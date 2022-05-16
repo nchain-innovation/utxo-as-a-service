@@ -5,11 +5,9 @@ import uvicorn
 import os
 
 from database import database
-from address_manager import address_manager
-from tx_analyser import tx_analyser
-from block_manager import block_manager
 from logic import logic
 from util import load_config
+from blockfile import blockfile
 
 
 def run_webserver(config: MutableMapping[str, Any]):
@@ -44,9 +42,7 @@ def main():
     """
     config = load_config("../data/uaasr.toml")
     database.set_config(config)
-    address_manager.set_config(config)
-    tx_analyser.set_config(config)
-    block_manager.set_config(config)
+    blockfile.set_config(config)
     logic.set_config(config)
     run_webserver(config["web_interface"])
 

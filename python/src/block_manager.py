@@ -1,16 +1,11 @@
-from typing import List, Dict, Any, MutableMapping, Optional
+from typing import List, Dict, Any, Optional
 import datetime
 
-from util import load_block_at_offset
 from database import database
+from blockfile import blockfile
 
 
 class BlockManager:
-    def __init__(self):
-        self.block_file: str
-
-    def set_config(self, config: MutableMapping[str, Any]):
-        self.block_file = config["shared"]["block_file"]
 
     def _read_latest_blocks(self) -> List[Dict[str, Any]]:
         # Read blocks from database
@@ -44,7 +39,7 @@ class BlockManager:
         # Return the block at the given height
         offset = self._read_block_offset(height)
         if offset is not None:
-            block = load_block_at_offset(self.block_file, offset)
+            block = blockfile.load_at_offset(offset)
             return {
                 "block": block.to_dict(),
             }
@@ -66,7 +61,7 @@ class BlockManager:
         # Return the block at the given height
         offset = self._read_block_offset_from_hash(hash)
         if offset is not None:
-            block = load_block_at_offset(self.block_file, offset)
+            block = blockfile.load_at_offset(offset)
             return {
                 "block": block.to_dict(),
             }
