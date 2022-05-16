@@ -77,23 +77,3 @@ class BlockManager:
 
 
 block_manager = BlockManager()
-
-
-def test_database():
-    config = {
-        "python":
-            {
-                "host": "host.docker.internal",
-                "user": "uaas",
-                "password": "uaas-password",
-                "database": "uaas_db",
-            }
-    }
-
-    block_manager.set_config(config)
-    retval = block_manager.get_latest_blocks()
-    print(f"retval = {retval}")
-
-
-if __name__ == '__main__':
-    test_database()
