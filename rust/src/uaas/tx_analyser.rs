@@ -23,7 +23,7 @@ const NOT_IN_BLOCK: i32 = -1; // use -1 to indicate that this tx is not in block
 pub struct UnspentEntry {
     satoshis: i64,
     // lock_script: Script, - have seen some very large script lengths here - removed for now
-    _height: i32, // use -1 to indicate that tx is not in block
+    _height: i32, // use NOT_IN_BLOCK -1 to indicate that tx is not in block
 }
 
 // UtxoEntry - used to store data into utxo table
@@ -106,6 +106,9 @@ impl TxAnalyser {
                     height int unsigned);",
                 )
                 .unwrap();
+            self.conn
+                .query_drop(r"CREATE INDEX idx_tx ON tx (hash);")
+                .unwrap();
         }
 
         if !tables.iter().any(|x| x.as_str() == "mempool") {
@@ -119,6 +122,9 @@ impl TxAnalyser {
                     time int unsigned)",
                 )
                 .unwrap();
+            self.conn
+                .query_drop(r"CREATE INDEX idx_txkey ON mempool (hash);")
+                .unwrap();
         }
 
         // utxo
@@ -130,15 +136,13 @@ impl TxAnalyser {
                     hash varchar(64),
                     pos int unsigned,
                     satoshis bigint unsigned,
-                    height int)",
+                    height int
+                    CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
                 )
                 .unwrap();
-
-            /* index
             self.conn
-                .query_drop(r"CREATE INDEX hash_pos ON utxo (hash, pos);")
+                .query_drop(r"CREATE INDEX idx_key ON utxo (hash, pos);")
                 .unwrap();
-            */
         }
     }
 
@@ -209,15 +213,14 @@ impl TxAnalyser {
 
         let txs: Vec<UtxoEntry> = self
             .conn
-            .query_map(
-                "SELECT * FROM mempool ORDER BY time",
-                |(hash, pos, satoshis, height)| UtxoEntry {
+            .query_map("SELECT * FROM utxo", |(hash, pos, satoshis, height)| {
+                UtxoEntry {
                     hash,
                     pos,
                     satoshis,
                     height,
-                },
-            )
+                }
+            })
             .unwrap();
 
         for tx in txs {
@@ -307,7 +310,8 @@ impl TxAnalyser {
         // bulk/batch write tx output to utxo table
         self.conn
             .exec_batch(
-                "INSERT INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
+                //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
+                "REPLACE INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
                 utxo_entries
                     .iter()
                     .map(|x| params! {
@@ -357,17 +361,15 @@ impl TxAnalyser {
             panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
         }
 
-        // Remove from mempool & utxo as now in block
-        if let Some(_value) = self.mempool.remove(&hash) {
-            // remove from utxo
-            let utxo_delete = format!("DELETE FROM utxo WHERE hash='{}';", &hash.encode());
-            self.conn.exec_drop(&utxo_delete, Params::Empty).unwrap();
-        }
+        // Remove from mempool as now in block
+        self.mempool.remove(&hash);
 
         // process inputs
         self.process_tx_inputs(tx, tx_index);
 
         // Process outputs
+        // Note this will overwrite the unspent outpoints with height = NOT_IN_BLOCK(-1)
+        // and utxo entries
         self.process_tx_outputs(tx, height);
 
         // Collection processing
@@ -376,9 +378,6 @@ impl TxAnalyser {
 
     pub fn process_block(&mut self, block: &Block, height: i32) {
         // Given a block process all the txs in it
-        for (tx_index, tx) in block.txns.iter().enumerate() {
-            self.process_block_tx(tx, height, tx_index);
-        }
         // Batch processing here
         let hashes: Vec<String> = block.txns.iter().map(|b| b.hash().encode()).collect();
 
@@ -399,6 +398,11 @@ impl TxAnalyser {
                     .map(|h| params! {"hash" => h, "height" => height}),
             )
             .unwrap();
+
+        // now process them...
+        for (tx_index, tx) in block.txns.iter().enumerate() {
+            self.process_block_tx(tx, height, tx_index);
+        }
     }
 
     fn calc_fee(&self, tx: &Tx) -> i64 {

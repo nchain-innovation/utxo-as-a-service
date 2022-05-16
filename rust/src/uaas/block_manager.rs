@@ -96,8 +96,11 @@ impl BlockManager {
                     bits int unsigned,
                     nonce int unsigned,
                     offset bigint unsigned
-                );",
+                    CONSTRAINT PK_Entry PRIMARY KEY (hash));",
                 )
+                .unwrap();
+            self.conn
+                .query_drop(r"CREATE INDEX idx_hash ON blocks (hash);")
                 .unwrap();
         }
     }
