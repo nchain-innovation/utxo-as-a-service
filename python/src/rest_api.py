@@ -99,3 +99,9 @@ def get_latest_blocks() -> Dict[str, Any]:
 def get_block_at_height(height: int) -> Dict[str, Any]:
     """ Return the block at the given height"""
     return block_manager.get_block(height)
+
+
+@app.get("/block/hash", tags=["Block"])
+def get_block_at_hash(hash: str) -> Dict[str, Any]:
+    """ Return the block at the given hash"""
+    return block_manager.get_block_at_hash(hash)
