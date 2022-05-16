@@ -45,8 +45,7 @@ This section contains project status related notes.
 * Add option to start the service from block file rather than the database
 * Add mempool outpoints to the utxo set
 * Check height is set correctly after a startup database load
-
-## In Progress
+* ---
 * Determine the file offset to locate blocks in block file (data/block.dat)
     * found issue where on_block was setting offset to 0
 
@@ -55,6 +54,10 @@ This section contains project status related notes.
     * Read headers using REST API
     * Add ability to get tx
     * add ability to get block
+
+
+
+## In Progress
 
 * Check on mainnet
 
@@ -75,7 +78,7 @@ This section contains project status related notes.
 
 * Search for TODOs
 * unable to write blobs to database
-* optimise database types
+* Optimise database types
 
 * add logging
 * Update documentation on Configuration settings

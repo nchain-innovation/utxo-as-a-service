@@ -221,13 +221,9 @@ impl BlockManager {
                 // this should only be the case if postion has not been set
                 assert_eq!(blockwithpos.position, None);
             } else {
-                // TODO get pos off queue
+                // Get the block position off the queue and write the header to the database
                 match blockwithpos.position {
-                    Some(pos) =>
-                    // write to database
-                    {
-                        self.write_blockheader_to_database(&b.header, pos)
-                    }
+                    Some(pos) => self.write_blockheader_to_database(&b.header, pos),
                     None => panic!("should not get here as we dont have the pos in file..."),
                 }
             }
