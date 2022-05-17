@@ -1,11 +1,17 @@
 import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, MutableMapping
 
 from database import database
 from blockfile import blockfile
 
 
 class TxAnalyser:
+    def __init__(self):
+        self.start_block_height: int
+
+    def set_config(self, config: MutableMapping[str, Any]):
+        self.start_block_height = config['service']['start_block_height']
+
     def _read_mempool(self) -> List[Dict[str, Any]]:
         # Read mempool from database
         result = database.query("SELECT * FROM mempool")
@@ -25,7 +31,8 @@ class TxAnalyser:
         # Read mempool from database
         result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}';")
         retval = [{
-            "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2], "height": x[3]
+            "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2],
+            "height": x[3] + self.start_block_height
         } for x in result]
         return retval
 

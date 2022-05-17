@@ -1,10 +1,15 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, MutableMapping
 import time
 from database import database
 from blockfile import blockfile
 
 
 class BlockManager:
+    def __init__(self):
+        self.start_block_height: int
+
+    def set_config(self, config: MutableMapping[str, Any]):
+        self.start_block_height = config['service']['start_block_height']
 
     def _read_latest_blocks(self) -> List[Dict[str, Any]]:
         # Read blocks from database
@@ -12,7 +17,7 @@ class BlockManager:
         retval = []
         for x in result:
             retval.append({
-                "height": x[0],
+                "height": x[0] + self.start_block_height,
                 "hash": x[1],
                 "version": f'{x[2]:08x}',
                 "prev_hash": x[3],
@@ -32,8 +37,8 @@ class BlockManager:
 
     def _read_block_offset(self, height: int) -> Optional[int]:
         # Read block from database
-        retval = database.query(f"SELECT offset FROM blocks WHERE height = '{height}';")
-        print(f"retval = {retval}")
+        h1 = height - self.start_block_height
+        retval = database.query(f"SELECT offset FROM blocks WHERE height = '{h1}';")
         if retval != []:
             return int(retval[0][0])
         else:
@@ -55,7 +60,6 @@ class BlockManager:
     def _read_block_offset_from_hash(self, hash: str) -> Optional[int]:
         # Read block from database
         retval = database.query(f"SELECT offset FROM blocks WHERE hash = '{hash}';")
-        print(f"retval = {retval}")
         if retval != []:
             return int(retval[0][0])
         else:

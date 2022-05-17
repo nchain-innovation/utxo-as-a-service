@@ -44,9 +44,6 @@ def startup():
     config = load_config("../data/uaasr.toml")
     web_address = config["web_interface"]["address"]
 
-    # transaction_analyser.set_config(config)
-    # load_and_process_blocks()
-
 
 @app.get("/", tags=["Web"])
 def root() -> Dict[str, str]:
@@ -60,14 +57,13 @@ def root() -> Dict[str, str]:
 # Service Status
 @app.get("/status", tags=["Status"])
 def get_status() -> Dict[str, Any]:
-    """ Return the current service status (should be `Ready`)"""
+    """ Return the current service status """
     return logic.get_status()
 
 
 @app.get("/addr", tags=["Addresses"])
 def get_addr() -> Dict[str, Any]:
     """ Return the peer addresses seen by the service"""
-
     return address_manager.get_peers()
 
 

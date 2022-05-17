@@ -7,9 +7,11 @@ from database import database
 class Logic:
     def __init__(self):
         self.network: str
+        self.start_block_height: int
 
     def set_config(self, config: MutableMapping[str, Any]):
         self.network = config['service']['network']
+        self.start_block_height = config['service']['start_block_height']
 
     def _get_last_block_time(self) -> str:
         result = database.query("SELECT timestamp FROM blocks ORDER BY height desc LIMIT 1;")
@@ -23,11 +25,12 @@ class Logic:
         return result[0][0]
 
     def get_status(self) -> Dict[str, Dict[str, Any]]:
+        block_height = self._get_no_of_entries("SELECT COUNT(*) FROM blocks;") + self.start_block_height
         return {
             "status": {
                 "network": self.network,
                 'last block time': self._get_last_block_time(),
-                'number of blocks': self._get_no_of_entries("SELECT COUNT(*) FROM blocks;"),
+                'block height': block_height,
                 'number of txs': self._get_no_of_entries("SELECT COUNT(*) FROM tx;"),
                 'number of utxo entries': self._get_no_of_entries("SELECT COUNT(*) FROM utxo;"),
                 'number of mempool entries': self._get_no_of_entries("SELECT COUNT(*) FROM mempool;"),
