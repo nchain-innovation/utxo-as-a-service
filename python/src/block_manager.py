@@ -1,6 +1,5 @@
 from typing import List, Dict, Any, Optional
-import datetime
-
+import time
 from database import database
 from blockfile import blockfile
 
@@ -12,11 +11,16 @@ class BlockManager:
         result = database.query("SELECT * FROM blocks ORDER BY height desc LIMIT 20;")
         retval = []
         for x in result:
-            timestamp = datetime.datetime.fromtimestamp(x[5])
             retval.append({
-                "height": x[0], "hash": x[1], "version": x[2], "prev_hash": x[3], "merkle_root": x[4],
-                "timestamp": timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-                "bits": x[6], "nonce": x[7], "offset": x[8]
+                "height": x[0],
+                "hash": x[1],
+                "version": f'{x[2]:08x}',
+                "prev_hash": x[3],
+                "merkle_root": x[4],
+                "timestamp": time.ctime(x[5]),
+                "bits": f'{x[6]:08x}',
+                "nonce": f'{x[7]:08x}',
+                "offset": f'{x[8]:08x}'
             })
         return retval
 
