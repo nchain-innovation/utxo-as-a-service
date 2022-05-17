@@ -28,7 +28,7 @@ class TxAnalyser:
         }
 
     def _read_utxo(self, hash: str) -> List[Dict[str, Any]]:
-        # Read mempool from database
+        # Read utxo from database
         result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}';")
         retval = [{
             "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2],
@@ -41,6 +41,11 @@ class TxAnalyser:
         return {
             "utxo": self._read_utxo(hash),
         }
+
+    def get_utxo_by_outpoint(self, hash: str, pos: int) -> Dict[str, Any]:
+        # Read utxo from database
+        result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}' AND pos = {pos};")
+        return { "result": len(result[0]) > 0}
 
     def _read_block_offset(self, hash: str) -> int:
         # Read block offset based on tx hash from database

@@ -91,6 +91,12 @@ def get_utxo(hash: str) -> Dict[str, Any]:
     return tx_analyser.get_utxo_entry(hash)
 
 
+@app.get("/tx/utxo_by_outpoint", tags=["Tx"])
+def get_utxo_by_outpoint(hash: str, pos : int) ->  Dict[str, Any]:
+    """ Return the utxo entry identified by hash and pos"""
+    return tx_analyser.get_utxo_by_outpoint(hash, pos)
+
+
 @app.get("/block/latest", tags=["Block"])
 def get_latest_blocks() -> Dict[str, Any]:
     """ Return the latest blocks seen by the service"""
