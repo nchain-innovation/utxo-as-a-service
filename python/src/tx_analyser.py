@@ -45,7 +45,7 @@ class TxAnalyser:
     def get_utxo_by_outpoint(self, hash: str, pos: int) -> Dict[str, Any]:
         # Read utxo from database
         result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}' AND pos = {pos};")
-        return { "result": len(result) > 0}
+        return {"result": len(result) > 0}
 
     def _read_block_offset(self, hash: str) -> int:
         # Read block offset based on tx hash from database

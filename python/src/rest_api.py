@@ -92,7 +92,7 @@ def get_utxo(hash: str) -> Dict[str, Any]:
 
 
 @app.get("/tx/utxo_by_outpoint", tags=["Tx"])
-def get_utxo_by_outpoint(hash: str, pos : int) ->  Dict[str, Any]:
+def get_utxo_by_outpoint(hash: str, pos: int) -> Dict[str, Any]:
     """ Return the utxo entry identified by hash and pos"""
     return tx_analyser.get_utxo_by_outpoint(hash, pos)
 
