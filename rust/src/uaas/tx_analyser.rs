@@ -27,6 +27,8 @@ pub struct UnspentEntry {
 }
 
 // UtxoEntry - used to store data into utxo table
+#[derive(Debug)]
+
 struct UtxoEntry {
     pub hash: String,
     pub pos: u32,
@@ -136,7 +138,7 @@ impl TxAnalyser {
                     hash varchar(64),
                     pos int unsigned,
                     satoshis bigint unsigned,
-                    height int
+                    height int,
                     CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
                 )
                 .unwrap();
@@ -307,6 +309,7 @@ impl TxAnalyser {
                 utxo_entries.push(utxo_entry);
             }
         }
+
         // bulk/batch write tx output to utxo table
         self.conn
             .exec_batch(

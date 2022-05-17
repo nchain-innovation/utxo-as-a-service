@@ -95,7 +95,7 @@ impl BlockManager {
                     timestamp int unsigned,
                     bits int unsigned,
                     nonce int unsigned,
-                    offset bigint unsigned
+                    offset bigint unsigned,
                     CONSTRAINT PK_Entry PRIMARY KEY (hash));",
                 )
                 .unwrap();
