@@ -77,6 +77,12 @@ def get_tx(hash: str) -> Dict[str, Any]:
     return tx_analyser.get_tx_entry(hash)
 
 
+@app.get("/tx/raw", tags=["Tx"])
+def get_tx_raw(hash: str) -> Dict[str, Any]:
+    """ Return the tx raw entry identified by hash"""
+    return tx_analyser.get_tx_raw_entry(hash)
+
+
 @app.get("/tx/mempool", tags=["Tx"])
 def get_mempool() -> Dict[str, Any]:
     """ Return the mempool seen by the service"""

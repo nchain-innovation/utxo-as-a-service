@@ -50,5 +50,15 @@ class TxAnalyser:
             "tx": tx.to_dict(),
         }
 
+    def get_tx_raw_entry(self, hash: str) -> Dict[str, Any]:
+        """ return the serialised form of the transaction """
+        offset = self._read_block_offset(hash)
+        block = blockfile.load_at_offset(offset)
+        tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
+        b = tx.serialize()
+        return {
+            "tx": b.hex(),
+        }
+
 
 tx_analyser = TxAnalyser()
