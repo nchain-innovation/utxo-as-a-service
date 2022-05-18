@@ -22,13 +22,20 @@ pub struct WorkingCollection {
     // this is a collection that also maintains a list of tx hashes that it has used
     collection: Collection,
     txs: Vec<Hash256>,
+    locking_script_regex: Option<Regex>,
 }
 
 impl WorkingCollection {
     pub fn new(collection: Collection) -> Self {
+        let locking_script_regex = collection
+            .locking_script_pattern
+            .as_ref()
+            .map(|pattern| Regex::new(pattern).unwrap());
+
         WorkingCollection {
             collection,
             txs: Vec::new(),
+            locking_script_regex,
         }
     }
 
@@ -79,6 +86,7 @@ impl WorkingCollection {
 
     pub fn write_to_database(&self, tx: &Tx, conn: &mut PooledConn) {
         let hash = tx.hash().encode();
+        // Write the tx as hexstr
         let mut b = Vec::with_capacity(tx.size());
         tx.write(&mut b).unwrap();
         let tx_hex = format!("{}", HexSlice::new(&b));
@@ -91,16 +99,12 @@ impl WorkingCollection {
     }
 
     pub fn match_any_locking_script(&self, tx: &Tx) -> bool {
-        if let Some(pattern) = &self.collection.locking_script_pattern {
+        if let Some(regex) = &self.locking_script_regex {
             for vout in &tx.outputs {
                 // Convert the script into hexstring
                 let script_hex = format!("{}", HexSlice::new(&vout.lock_script.0));
-                //println!("{}", &script_hex);
-                let re = Regex::new(pattern).unwrap();
-                //dbg!(re.is_match(&script_hex));
-
                 // Pattern match here
-                if re.is_match(&script_hex) {
+                if regex.is_match(&script_hex) {
                     return true;
                 }
             }
@@ -114,7 +118,7 @@ impl WorkingCollection {
     }
 
     pub fn is_decendant(&self, tx: &Tx) -> bool {
-        // Return true if transaction is a decendent of a known `collection` transaction.
+        // Return true if transaction is a decendant of a known `collection` transaction.
         for vin in &tx.inputs {
             if self.txs.iter().any(|x| x == &vin.prev_output.hash) {
                 return true;
