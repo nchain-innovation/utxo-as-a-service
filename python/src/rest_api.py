@@ -6,6 +6,7 @@ from util import load_config
 from address_manager import address_manager
 from tx_analyser import tx_analyser
 from block_manager import block_manager
+from collection import collection
 from logic import logic
 
 tags_metadata = [
@@ -113,3 +114,15 @@ def get_block_at_height(height: int) -> Dict[str, Any]:
 def get_block_at_hash(hash: str) -> Dict[str, Any]:
     """ Return the block at the given hash"""
     return block_manager.get_block_at_hash(hash)
+
+
+@app.get("/collection", tags=["Collection"])
+def get_collections() -> Dict[str, Any]:
+    """ Return the collections associated with this service"""
+    return collection.get_collections()
+
+
+@app.get("/collection/tx/raw", tags=["Collection"])
+def get_raw_tx_from_collection(cname: str, hash: str) -> Dict[str, Any]:
+    """ Return the raw tx from the named collection"""
+    return collection.get_raw_tx_from_collection(cname, hash)

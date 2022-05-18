@@ -1,7 +1,9 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate chrono;
+extern crate hex;
 extern crate rand;
+extern crate regex;
 
 use std::net::IpAddr;
 use std::sync::atomic::AtomicBool;
@@ -75,6 +77,7 @@ fn main() {
         Some(config) => config,
         None => panic!("Unable to read config"),
     };
+    dbg!(&config);
 
     // Decode config
     let ips: Vec<IpAddr> = config

@@ -1,8 +1,8 @@
 [service]
-user_agent = "/Bitcoin SV:1.0.09/"
+user_agent = "/Bitcoin SV:1.0.9/"
 
 # Mainnet
-# ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
+#ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
 # ip = ["18.192.253.59"] # Same as above
 # ip = ["13.86.34.113"]
 # ip = ["18.157.234.254"]
@@ -17,7 +17,9 @@ user_agent = "/Bitcoin SV:1.0.09/"
 # ip = ["23.92.74.110"] # - dropped after requesting block
 #port = 8333
 #network = "Mainnet"
-#start_block_hash = "000000000000000004c01dee645e2ab6ecc08cfa92685e026ba397fdce86aaaf" # current tip
+#start_block_hash = "0000000000129f1b7b9097d2fe4c51c1bddf8cf8fb74ecbcfc4b7d648e09d248" # current tip
+#start_block_height = 739854
+
 #timeout_period = 120.0
 
 # Testnet
@@ -34,8 +36,6 @@ timeout_period = 240.0
 
 # This is the time the service will wait after the last block before requesting another
 block_request_period = 80
-# Testnet
-mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 
 # The startup_load_from_database option makes the service load the data from the database on startup, or from a file.
 # Normally you would load from the database using the setting:
@@ -44,17 +44,37 @@ mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 # Note when reading from the file, would expect to delete the following tables:
 #   * blocks, tx, utxo, mempool
 # Prior to starting the service.
+
 startup_load_from_database = true
+#startup_load_from_database = false
+
+# Testnet
+mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 
 # Mainnet
 #mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
 
-# mysql_url = "mysql://bnar:bnar-password@localhost:3306/test_db"
-# mysql_url = "mysql://bnar:bnar-password@host.docker.internal:3306/test_db"
+[collection]
+# [collection.a]
+# Follow this address 'mnoCNkL8GeBaFmFbsaaZQVxY1vqTaw83nG'
+# These fields are required
+# name = "address_mnoCNkL8GeBaFmFbsaaZQVxY1vqTaw83nG"
+#name = "address_mno"
+# unlocking_script_pattern = ""
+#track_descendants = false
+# locking_script_pattern = "76a9144fdb4a40372ff0fd550a57b4e3ce3fab95ad680688ac"
+
+name = "p2pkh"
+track_descendants = true
+# These fields are optional (locking_script_pattern and unlocking_script_pattern)
+# unlocking_script_pattern = ""
+locking_script_pattern = "76a914[0-9a-f]{40}88ac"
+
+
 
 [shared]
 # Mainnet
-#block_file = "../data/main-block.dat"
+# block_file = "../data/main-block.dat"
 
 # Testnet
 block_file = "../data/block.dat"

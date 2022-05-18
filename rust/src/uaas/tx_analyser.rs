@@ -10,7 +10,7 @@ use sv::messages::{Block, OutPoint, Tx, TxOut};
 use sv::util::Hash256;
 
 use crate::config::Config;
-
+use crate::uaas::collection::WorkingCollection;
 /*
     in - unlock_script - script sig
     out - lock_script - script public key
@@ -77,15 +77,19 @@ pub struct TxAnalyser {
     conn: PooledConn,
     // Address to script & tx mapping - replaced by collections
     // p2pkh_scripts: HashMap<String, P2PKH_Entry>,
+
+    // Collections
+    collection: WorkingCollection,
 }
 
 impl TxAnalyser {
-    pub fn new(_config: &Config, conn: PooledConn) -> Self {
+    pub fn new(config: &Config, conn: PooledConn) -> Self {
         TxAnalyser {
             txs: HashMap::new(),
             mempool: HashMap::new(),
             unspent: HashMap::new(),
             conn,
+            collection: WorkingCollection::new(config.collection.clone()),
         }
     }
 
@@ -146,10 +150,19 @@ impl TxAnalyser {
                 .query_drop(r"CREATE INDEX idx_key ON utxo (hash, pos);")
                 .unwrap();
         }
+
+        // Collection tables
+        if !tables.iter().any(|x| x.as_str() == self.collection.name()) {
+            println!(
+                "Table collection {} not found - creating",
+                self.collection.name()
+            );
+            self.collection.create_table(&mut self.conn);
+        }
     }
 
     fn load_tx(&mut self) {
-        // load tx hash and height from database
+        // load tx - (tx hash and height) from database
         let start = Instant::now();
 
         let txs: Vec<HashHeight> = self
@@ -175,7 +188,7 @@ impl TxAnalyser {
     }
 
     fn load_mempool(&mut self) {
-        // load tx hash and height from database
+        // load mempool - tx hash and height from database
         let start = Instant::now();
 
         let txs: Vec<MempoolDB> = self
@@ -248,18 +261,16 @@ impl TxAnalyser {
     }
 
     fn read_tables(&mut self) {
-        // load tx - Note  - can't load the tx as we dont store the original tx
+        // Load datastructures from the database tables
         self.load_tx();
-        // load mempool
         self.load_mempool();
-        // load utxo
         self.load_utxo();
+        self.collection.load_txs(&mut self.conn);
     }
 
     pub fn setup(&mut self) {
         // Do the startup setup that is required for tx analyser
         self.create_tables();
-
         self.read_tables();
     }
 
@@ -349,8 +360,32 @@ impl TxAnalyser {
             .unwrap();
     }
 
+    fn process_collection(&mut self, tx: &Tx, _height: i32, _tx_index: i32) {
+        // Check to see if we have already processed it if so quit
+        if self.collection.already_have_tx(tx.hash()) {
+            return;
+        }
+
+        // Check inputs
+        // TODO: any_script_sig_matches_pattern
+
+        if self.collection.track_descendants() && self.collection.is_decendant(tx) {
+            // Save tx hash and write to database
+            self.collection.push(tx.hash());
+            self.collection.write_to_database(tx, &mut self.conn);
+            return;
+        }
+
+        // Check outputs
+        if self.collection.match_any_locking_script(tx) {
+            // Save tx hash and write to database
+            self.collection.push(tx.hash());
+            self.collection.write_to_database(tx, &mut self.conn);
+        }
+    }
+
     pub fn process_block_tx(&mut self, tx: &Tx, height: i32, tx_index: usize) {
-        // Process tx as received in a block
+        // Process tx as received in a block from a peer
         let hash = tx.hash();
 
         // Store tx - note that we only do this for tx in a block
@@ -376,7 +411,7 @@ impl TxAnalyser {
         self.process_tx_outputs(tx, height);
 
         // Collection processing
-        // TODO add here
+        self.process_collection(tx, height, tx_index.try_into().unwrap());
     }
 
     pub fn process_block(&mut self, block: &Block, height: i32) {
@@ -459,5 +494,8 @@ impl TxAnalyser {
 
         // Process outputs
         self.process_tx_outputs(tx, NOT_IN_BLOCK);
+
+        // Collection processing
+        self.process_collection(tx, NOT_IN_BLOCK, NOT_IN_BLOCK);
     }
 }

@@ -388,6 +388,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "idna"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1257,7 +1263,7 @@ dependencies = [
  "byteorder",
  "digest 0.7.6",
  "dns-lookup",
- "hex",
+ "hex 0.3.2",
  "linked-hash-map",
  "log",
  "murmur3",
@@ -1377,7 +1383,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee73e6e4924fe940354b8d4d98cad5231175d615cd855b758adc658c0aac6a0"
 dependencies = [
  "cfg-if",
- "rand 0.7.3",
+ "rand 0.8.5",
  "static_assertions",
 ]
 
@@ -1392,9 +1398,11 @@ name = "uaas"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex 0.4.3",
  "lazy_static",
  "mysql",
  "rand 0.8.5",
+ "regex",
  "serde",
  "serde_json",
  "sv",

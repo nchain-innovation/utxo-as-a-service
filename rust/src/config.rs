@@ -3,6 +3,8 @@ use std::env;
 use std::net::IpAddr;
 use sv::network::Network;
 
+use crate::uaas::collection::Collection;
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Service {
     pub user_agent: String,
@@ -24,6 +26,7 @@ pub struct Shared {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub service: Service,
+    pub collection: Collection,
     pub shared: Shared,
 }
 

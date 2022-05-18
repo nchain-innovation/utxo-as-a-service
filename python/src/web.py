@@ -11,6 +11,7 @@ from util import load_config
 from blockfile import blockfile
 from tx_analyser import tx_analyser
 from block_manager import block_manager
+from collection import collection
 
 
 def run_webserver(config: MutableMapping[str, Any]):
@@ -49,6 +50,7 @@ def main():
     logic.set_config(config)
     tx_analyser.set_config(config)
     block_manager.set_config(config)
+    collection.set_config(config)
     run_webserver(config["web_interface"])
 
 
