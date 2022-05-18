@@ -9,7 +9,8 @@ class BlockManager:
         self.start_block_height: int
 
     def set_config(self, config: MutableMapping[str, Any]):
-        self.start_block_height = config['service']['start_block_height']
+        network = config['service']['network']
+        self.start_block_height = config[network]['start_block_height']
 
     def _read_latest_blocks(self) -> List[Dict[str, Any]]:
         # Read blocks from database

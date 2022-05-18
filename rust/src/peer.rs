@@ -24,7 +24,7 @@ pub fn connect_to_peer(
     running: Arc<AtomicBool>,
 ) {
     // Given the ip address and config connect to the peer, quit if timeout occurs
-    let port = config.service.port;
+    let port = config.get_network_settings().port;
     let network = config.get_network().expect("Error decoding config network");
     let mut rng = rand::thread_rng();
 
@@ -32,7 +32,7 @@ pub fn connect_to_peer(
         version: PROTOCOL_VERSION,
         services: NODE_BITCOIN_CASH,
         timestamp: secs_since(time::UNIX_EPOCH) as i64,
-        user_agent: config.service.user_agent,
+        user_agent: config.service.user_agent.clone(),
         relay: true, // This is required to receive Tx messages
         nonce: rng.gen::<u64>(),
         start_height: 738839,
@@ -53,7 +53,7 @@ pub fn connect_to_peer(
     let two_seconds = time::Duration::from_secs(2);
     thread::sleep(one_second);
     while running.load(Ordering::Relaxed)
-        && event_handler.get_elapsed_time() < config.service.timeout_period
+        && event_handler.get_elapsed_time() < config.get_network_settings().timeout_period
     {
         let start = time::Instant::now();
         thread::sleep(one_second);
@@ -65,7 +65,7 @@ pub fn connect_to_peer(
             break;
         }
     }
-    if event_handler.get_elapsed_time() >= config.service.timeout_period {
+    if event_handler.get_elapsed_time() >= config.get_network_settings().timeout_period {
         println!("timed out at {} seconds", event_handler.get_elapsed_time());
     }
     peer.disconnect();

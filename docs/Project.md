@@ -58,11 +58,13 @@ This section contains project status related notes.
 
 
 ## In Progress
+* Add collections
+    * add min required by John for demo
+* split config to make mainnet/testnet switch safer
 
 * Check on mainnet
 
 ## TODO
-* Add collections
 * use blocktime to age tx
 
 * Mainnet nodes disconnect

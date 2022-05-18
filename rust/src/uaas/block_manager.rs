@@ -60,13 +60,14 @@ pub struct BlockManager {
 impl BlockManager {
     pub fn new(config: &Config, conn: PooledConn) -> Self {
         BlockManager {
-            start_block_hash: config.service.start_block_hash.clone(),
-            startup_load_from_database: config.service.startup_load_from_database,
-            block_file: config.shared.block_file.clone(),
+            start_block_hash: config.get_network_settings().start_block_hash.clone(),
+            startup_load_from_database: config.get_network_settings().startup_load_from_database,
+            block_file: config.get_network_settings().block_file.clone(),
             block_headers: Vec::new(),
             hash_to_index: HashMap::new(),
             height: 0,
-            last_hash_processed: Hash256::decode(&config.service.start_block_hash).unwrap(),
+            last_hash_processed: Hash256::decode(&config.get_network_settings().start_block_hash)
+                .unwrap(),
             block_queue: HashMap::new(),
             conn,
         }

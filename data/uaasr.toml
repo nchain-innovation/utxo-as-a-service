@@ -1,8 +1,9 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.9/"
+network = "testnet"
 
-# Mainnet
-#ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
+[mainnet]
+ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
 # ip = ["18.192.253.59"] # Same as above
 # ip = ["13.86.34.113"]
 # ip = ["18.157.234.254"]
@@ -15,18 +16,22 @@ user_agent = "/Bitcoin SV:1.0.9/"
 # ip = ["3.67.20.166"] - dropped us
 # ip = ["52.28.166.147"] - dropped us
 # ip = ["23.92.74.110"] # - dropped after requesting block
-#port = 8333
-#network = "Mainnet"
-#start_block_hash = "0000000000129f1b7b9097d2fe4c51c1bddf8cf8fb74ecbcfc4b7d648e09d248" # current tip
-#start_block_height = 739854
+port = 8333
+start_block_hash = "0000000000129f1b7b9097d2fe4c51c1bddf8cf8fb74ecbcfc4b7d648e09d248" # current tip
+start_block_height = 739854
 
-#timeout_period = 120.0
+timeout_period = 120.0
+block_request_period = 80
 
-# Testnet
+startup_load_from_database = true
+mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
+block_file = "../data/main-block.dat"
+
+
+[testnet]
 #ip = [ "176.9.148.163", "167.99.91.85"]
 ip = [ "176.9.148.163"]
 port = 18333
-network = "Testnet"
 
 start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
 start_block_height = 1485944
@@ -48,11 +53,8 @@ block_request_period = 80
 startup_load_from_database = true
 #startup_load_from_database = false
 
-# Testnet
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-
-# Mainnet
-#mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
+block_file = "../data/block.dat"
 
 [collection]
 # [collection.a]
@@ -71,20 +73,16 @@ track_descendants = true
 locking_script_pattern = "76a914[0-9a-f]{40}88ac"
 
 
-
-[shared]
-# Mainnet
-# block_file = "../data/main-block.dat"
-
-# Testnet
-block_file = "../data/block.dat"
-
-
 [python]
 host = "host.docker.internal"
 user = "uaas"
 password = "uaas-password"
 database = "uaas_db"
+# Mainnet
+# block_file = "../data/main-block.dat"
+
+# Testnet
+block_file = "../data/block.dat"
 
 [web_interface]
 address = '127.0.0.1:5010'

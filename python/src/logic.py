@@ -11,7 +11,7 @@ class Logic:
 
     def set_config(self, config: MutableMapping[str, Any]):
         self.network = config['service']['network']
-        self.start_block_height = config['service']['start_block_height']
+        self.start_block_height = config[self.network]['start_block_height']
 
     def _get_last_block_time(self) -> str:
         result = database.query("SELECT timestamp FROM blocks ORDER BY height desc LIMIT 1;")

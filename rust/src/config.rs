@@ -6,43 +6,54 @@ use sv::network::Network;
 use crate::uaas::collection::Collection;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Service {
-    pub user_agent: String,
+pub struct NetworkSettings {
     pub ip: Vec<String>,
     pub port: u16,
-    pub network: String,
     pub timeout_period: f64,
     pub block_request_period: u64,
     pub mysql_url: String,
     pub start_block_hash: String,
     pub startup_load_from_database: bool,
+    pub block_file: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Shared {
-    pub block_file: String,
+pub struct Service {
+    pub user_agent: String,
+    pub network: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub service: Service,
+    pub mainnet: NetworkSettings,
+    pub testnet: NetworkSettings,
+
     pub collection: Collection,
-    pub shared: Shared,
 }
 
 impl Config {
     pub fn get_network(&self) -> Result<Network, &str> {
         match self.service.network.as_str() {
-            "Mainnet" => Ok(Network::Mainnet),
-            "Testnet" => Ok(Network::Testnet),
-            "STN" => Ok(Network::STN),
+            "mainnet" => Ok(Network::Mainnet),
+            "testnet" => Ok(Network::Testnet),
+            "stn" => Ok(Network::STN),
             _ => Err("unable to decode network"),
+        }
+    }
+
+    pub fn get_network_settings(&self) -> &NetworkSettings {
+        match self.service.network.as_str() {
+            "mainnet" => &self.mainnet,
+            "testnet" => &self.testnet,
+            "stn" => panic!("no settings for STN"),
+            _ => panic!("unable to decode network"),
         }
     }
 
     pub fn get_ips(&self) -> Result<Vec<IpAddr>, &str> {
         let mut ip_list: Vec<IpAddr> = Vec::new();
-        for ip in self.service.ip.iter() {
+        for ip in self.get_network_settings().ip.iter() {
             match ip.parse() {
                 Ok(value) => ip_list.push(value),
                 Err(_) => return Err("unable to parse ip address"),
