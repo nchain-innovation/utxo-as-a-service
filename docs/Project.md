@@ -60,6 +60,7 @@ This section contains project status related notes.
 ## In Progress
 * Add collections
     * add min required by John for demo
+    * modified collection table to cope with larger tx
 * split config to make mainnet/testnet switch safer
 
 * Check on mainnet
