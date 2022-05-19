@@ -29,7 +29,7 @@ pub struct Config {
     pub mainnet: NetworkSettings,
     pub testnet: NetworkSettings,
 
-    pub collection: Collection,
+    pub collection: Vec<Collection>,
 }
 
 impl Config {

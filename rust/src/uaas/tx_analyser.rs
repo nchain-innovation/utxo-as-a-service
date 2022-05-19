@@ -75,22 +75,26 @@ pub struct TxAnalyser {
     unspent: HashMap<OutPoint, UnspentEntry>,
     // Database connection
     conn: PooledConn,
-    // Address to script & tx mapping - replaced by collections
-    // p2pkh_scripts: HashMap<String, P2PKH_Entry>,
 
     // Collections
-    collection: WorkingCollection,
+    collection: Vec<WorkingCollection>,
 }
 
 impl TxAnalyser {
     pub fn new(config: &Config, conn: PooledConn) -> Self {
-        TxAnalyser {
+        let mut txanal = TxAnalyser {
             txs: HashMap::new(),
             mempool: HashMap::new(),
             unspent: HashMap::new(),
             conn,
-            collection: WorkingCollection::new(config.collection.clone()),
+            collection: Vec::new(),
+        };
+
+        for collection in &config.collection {
+            let wc = WorkingCollection::new(collection.clone());
+            txanal.collection.push(wc);
         }
+        txanal
     }
 
     fn create_tables(&mut self) {
@@ -152,12 +156,12 @@ impl TxAnalyser {
         }
 
         // Collection tables
-        if !tables.iter().any(|x| x.as_str() == self.collection.name()) {
-            println!(
-                "Table collection {} not found - creating",
-                self.collection.name()
-            );
-            self.collection.create_table(&mut self.conn);
+        for c in &self.collection {
+            let name = c.name();
+            if !tables.iter().any(|x| x.as_str() == name) {
+                println!("Table collection {} not found - creating", name);
+                c.create_table(&mut self.conn);
+            }
         }
     }
 
@@ -181,7 +185,7 @@ impl TxAnalyser {
             self.txs.insert(hash, tx_entry);
         }
         println!(
-            "Loaded {} txs in {} seconds",
+            "Txs {} loaded in {} seconds",
             self.txs.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );
@@ -216,7 +220,7 @@ impl TxAnalyser {
         }
 
         println!(
-            "Loaded {} mempool in {} seconds",
+            "Mempool {} Loaded in {} seconds",
             self.mempool.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );
@@ -254,7 +258,7 @@ impl TxAnalyser {
         }
 
         println!(
-            "Loaded {} utxo in {} seconds",
+            "UTXO {} Loaded in {} seconds",
             self.unspent.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );
@@ -262,10 +266,12 @@ impl TxAnalyser {
 
     fn read_tables(&mut self) {
         // Load datastructures from the database tables
-        self.load_tx();
         self.load_mempool();
+        self.load_tx();
         self.load_utxo();
-        self.collection.load_txs(&mut self.conn);
+        for c in self.collection.iter_mut() {
+            c.load_txs(&mut self.conn);
+        }
     }
 
     pub fn setup(&mut self) {
@@ -361,26 +367,28 @@ impl TxAnalyser {
     }
 
     fn process_collection(&mut self, tx: &Tx, _height: i32, _tx_index: i32) {
-        // Check to see if we have already processed it if so quit
-        if self.collection.already_have_tx(tx.hash()) {
-            return;
-        }
+        for c in self.collection.iter_mut() {
+            // Check to see if we have already processed it if so quit
+            if c.already_have_tx(tx.hash()) {
+                continue;
+            }
 
-        // Check inputs
-        // TODO: any_script_sig_matches_pattern
+            // Check inputs
+            // TODO: any_script_sig_matches_pattern
 
-        if self.collection.track_descendants() && self.collection.is_decendant(tx) {
-            // Save tx hash and write to database
-            self.collection.push(tx.hash());
-            self.collection.write_to_database(tx, &mut self.conn);
-            return;
-        }
+            if c.track_descendants() && c.is_decendant(tx) {
+                // Save tx hash and write to database
+                c.push(tx.hash());
+                c.write_to_database(tx, &mut self.conn);
+                continue;
+            }
 
-        // Check outputs
-        if self.collection.match_any_locking_script(tx) {
-            // Save tx hash and write to database
-            self.collection.push(tx.hash());
-            self.collection.write_to_database(tx, &mut self.conn);
+            // Check outputs
+            if c.match_any_locking_script(tx) {
+                // Save tx hash and write to database
+                c.push(tx.hash());
+                c.write_to_database(tx, &mut self.conn);
+            }
         }
     }
 

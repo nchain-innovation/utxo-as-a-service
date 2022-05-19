@@ -56,8 +56,7 @@ startup_load_from_database = true
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 block_file = "../data/block.dat"
 
-[collection]
-# [collection.a]
+[[collection]]
 # Follow this address 'mnoCNkL8GeBaFmFbsaaZQVxY1vqTaw83nG'
 # These fields are required
 # name = "address_mnoCNkL8GeBaFmFbsaaZQVxY1vqTaw83nG"
@@ -67,11 +66,13 @@ block_file = "../data/block.dat"
 # locking_script_pattern = "76a9144fdb4a40372ff0fd550a57b4e3ce3fab95ad680688ac"
 
 name = "p2pkh"
-track_descendants = true
-# These fields are optional (locking_script_pattern and unlocking_script_pattern)
-# unlocking_script_pattern = ""
+track_descendants = false
 locking_script_pattern = "76a914[0-9a-f]{40}88ac"
 
+[[collection]]
+name = "not_p2pkh"
+track_descendants = false
+locking_script_pattern = "006a[0-9a-f]*"
 
 [python]
 host = "host.docker.internal"

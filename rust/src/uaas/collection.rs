@@ -78,7 +78,8 @@ impl WorkingCollection {
             self.txs.push(hash);
         }
         println!(
-            "Loaded {} collection in {} seconds",
+            "Collection {} Loaded {} in {} seconds",
+            self.name(),
             self.txs.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );

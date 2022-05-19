@@ -77,7 +77,6 @@ fn main() {
         Some(config) => config,
         None => panic!("Unable to read config"),
     };
-    dbg!(&config);
 
     // Decode config
     let ips: Vec<IpAddr> = config
