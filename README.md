@@ -69,11 +69,6 @@ This is read when the service starts up.
 
 For more details about the configuration file see [here](docs/Configuration.md).
 
-Note that to reset what the service is looking for in terms of blocks the following needs to be reset (as they contain the state of the service):
-* Config file `/data/uaasr.toml`
-* Block data file `data/main-block.dat`
-* Database tables - `block`
-
 
 ## Directories
 The following directories exist in this project:

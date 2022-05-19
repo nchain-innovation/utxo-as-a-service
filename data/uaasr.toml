@@ -88,12 +88,6 @@ name = "not_p2pkh"
 track_descendants = false
 locking_script_pattern = "006a[0-9a-f]*"
 
-[python]
-host = "host.docker.internal"
-user = "uaas"
-password = "uaas-password"
-database = "uaas_db"
-
 [web_interface]
 address = '127.0.0.1:5010'
 log_level = 'info'

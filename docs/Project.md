@@ -55,17 +55,24 @@ This section contains project status related notes.
     * Add ability to get tx
     * add ability to get block
 
+* Improved database performance
+    * Optimised database types
 
-
-## In Progress
 * Add collections
     * add min required by John for demo
     * modified collection table to cope with larger tx
+
 * split config to make mainnet/testnet switch safer
 
+## In Progress
+* Document configuration file
 * Check on mainnet
 
 ## TODO
+* Add blocksize and number of tx to blocks table
+* Add tx size to transaction table
+* Restart the thread if it stops/disconnects
+
 * use blocktime to age tx
 
 * Mainnet nodes disconnect
@@ -81,7 +88,6 @@ This section contains project status related notes.
 
 * Search for TODOs
 * unable to write blobs to database
-* Optimise database types
 
 * add logging
 * Update documentation on Configuration settings
