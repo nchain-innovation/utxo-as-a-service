@@ -25,6 +25,13 @@ block_request_period = 80
 
 startup_load_from_database = true
 mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
+# Python database access
+host = "host.docker.internal"
+user = "maas"
+password = "maas-password"
+database = "main_uaas_db"
+
+# Used by Python and Rust
 block_file = "../data/main-block.dat"
 
 
@@ -54,6 +61,13 @@ startup_load_from_database = true
 #startup_load_from_database = false
 
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+# Python database access
+host = "host.docker.internal"
+user = "uaas"
+password = "uaas-password"
+database = "uaas_db"
+
+# Used by Python and Rust
 block_file = "../data/block.dat"
 
 [[collection]]
@@ -79,11 +93,6 @@ host = "host.docker.internal"
 user = "uaas"
 password = "uaas-password"
 database = "uaas_db"
-# Mainnet
-# block_file = "../data/main-block.dat"
-
-# Testnet
-block_file = "../data/block.dat"
 
 [web_interface]
 address = '127.0.0.1:5010'

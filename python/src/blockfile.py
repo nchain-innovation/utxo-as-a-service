@@ -29,7 +29,8 @@ class BlockFile:
         self.block_file: str
 
     def set_config(self, config: MutableMapping[str, Any]):
-        self.block_file = config["python"]["block_file"]
+        network = config['service']['network']
+        self.block_file = config[network]["block_file"]
 
     def load_at_offset(self, offset: int) -> CBlock:
         return load_block_at_offset(self.block_file, offset)

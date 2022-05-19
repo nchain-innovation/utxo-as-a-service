@@ -11,10 +11,11 @@ class Database:
         self.database: str
 
     def set_config(self, config: MutableMapping[str, Any]):
-        self.host = config["python"]["host"]
-        self.user = config["python"]["user"]
-        self.password = config["python"]["password"]
-        self.database = config["python"]["database"]
+        network = config['service']['network']
+        self.host = config[network]["host"]
+        self.user = config[network]["user"]
+        self.password = config[network]["password"]
+        self.database = config[network]["database"]
 
     def query(self, query_string: str) -> List[Any]:
         with connect(
