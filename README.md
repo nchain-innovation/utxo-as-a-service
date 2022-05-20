@@ -7,6 +7,10 @@ The two components read the same configuration file and share data using databas
 
 ![Service Deployment](docs/diagrams/deployment.png)
 
+The service stores blocks and can return transactions from those blocks.
+If you need transactions that are in the mempool you will need to set up a `Collection` which
+will capture all transactions that match a particular pattern.
+For more details on setting up a `Collection` see the configuration documentation [here](docs/Configuration.md).
 
 This project uses the following Bitcoin SV Rust library for processing peer to peer (P2P) messages:
 https://github.com/brentongunning/rust-sv
