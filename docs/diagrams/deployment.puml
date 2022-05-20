@@ -20,6 +20,9 @@ package Service {
         component "UaaS\n(Rust)" as UaaS
     }
 
+    PeerNode <-down-> UaaS: P2P Messages
+
+
     package SharedData_Mounted {
         file blocks.dat
         note bottom
@@ -44,7 +47,6 @@ package Service {
     UaaS ~~> blocks.dat :write_block
     WebService <~~ blocks.dat: read_block
 
-    UaaS <-up-> PeerNode: P2P Messages
 }
 
 package DockerContainer_MySQL {

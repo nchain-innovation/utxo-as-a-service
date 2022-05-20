@@ -65,14 +65,21 @@ This section contains project status related notes.
 
 * split config to make mainnet/testnet switch safer
 * ---
+* Incorporate both services in docker
+    * Rust service to select mysql_url based on Docker container or localhost
+* Document configuration file
+
 
 ## In Progress
-* Document configuration file
 * Check on mainnet
 
-## TODO
 * Add blocksize and number of tx to blocks table
 * Add tx size to transaction table
+
+
+## TODO
+* Search for TODOs
+* remove utxo on tx 
 * Restart the thread if it stops/disconnects
 
 * Store blocks in multiple files
@@ -93,7 +100,6 @@ This section contains project status related notes.
         NTFS Maximum number of files in a single folder:
         4,294,967,295.
 
-* Incorporate both services in docker
 
 * use blocktime to age tx
 
@@ -108,7 +114,7 @@ This section contains project status related notes.
 * add secondary mempool - what determines secondary mempool ?
     * https://wiki.bitcoinsv.io/index.php/Transaction_Pools
 
-* Search for TODOs
+
 * unable to write blobs to database
 
 * add logging

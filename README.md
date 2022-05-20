@@ -74,7 +74,10 @@ To build the docker image associated with the service run the following comand i
 This builds two Docker images:
 * `uaas-service` for the Rust service
 * `uaas-web` for the Python REST API
-
+If there is an out of diskspace error whilst building the images, use the following comand to free up diskspace:
+```bash
+docker system prune
+```
 ### 2) To Run the Image
 As there are two Docker images there are also two startup scripts:
 * `run_service.sh` - to start the Rust service
