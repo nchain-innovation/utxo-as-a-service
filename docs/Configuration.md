@@ -38,6 +38,7 @@ block_request_period = 80
 startup_load_from_database = true
 
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
 
 # Python database access
 host = "host.docker.internal"
@@ -61,7 +62,9 @@ The Network setting section contains the following fields:
 If this is set to `false` the service will load from the block file (see later), this is useful if the database structure is changed and we and want to repopulate the data without having to redownload all the blocks.
 Note when reading from the file, would expect to delete the following tables: blocks, tx, utxo, mempool, Prior to starting the service.
 
-* `mysql_url` - this is the url of the database, this is used by the Rust service
+* `mysql_url` - this is the url of the database, this is used by the Rust service on the local machine
+* `mysql_url_docker` - as `mysql_url` but for use in a Docker container
+
 ### Python database access used by the Python REST API
 * `host` - the database host
 * `user` - the database user

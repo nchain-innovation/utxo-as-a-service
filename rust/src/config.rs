@@ -12,6 +12,7 @@ pub struct NetworkSettings {
     pub timeout_period: f64,
     pub block_request_period: u64,
     pub mysql_url: String,
+    pub mysql_url_docker: String,
     pub start_block_hash: String,
     pub startup_load_from_database: bool,
     pub block_file: String,
@@ -60,6 +61,17 @@ impl Config {
             }
         }
         Ok(ip_list)
+    }
+
+    pub fn get_mysql_url(&self) -> &str {
+        // Return the sql_url for the current environment
+        let network_settings = self.get_network_settings();
+
+        // APP_ENV=docker means that we are in docker, otherwise we are on raw machine :-)
+        match env::var_os("APP_ENV") {
+            Some(_) => &network_settings.mysql_url_docker,
+            None => &network_settings.mysql_url,
+        }
     }
 }
 
