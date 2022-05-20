@@ -2,32 +2,60 @@
 Title UaaS Deployment
 ' left to right direction
 
-
 actor user
 cloud PeerNode
 
 package Service {
     () "REST_API"
-    component "WebService\n(Python)" as WebService
+
+    package DockerContainer_UaaS_Web {
+        component "WebService\n(Python)" as WebService
+    }
 
     user <--> REST_API
     REST_API -- WebService
 
-    component "UaaS\n(Rust)" as UaaS
 
-    database blocks
-
-    package DockerContainer_MySQL {
-        database MySQL
+    package DockerContainer_UaaS_Service {
+        component "UaaS\n(Rust)" as UaaS
     }
-    UaaS --> MySQL
-    WebService <-- MySQL
 
-    UaaS --> blocks
-    WebService <-- blocks
+    package SharedData_Mounted {
+        file blocks.dat
+        note bottom
+        Downloaded
+        blocks
+        end note
 
+        file uaasr.toml
+        note bottom
+        Service
+        configuration
+        data
+        end note
+    }
 
-    PeerNode --> UaaS: P2P Messages
+    uaasr.toml ..> UaaS :on_startup
+    uaasr.toml ..> WebService :on_startup
+
+    UaaS --> MySQL : write_data
+    WebService <-- MySQL : query_data
+
+    UaaS ~~> blocks.dat :write_block
+    WebService <~~ blocks.dat: read_block
+
+    UaaS <-up-> PeerNode: P2P Messages
 }
+
+package DockerContainer_MySQL {
+    database MySQL  {
+        file txs
+        file utxo
+        file blocks
+        file mempool
+        folder collections
+    }
+}
+
 
 @enduml

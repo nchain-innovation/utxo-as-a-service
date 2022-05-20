@@ -1,0 +1,34 @@
+FROM ubuntu:20.04 as base
+ENV PYTHONUNBUFFERED 1
+ENV TZ=Europe/London
+ENV DEBIAN_FRONTEND="noninteractive"
+
+RUN apt-get update && \
+    apt-get install -y \
+    docker.io \
+    python3-pip \
+    vim \
+    curl \
+    build-essential \
+    libssl-dev
+
+RUN apt-get autoclean
+RUN apt-get install -y pkg-config
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+COPY ./rust /app/rust
+WORKDIR /app/rust
+RUN cargo build --release
+
+
+FROM base as release
+WORKDIR /app/rust
+
+# env var to detect we are in a docker instance
+ENV APP_ENV=docker
+EXPOSE 5010
+CMD [ "./target/release/uaas"]

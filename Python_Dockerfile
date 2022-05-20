@@ -9,13 +9,13 @@ RUN apt-get update && \
     docker.io \
     vim
 
+
 WORKDIR /app
 COPY ./requirements.txt requirements.txt
 RUN pip3 install -r requirements.txt
 
 FROM base as release
-WORKDIR /app/src
-
+WORKDIR /app/python
 
 # env var to detect we are in a docker instance
 ENV APP_ENV=docker

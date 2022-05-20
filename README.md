@@ -3,12 +3,13 @@
  The UTXO as a Service (UaaS) monitors BSV Node Peer to Peer (P2P) messages and builds its own UTXO set that can be queried to obtain non-standard transactions.
 
 This uses service implemented in Rust with a Python REST API web interface.
-The two components read the same configuration file and share data using database and a shared data directory.
-
+The two components read the same configuration file and share data using `MySQL` database and a shared data directory.
+The diagram also shows the Docker containers that make up the service.
 ![Service Deployment](docs/diagrams/deployment.png)
 
 The service stores blocks and can return transactions from those blocks.
-If you need transactions that are in the mempool you will need to set up a `Collection` which
+
+If you need transactions that are not in blocks but are in the mempool you will need to set up a `Collection` which
 will capture all transactions that match a particular pattern.
 For more details on setting up a `Collection` see the configuration documentation [here](docs/Configuration.md).
 
@@ -16,8 +17,8 @@ This project uses the following Bitcoin SV Rust library for processing peer to p
 https://github.com/brentongunning/rust-sv
 
 
-## To Build the Project
-The project is developed in Rust.
+## To Build the Service
+The service is developed in Rust.
 The best way to install Rust is to use `rustup`, see https://www.rust-lang.org/tools/install
 
 To build:
@@ -25,8 +26,10 @@ To build:
 cd rust
 cargo build
 ```
-Note that this projec
 
+## To Run the Service
+Note that this project requires the `MySQL` database running to run.
+See the `Database` section below for details.
 
 To run:
 ```bash
@@ -34,38 +37,48 @@ cd rust
 cargo run
 ```
 
+If the following message is seen in the output, this would mean that the service is unable to conect to the `MySQL` database.
+```
+thread 'main' panicked at 'Problem connecting to database. Check database is connected and configuration is correct.
+: DriverError { Could not connect to address `localhost:3306': Cannot assign requested address (os error 99) }', src/uaas/logic.rs:52:14
+```
+## To Run the REST Web interface
+
+The REST Web interface has been developed in Python.
+
+To run this
+```bash
+cd python\src
+./web.py
+```
+Note again that this is dependent on `MySQL` database.
+
+This will provides a REST API with a Swagger interface at http://localhost:5010/docs
+
+![Rest Api](docs/diagrams/UaaS_REST_API.png)
+
+
 ## Database
-This service writes the P2P messages to a `MySQL` database.
+This service records data to a `MySQL` database which must be present for the service to run.
 Database setup details can be found [here](docs/Database.md).
 
 ## Docker
 Encapsulating the service in Docker removes the need to install the project dependencies on the host machine.
-Only Docker is required to build and run the service.
+Only Docker is required to build and run the service and web interface.
+Note that the `MySQL` docker image is still required.
 ### 1) Build The Docker Image
 To build the docker image associated with the service run the following comand in the project directory.
 ```bash
-cd python
 ./build.sh
 ```
-This builds the docker image `uaas-web`.
+This builds two Docker images:
+* `uaas-service` for the Rust service
+* `uaas-web` for the Python REST API
+
 ### 2) To Run the Image
-Once the `uaas-web` image has been build, to run the service use the following script:
-```bash
-cd python
-./run.sh
-Running in Docker
-INFO:     Started server process [14]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:5010 (Press CTRL+C to quit)
-```
-## Web Interface
-The service provides a REST API with a Swagger interface at http://localhost:5010/docs
-
-![Rest Api](docs/diagrams/UaaS_REST_API.png)
-
-The service needs to be started with the `-web` command line parameter
-The service with webserver application can be started in the Docker container as follows:
+As there are two Docker images there are also two startup scripts:
+* `run_service.sh` - to start the Rust service
+* `run_web.sh` - to start the Python REST API
 
 ## Configuration
 The configuration of the service is set in `data/uaasr.toml` file.
@@ -98,12 +111,14 @@ These directories contain the following:
 The following diagram shows how the Rust UaaS processes individual `transactions` and `blocks` from peer nodes.
 ![Usecase](docs/diagrams/usecase.png)
 
-The point to note that as `transactions` (or `tx`) are received they are placed in the `mempool` table in the database.
+The point to note that as `transactions` (or `tx`) are received they are:
+1) added to the `mempool` database table
+2) added to the `UTXO` table
 
 When `blocks` are received:
 1) the `tx` are removed from the `mempool` and added to the `txs` table
 2) The `tx` input `outpoints` are removed from the `UTXO` table
-3) The `tx` output `outpoint` are added to the `UTXO` table
+3) The `tx` output `outpoints` are added/updated to the `UTXO` table
 4) The Block's `blockheader` is added to the `Blocks` table
 
 Another point to note is that this means that blocks and transaction can be processed prior to the block tip being obtained.
