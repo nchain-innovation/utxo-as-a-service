@@ -7,7 +7,7 @@ use mysql::prelude::*;
 use mysql::PooledConn;
 use mysql::*;
 
-use sv::messages::{Block, BlockHeader};
+use sv::messages::{Block, BlockHeader, Payload};
 use sv::util::{Hash256, Serializable};
 
 use crate::config::Config;
@@ -25,6 +25,8 @@ struct DBHeader {
     bits: u32,
     nonce: u32,
     _position: u64,
+    _blocksize: u32,
+    _numtxs: u32,
 }
 
 // Used to record the block with a position in the block file
@@ -97,6 +99,8 @@ impl BlockManager {
                     bits int unsigned,
                     nonce int unsigned,
                     offset bigint unsigned,
+                    blocksize int unsigned,
+                    numtxs int unsigned,
                     CONSTRAINT PK_Entry PRIMARY KEY (hash));",
                 )
                 .unwrap();
@@ -124,6 +128,8 @@ impl BlockManager {
                     bits,
                     nonce,
                     position,
+                    _blocksize,
+                    _numtxs,
                 )| {
                     DBHeader {
                         _height,
@@ -135,6 +141,8 @@ impl BlockManager {
                         bits,
                         nonce,
                         _position: position,
+                        _blocksize,
+                        _numtxs,
                     }
                 },
             )
@@ -184,14 +192,20 @@ impl BlockManager {
         self.height += 1;
     }
 
-    fn write_blockheader_to_database(&mut self, header: &BlockHeader, position: u64) {
+    fn write_blockheader_to_database(
+        &mut self,
+        header: &BlockHeader,
+        position: u64,
+        blocksize: u32,
+        numtxs: u32,
+    ) {
         // Write the block header to a database
         // Needs to be called before process block as process block increments the self.height
         let index = self.height;
 
         let blocks_insert = format!(
             "INSERT INTO blocks
-            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {}, {});",
+            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {}, {}, {}, {});",
             index,
             header.hash().encode(),
             header.version,
@@ -200,7 +214,9 @@ impl BlockManager {
             header.timestamp,
             header.bits,
             header.nonce,
-            position
+            position,
+            blocksize,
+            numtxs,
         );
         self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
     }
@@ -215,16 +231,22 @@ impl BlockManager {
             // do block processing
 
             let b = blockwithpos.block.clone();
+            let blocksize = b.size() as u32;
+            let numtxs = b.txns.len() as u32;
+
             if write_to_file {
                 let pos = self.write_block_to_file(&b);
                 // write to database
-                self.write_blockheader_to_database(&b.header, pos);
+
+                self.write_blockheader_to_database(&b.header, pos, blocksize, numtxs);
                 // this should only be the case if postion has not been set
                 assert_eq!(blockwithpos.position, None);
             } else {
                 // Get the block position off the queue and write the header to the database
                 match blockwithpos.position {
-                    Some(pos) => self.write_blockheader_to_database(&b.header, pos),
+                    Some(pos) => {
+                        self.write_blockheader_to_database(&b.header, pos, blocksize, numtxs)
+                    }
                     None => panic!("should not get here as we dont have the pos in file..."),
                 }
             }
@@ -255,7 +277,9 @@ impl BlockManager {
         // Check to see if we already have this hash && blocks are in correct order
         if !self.hash_to_index.contains_key(&hash) {
             if self.last_hash_processed == block.header.prev_hash {
-                self.write_blockheader_to_database(&block.header, position);
+                let blocksize = block.size() as u32;
+                let numtxs = block.txns.len() as u32;
+                self.write_blockheader_to_database(&block.header, position, blocksize, numtxs);
                 self.process_block(block, tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process
@@ -341,7 +365,10 @@ impl BlockManager {
             if block.header.prev_hash == self.last_hash_processed {
                 let pos = self.write_block_to_file(&block);
                 // write to database
-                self.write_blockheader_to_database(&block.header, pos);
+                let blocksize = block.size() as u32;
+                let numtxs = block.txns.len() as u32;
+
+                self.write_blockheader_to_database(&block.header, pos, blocksize, numtxs);
                 // Note process_block increments the self.height
                 self.process_block(block.clone(), tx_analyser);
 
