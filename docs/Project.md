@@ -61,8 +61,10 @@ This section contains project status related notes.
 * Add collections
     * add min required by John for demo
     * modified collection table to cope with larger tx
+    * multiple collections
 
 * split config to make mainnet/testnet switch safer
+* ---
 
 ## In Progress
 * Document configuration file
@@ -72,6 +74,26 @@ This section contains project status related notes.
 * Add blocksize and number of tx to blocks table
 * Add tx size to transaction table
 * Restart the thread if it stops/disconnects
+
+* Store blocks in multiple files
+    * index to file mapping
+    * maximum file size limit
+        * The HFS+ (Mac OS X Extended) maximum file size limit is 8 exabytes, or 8 billion gigabytes  (8,000,000,000 GB)
+        * FAT32 - 4Gib  
+        * NTFS - 16Eib  
+        * ext2/3 - 16Gib - 2Tib (depends from block size)  
+        * ext4 - 16Gib - 16Tib  
+        * XFS - 9Eib  
+        * ZFS - 16Eib
+        EiB == 2^60 bytes exbibyte
+        Exabyte = 10^18
+
+    * max files in folder
+        HFS Plus file system has a theoretical limit of a 2 billion files
+        NTFS Maximum number of files in a single folder:
+        4,294,967,295.
+
+* Incorporate both services in docker
 
 * use blocktime to age tx
 

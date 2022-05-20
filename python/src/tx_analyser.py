@@ -1,5 +1,5 @@
 import datetime
-from typing import List, Dict, Any, MutableMapping
+from typing import List, Dict, Any, MutableMapping, Optional
 
 from database import database
 from blockfile import blockfile
@@ -48,15 +48,22 @@ class TxAnalyser:
         result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}' AND pos = {pos};")
         return {"result": len(result) > 0}
 
-    def _read_block_offset(self, hash: str) -> int:
+    def _read_block_offset(self, hash: str) -> Optional[int]:
         # Read block offset based on tx hash from database
         result = database.query(
             f"SELECT offset FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height where uaas_db.tx.hash='{hash}';")
-        return result[0][0]
+        try:
+            return result[0][0]
+        except KeyError:
+            return None
 
-    def get_tx_entry(self, hash: str) -> Dict[str, Dict[str, Any]]:
+    def get_tx_entry(self, hash: str) -> Dict[str, Any]:
         """ Return the utxo entry identified by hash"""
         offset = self._read_block_offset(hash)
+        if offset is None:
+            return {
+                "tx": f"Transaction {hash} not found in block"
+            }
         block = blockfile.load_at_offset(offset)
         tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
         return {
@@ -66,6 +73,10 @@ class TxAnalyser:
     def get_tx_raw_entry(self, hash: str) -> Dict[str, Any]:
         """ return the serialised form of the transaction """
         offset = self._read_block_offset(hash)
+        if offset is None:
+            return {
+                "tx": f"Transaction {hash} not found in block"
+            }
         block = blockfile.load_at_offset(offset)
         tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
         b = tx.serialize()

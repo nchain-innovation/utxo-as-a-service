@@ -1,6 +1,7 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.9/"
-network = "testnet"
+# ßnetwork = "testnet"
+network = "mainnet"
 
 [mainnet]
 ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
@@ -17,7 +18,7 @@ ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
 # ip = ["52.28.166.147"] - dropped us
 # ip = ["23.92.74.110"] # - dropped after requesting block
 port = 8333
-start_block_hash = "0000000000129f1b7b9097d2fe4c51c1bddf8cf8fb74ecbcfc4b7d648e09d248" # current tip
+start_block_hash = "0000000000000000080a088b22f8f23882c760f8e828f63513fb93d49b4ac7e7" # current tip
 start_block_height = 739854
 
 timeout_period = 120.0
@@ -70,18 +71,10 @@ database = "uaas_db"
 # Used by Python and Rust
 block_file = "../data/block.dat"
 
-[[collection]]
-# Follow this address 'mnoCNkL8GeBaFmFbsaaZQVxY1vqTaw83nG'
-# These fields are required
-# name = "address_mnoCNkL8GeBaFmFbsaaZQVxY1vqTaw83nG"
-#name = "address_mno"
-# unlocking_script_pattern = ""
+#[[collection]]
+#name = "p2pkh"
 #track_descendants = false
-# locking_script_pattern = "76a9144fdb4a40372ff0fd550a57b4e3ce3fab95ad680688ac"
-
-name = "p2pkh"
-track_descendants = false
-locking_script_pattern = "76a914[0-9a-f]{40}88ac"
+#locking_script_pattern = "76a914[0-9a-f]{40}88ac"
 
 [[collection]]
 name = "not_p2pkh"

@@ -1,0 +1,39 @@
+@startuml
+title UaaS Projects and Tools
+
+
+package Complete {
+    class UaaS_Python
+}
+
+package Current {
+    class BNAR_Athena
+    class UaaS_Rust
+
+}
+
+BNAR_Athena -up-|> UaaS_Python: inspired_by
+UaaS_Rust -up-|> UaaS_Python: inspired_by
+
+class Wireshark_BSV
+note right
+Required to investigate
+issues downloading blocks
+with UaaS_Rust on mainnet
+end note
+
+package Future {
+    class UaaS_BitBlock_Integration
+    class BSV_NOC
+
+}
+
+
+Wireshark_BSV -up- UaaS_Rust :required
+UaaS_BitBlock_Integration -up-* UaaS_Rust: uses
+BSV_NOC -up-* BNAR_Athena: uses
+
+
+
+
+@enduml

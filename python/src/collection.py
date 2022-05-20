@@ -8,7 +8,10 @@ class Collection:
         self.names: List[str]
 
     def set_config(self, config: MutableMapping[str, Any]):
-        self.names = list(map(lambda x: x['name'], config['collection']))
+        try:
+            self.names = list(map(lambda x: x['name'], config['collection']))
+        except KeyError:
+            self.names = []
 
     def get_collections(self) -> Dict[str, Any]:
         """ Return a list of named collections """
