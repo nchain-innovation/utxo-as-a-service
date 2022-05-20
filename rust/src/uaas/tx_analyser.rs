@@ -6,7 +6,7 @@ use mysql::prelude::*;
 use mysql::PooledConn;
 use mysql::*;
 
-use sv::messages::{Block, OutPoint, Tx, TxOut};
+use sv::messages::{Block, OutPoint, Payload, Tx, TxOut};
 use sv::util::Hash256;
 
 use crate::config::Config;
@@ -56,12 +56,14 @@ pub struct MempoolDB {
 pub struct TxEntry {
     _tx: Option<Tx>,
     _height: usize,
+    _size: u32,
 }
 
 // Used for loading tx from tx table
 struct HashHeight {
     pub hash: String,
     pub height: usize,
+    pub size: u32,
 }
 
 pub struct TxAnalyser {
@@ -113,7 +115,9 @@ impl TxAnalyser {
                 .query_drop(
                     r"CREATE TABLE tx (
                     hash varchar(64),
-                    height int unsigned);",
+                    height int unsigned,
+                    txsize int unsigned,
+                    CONSTRAINT PK_Entry PRIMARY KEY (hash));",
                 )
                 .unwrap();
             self.conn
@@ -171,15 +175,17 @@ impl TxAnalyser {
 
         let txs: Vec<HashHeight> = self
             .conn
-            .query_map("SELECT * FROM tx ORDER BY height", |(hash, height)| {
-                HashHeight { hash, height }
-            })
+            .query_map(
+                "SELECT * FROM tx ORDER BY height",
+                |(hash, height, size)| HashHeight { hash, height, size },
+            )
             .unwrap();
 
         for tx in txs {
             let tx_entry = TxEntry {
                 _tx: None,
                 _height: tx.height,
+                _size: tx.size,
             };
             let hash = Hash256::decode(&tx.hash).unwrap();
             self.txs.insert(hash, tx_entry);
@@ -350,9 +356,11 @@ impl TxAnalyser {
         } else {
             for vin in tx.inputs.iter() {
                 // Remove from unspent
-                self.unspent.remove(&vin.prev_output);
-                // Remove from utxo table
-                utxo_deletes.push(&vin.prev_output);
+                match self.unspent.remove(&vin.prev_output) {
+                    // Remove from utxo table
+                    Some(_) => utxo_deletes.push(&vin.prev_output),
+                    None => {},
+                }
             }
         }
         // bulk/batch delete utxo table entries
@@ -400,6 +408,7 @@ impl TxAnalyser {
         let tx_entry = TxEntry {
             _tx: Some(tx.clone()),
             _height: height.try_into().unwrap(),
+            _size: tx.size() as u32,
         };
 
         if let Some(_prev) = self.txs.insert(hash, tx_entry) {
@@ -435,13 +444,19 @@ impl TxAnalyser {
             )
             .unwrap();
 
+        let hashes_and_size: Vec<(String, u32)> = block
+            .txns
+            .iter()
+            .map(|b| (b.hash().encode(), b.size() as u32))
+            .collect();
+
         // Batch write tx to tx database table
         self.conn
             .exec_batch(
-                "INSERT INTO tx (hash, height) VALUES (:hash, :height)",
-                hashes
-                    .iter()
-                    .map(|h| params! {"hash" => h, "height" => height}),
+                "INSERT INTO tx (hash, height, txsize) VALUES (:hash, :height, :txsize)",
+                hashes_and_size.iter().map(
+                    |(hash, size)| params! {"hash" => hash, "height" => height, "txsize"=> size},
+                ),
             )
             .unwrap();
 
@@ -499,6 +514,11 @@ impl TxAnalyser {
             &age,
         );
         self.conn.exec_drop(&mempool_insert, Params::Empty).unwrap();
+
+        // Process inputs
+        const NOT_A_COINBASE_TX :usize = 1;
+
+        self.process_tx_inputs(tx, NOT_A_COINBASE_TX);
 
         // Process outputs
         self.process_tx_outputs(tx, NOT_IN_BLOCK);
