@@ -115,14 +115,15 @@ The following diagram shows how the Rust UaaS processes individual `transactions
 ![Usecase](docs/diagrams/usecase.png)
 
 The point to note that as `transactions` (or `tx`) are received they are:
-1) added to the `mempool` database table
-2) added to the `UTXO` table
+1) the `tx` added to the `mempool` database table
+2) the `tx` input `outpoints` are removed from the `UTXO` table
+3) the `tx` output `outpoints` are added to the `UTXO` table
 
 When `blocks` are received:
 1) the `tx` are removed from the `mempool` and added to the `txs` table
-2) The `tx` input `outpoints` are removed from the `UTXO` table
-3) The `tx` output `outpoints` are added/updated to the `UTXO` table
-4) The Block's `blockheader` is added to the `Blocks` table
+2) the `tx` input `outpoints` (if present) are removed  from the `UTXO` table
+3) the `tx` output `outpoints` are added/updated to the `UTXO` table
+4) the Block's `blockheader` is added to the `Blocks` table
 
 Another point to note is that this means that blocks and transaction can be processed prior to the block tip being obtained.
 

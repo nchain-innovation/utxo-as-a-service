@@ -26,7 +26,9 @@ class BlockManager:
                 "timestamp": time.ctime(x[5]),
                 "bits": f'{x[6]:08x}',
                 "nonce": f'{x[7]:08x}',
-                "offset": f'{x[8]:08x}'
+                "offset": f'{x[8]:08x}',
+                "blocksize": x[9],
+                "number of tx": x[10],
             })
         return retval
 

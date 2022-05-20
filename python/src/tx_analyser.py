@@ -54,7 +54,7 @@ class TxAnalyser:
             f"SELECT offset FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height where uaas_db.tx.hash='{hash}';")
         try:
             return result[0][0]
-        except KeyError:
+        except IndexError:
             return None
 
     def get_tx_entry(self, hash: str) -> Dict[str, Any]:

@@ -79,8 +79,12 @@ This section contains project status related notes.
 
 ## TODO
 * Search for TODOs
-* remove utxo on tx 
+* remove utxo on tx
 * Restart the thread if it stops/disconnects
+* On getting tx we could check to see if the output is spent or not
+
+
+* Prevent sql injection attack on string fields - clean entry...
 
 * Store blocks in multiple files
     * index to file mapping
