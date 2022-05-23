@@ -54,7 +54,7 @@ def load_blockhash_and_offset(fname: str) -> Dict[str, int]:
 
 
 def main():
-    """ This is an attempt to fix the issue that we have found in which the blocks in the block file have an offset of 0
+    """ This fixed an issue in which the blocks in the block file have an offset of 0
     """
     blockfile = "../../data/block.dat"
 
