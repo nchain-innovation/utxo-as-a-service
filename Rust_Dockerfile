@@ -30,5 +30,4 @@ WORKDIR /app/rust
 
 # env var to detect we are in a docker instance
 ENV APP_ENV=docker
-EXPOSE 5010
 CMD [ "./target/release/uaas"]
