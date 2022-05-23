@@ -75,7 +75,7 @@ password = "uaas-password"
 database = "uaas_db"
 
 # Used by Python and Rust
-block_file = "../data/block.dat"
+block_file = "../data/block2.dat"
 
 #[[collection]]
 #name = "p2pkh"
