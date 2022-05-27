@@ -359,7 +359,7 @@ impl TxAnalyser {
                 match self.unspent.remove(&vin.prev_output) {
                     // Remove from utxo table
                     Some(_) => utxo_deletes.push(&vin.prev_output),
-                    None => {},
+                    None => {}
                 }
             }
         }
@@ -516,7 +516,7 @@ impl TxAnalyser {
         self.conn.exec_drop(&mempool_insert, Params::Empty).unwrap();
 
         // Process inputs
-        const NOT_A_COINBASE_TX :usize = 1;
+        const NOT_A_COINBASE_TX: usize = 1;
 
         self.process_tx_inputs(tx, NOT_A_COINBASE_TX);
 

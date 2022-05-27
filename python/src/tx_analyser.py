@@ -33,7 +33,7 @@ class TxAnalyser:
         result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}';")
         retval = [{
             "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2],
-            "height": x[3] + self.start_block_height
+            "height": x[3] + self.start_block_height + 1
         } for x in result]
         return retval
 

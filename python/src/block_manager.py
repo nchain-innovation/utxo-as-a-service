@@ -18,7 +18,7 @@ class BlockManager:
         retval = []
         for x in result:
             retval.append({
-                "height": x[0] + self.start_block_height,
+                "height": x[0] + self.start_block_height + 1,
                 "hash": x[1],
                 "version": f'{x[2]:08x}',
                 "prev_hash": x[3],
@@ -40,7 +40,7 @@ class BlockManager:
 
     def _read_block_offset(self, height: int) -> Optional[int]:
         # Read block from database
-        h1 = height - self.start_block_height
+        h1 = (height - self.start_block_height) + 1
         retval = database.query(f"SELECT offset FROM blocks WHERE height = '{h1}';")
         if retval != []:
             return int(retval[0][0])
