@@ -58,7 +58,13 @@ class TxAnalyser:
             return None
 
     def get_tx_entry(self, hash: str) -> Dict[str, Any]:
-        """ Return the utxo entry identified by hash"""
+        """ Return the transaction entry identified by hash
+
+            Return the tx as a dictionary
+            Indicate if the tx outpoints have been spent or not
+
+        """
+        # Get tx
         offset = self._read_block_offset(hash)
         if offset is None:
             return {
@@ -66,8 +72,17 @@ class TxAnalyser:
             }
         block = blockfile.load_at_offset(offset)
         tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
+        tx_as_dict = tx.to_dict()
+
+        # Get utxo
+        utxo_entry = self._read_utxo(hash)
+        # Create a list of unspent pos
+        utxo = list(map(lambda x: x['pos'], utxo_entry))
+        for pos, vout in enumerate(tx_as_dict['vout']):
+            vout["spent"] = pos not in utxo
+
         return {
-            "tx": tx.to_dict(),
+            "tx": tx_as_dict,
         }
 
     def get_tx_raw_entry(self, hash: str) -> Dict[str, Any]:

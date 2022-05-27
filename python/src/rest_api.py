@@ -69,8 +69,10 @@ def get_addr() -> Dict[str, Any]:
 
 
 @app.get("/tx", tags=["Tx"])
-def get_tx(hash: str) -> Dict[str, Any]:
-    """ Return the tx entry identified by hash"""
+def get_transaction(hash: str) -> Dict[str, Any]:
+    """ Return the transaction entry identified by hash as a dictionary
+        Note that this also indicates if the transaction outpoints have been spent or not
+    """
     return tx_analyser.get_tx_entry(hash)
 
 
