@@ -51,6 +51,12 @@ Copyright (c) 2000, 2022, Oracle and/or its affiliates.
 mysql> ALTER USER 'root'@'localhost' IDENTIFIED BY 'root-password';
 Query OK, 0 rows affected (0.01 sec)
 ```
+Then creating the following `root` users:
+```bash
+CREATE USER 'root'@'127.0.0.1' IDENTIFIED BY 'root-password';
+CREATE USER 'root'@'::1' IDENTIFIED BY 'root-password';
+CREATE USER 'root'@'172.17.0.1' IDENTIFIED BY 'root-password;
+```
 
 4. Create user `uaas`
 ```bash
