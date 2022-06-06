@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use rand::Rng;
 use std::thread;
@@ -14,13 +14,14 @@ use sv::util::rx::Observable;
 use sv::util::secs_since;
 
 use crate::config::Config;
-use crate::event_handler::{EventHandler, PeerEvent, RequestMessage};
+use crate::event_handler::{EventHandler, RequestMessage};
+use crate::peer_event::PeerEvent;
 
 pub fn connect_to_peer(
     ip: IpAddr,
     config: Config,
     tx: mpsc::Sender<PeerEvent>,
-    rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
+    rx: mpsc::Receiver<RequestMessage>,
     running: Arc<AtomicBool>,
 ) {
     // Given the ip address and config connect to the peer, quit if timeout occurs

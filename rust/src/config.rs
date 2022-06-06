@@ -29,7 +29,6 @@ pub struct Config {
     pub service: Service,
     pub mainnet: NetworkSettings,
     pub testnet: NetworkSettings,
-
     pub collection: Vec<Collection>,
 }
 

@@ -1,5 +1,3 @@
-use std::fmt;
-use std::net::IpAddr;
 use std::sync::mpsc;
 use std::time;
 
@@ -9,58 +7,12 @@ use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
 use sv::util::rx::Observer;
 use sv::util::Hash256;
 
+use crate::peer_event::{EventType, PeerEvent};
 use crate::services::decode_services;
-use crate::uaas::util::timestamp_as_string;
 
 // Constants for inv messages
 const TX: u32 = 1;
 const BLOCK: u32 = 2;
-
-// EventsType - used to identify the type of event that is being sent to parent thread
-#[derive(PartialEq)]
-pub enum EventType {
-    Connected(String),
-    Disconnected,
-    Addr(Addr),
-    Tx(Tx),
-    Block(Block),
-    Headers(Headers),
-}
-
-impl fmt::Display for EventType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &*self {
-            EventType::Connected(detail) => write!(f, "Connected=({})", detail),
-            EventType::Disconnected => write!(f, "Disconnected"),
-            EventType::Addr(addr) => write!(f, "Addr={}", addr.addrs.len()),
-            EventType::Tx(tx) => write!(f, "Tx={:?}", tx.hash()),
-            EventType::Block(block) => write!(
-                f,
-                "Block={:?} - {}",
-                block.header.hash(),
-                timestamp_as_string(block.header.timestamp)
-            ),
-            EventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
-        }
-    }
-}
-
-// PeerEvents - used for sending messages from peer threads to main thread
-pub struct PeerEvent {
-    time: time::SystemTime,
-    pub peer: IpAddr,
-    pub event: EventType,
-}
-
-impl fmt::Display for PeerEvent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let sys_time = self
-            .time
-            .duration_since(time::SystemTime::UNIX_EPOCH)
-            .unwrap();
-        write!(f, "{:?}, {}, {}", sys_time, self.peer, self.event)
-    }
-}
 
 // These are messages sent from the main thread to the peer threads
 #[derive(Debug)]
@@ -72,18 +24,16 @@ pub enum RequestMessage {
 pub struct EventHandler {
     last_event: Mutex<time::Instant>,
     mutex_tx: Mutex<mpsc::Sender<PeerEvent>>,
-    arc_mutex_rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
+    //arc_mutex_rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
+    mutex_rx: Mutex<mpsc::Receiver<RequestMessage>>,
 }
 
 impl EventHandler {
-    pub fn new(
-        tx: mpsc::Sender<PeerEvent>,
-        rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
-    ) -> Self {
+    pub fn new(tx: mpsc::Sender<PeerEvent>, rx: mpsc::Receiver<RequestMessage>) -> Self {
         EventHandler {
             last_event: Mutex::new(time::Instant::now()),
             mutex_tx: Mutex::new(tx),
-            arc_mutex_rx: rx,
+            mutex_rx: Mutex::new(rx),
         }
     }
 
@@ -105,7 +55,8 @@ impl EventHandler {
     }
 
     fn recv_msg(&self) -> Result<RequestMessage, mpsc::TryRecvError> {
-        let rx = self.arc_mutex_rx.lock().unwrap();
+        //let rx = self.arc_mutex_rx.lock().unwrap();
+        let rx = self.mutex_rx.lock().unwrap();
         rx.try_recv()
     }
 

@@ -5,26 +5,24 @@ extern crate hex;
 extern crate rand;
 extern crate regex;
 
-use std::net::IpAddr;
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
 
 mod config;
+mod connect_to_peer;
 mod event_handler;
-mod peer;
+mod peer_event;
+mod peer_thread;
 mod services;
+mod thread_manager;
 mod thread_tracker;
 mod uaas;
 
 use crate::config::get_config;
-use crate::event_handler::{EventType, PeerEvent, RequestMessage};
-use crate::peer::connect_to_peer;
-use crate::thread_tracker::{PeerThread, PeerThreadStatus, ThreadTracker};
-use crate::uaas::logic::{Logic, ServerStateType};
+use crate::thread_manager::ThreadManager;
+use crate::thread_tracker::ThreadTracker;
+use crate::uaas::logic::Logic;
 
+/*
 fn message_processor(
     children: &mut ThreadTracker,
     logic: &mut Logic,
@@ -68,6 +66,7 @@ fn message_processor(
         }
     }
 }
+*/
 
 fn main() {
     let count = thread::available_parallelism().expect("parallel error");
@@ -78,13 +77,18 @@ fn main() {
         None => panic!("Unable to read config"),
     };
 
-    // Decode config
-    let ips: Vec<IpAddr> = config
-        .get_ips()
-        .expect("Error decoding config ip addresses");
-
+    // Setup logic
     let mut logic = Logic::new(&config);
     logic.setup();
+
+    // Used to track peer connection threads
+    let mut children = ThreadTracker::new();
+    let mut manager = ThreadManager::new();
+
+    manager.create_threads(&mut children, config);
+    manager.process_messages(&mut children, &mut logic);
+
+    /*
 
     // Set up channels
     // Used to send messages from child to main
@@ -117,4 +121,6 @@ fn main() {
 
     // Process messages
     message_processor(&mut children, &mut logic, &rx, &request_tx);
+
+    */
 }

@@ -145,7 +145,7 @@ impl Logic {
         if !self.state.is_ready() {
             // no debug info once in ready mode
             dbg!(self.blocks_downloaded);
-            dbg!(self.need_to_request_blocks);
+            // dbg!(self.need_to_request_blocks);
         }
         if self.need_to_request_blocks() {
             self.blocks_downloaded = 0;

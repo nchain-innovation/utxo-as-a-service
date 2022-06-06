@@ -1,0 +1,98 @@
+@startuml
+title UaaS-Rust Components
+
+top to bottom direction
+
+class Main {
+    fn message_processor()
+}
+
+class NetworkSettings {
+    ip: List[String]
+    port: u16
+    timeout_period: f64
+    block_request_period: u64
+    mysql_url: String
+    mysql_url_docker: String
+    start_block_hash: String
+    startup_load_from_database: bool
+    block_file: String
+}
+
+class Service {
+    user_agent: String
+    network: String
+}
+
+class Collection {
+    name: String
+    track_descendants: bool
+    locking_script_pattern: Option<String>
+}
+
+
+class Config {
+    service: Service
+    mainnet: NetworkSettings
+    testnet: NetworkSettings
+    collection: List[Collection]
+}
+
+Config o-- Service: 1:1
+Config o-- NetworkSettings: has_a
+Config o-- Collection: 1:*
+
+Main --> Config: reads
+
+enum PeerThreadStatus {
+    Started
+    Connected
+    Disconnected
+    Finished
+}
+
+enum EventType {
+    {field} Connected(String)
+    Disconnected
+    {field} Addr(Addr)
+    {field} Tx(Tx)
+    {field} Block(Block)
+    {field} Headers(Headers)
+}
+
+
+
+class PeerEvent {
+    time: SystemTime
+    peer: IpAddr
+    event: EventType
+}
+
+
+PeerEvent o-- EventType
+
+
+class PeerThread {
+    {field} thread: Option<thread::JoinHandle<()>>
+    status: PeerThreadStatus
+    running: Arc<AtomicBool>
+    started_at: Instant
+}
+
+class ThreadTracker {
+    children: HashMap<IpAddr, PeerThread>
+}
+ThreadTracker o-- PeerThread: has
+PeerThread o-- PeerThreadStatus: has_a
+
+
+class ThreadManager {
+
+
+}
+
+ThreadManager o-- ThreadTracker
+
+Main --> ThreadManager
+
+@enduml

@@ -69,12 +69,14 @@ This section contains project status related notes.
     * Rust service to select mysql_url based on Docker container or localhost
 * Document configuration file
 
-
-## In Progress
-* Check on mainnet
-
 * Add blocksize and number of tx to blocks table
 * Add tx size to transaction table
+06/06/2022 ----
+
+## In Progress
+* On disconnect move to next ip address in the list
+
+* Check on mainnet
 
 
 ## TODO
@@ -82,6 +84,9 @@ This section contains project status related notes.
 * remove utxo on tx
 * Restart the thread if it stops/disconnects
 * On getting tx we could check to see if the output is spent or not
+
+* tag correct height on blocks as they arrive?
+
 
 
 * Prevent sql injection attack on string fields - clean entry...

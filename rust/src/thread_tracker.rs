@@ -1,27 +1,12 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 
 use std::sync::Arc;
-use std::thread;
-use std::time::Instant;
 
-// Used to track the threads
-#[derive(Debug, PartialEq)]
-pub enum PeerThreadStatus {
-    Started,
-    Connected,
-    Disconnected,
-    Finished,
-}
-
-#[derive(Debug)]
-pub struct PeerThread {
-    pub thread: Option<thread::JoinHandle<()>>,
-    pub status: PeerThreadStatus,
-    pub running: Arc<AtomicBool>,
-    pub started_at: Instant,
-}
+use crate::event_handler::RequestMessage;
+use crate::peer_thread::{PeerThread, PeerThreadStatus};
 
 pub struct ThreadTracker {
     // Used to track peer connection threads
@@ -64,6 +49,14 @@ impl ThreadTracker {
         }
     }
 
+    pub fn get_request_tx(&self, ip: &IpAddr) -> Option<&mpsc::Sender<RequestMessage>> {
+        if let Some(x) = self.children.get(ip) {
+            Some(&x.request_tx)
+        } else {
+            None
+        }
+    }
+
     pub fn stop(&mut self, ip: &IpAddr) {
         // Stop the thread from waiting for messages
         // (Speeds up shutdown)
@@ -78,6 +71,7 @@ impl ThreadTracker {
         if let Some(peer) = self.children.remove(ip) {
             // Determine when thread started
             let started_at = peer.started_at;
+            let request_tx = peer.request_tx;
 
             if let Some(thread) = peer.thread {
                 // wait for it
@@ -89,6 +83,7 @@ impl ThreadTracker {
                     status: PeerThreadStatus::Finished,
                     running: Arc::new(AtomicBool::new(false)),
                     started_at,
+                    request_tx,
                 };
                 self.children.insert(*ip, new_peer);
             }
