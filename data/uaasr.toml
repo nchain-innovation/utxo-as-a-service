@@ -1,7 +1,7 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.9/"
-# ßnetwork = "testnet"
-network = "testnet"
+network = "mainnet"
+# network = "testnet"
 
 [mainnet]
 ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!

@@ -74,6 +74,25 @@ mysql> GRANT ALL PRIVILEGES on uaas_db.* to 'uaas'@'172.17.0.1';
 Query OK, 0 rows affected (0.00 sec)
 ```
 
+6. Optional For `mainnet`
+Create user 'maas'
+
+```bash
+mysql> CREATE USER 'maas'@'172.17.0.1' IDENTIFIED BY 'maas-password';
+Query OK, 0 rows affected (0.01 sec)
+```
+
+Create database 'main_uaas_db'
+``` bash
+mysql> create database main_uaas_db;
+Query OK, 1 row affected (0.00 sec)
+
+mysql> GRANT ALL PRIVILEGES on main_uaas_db.* to 'maas'@'172.17.0.1';
+Query OK, 0 rows affected (0.00 sec)
+```
+
+
+
 ## Step 3 - Test Connection
 1. Install the mysql-client on your local machine.
 Should be able to execute the following on the command line:
