@@ -72,10 +72,11 @@ This section contains project status related notes.
 * Add blocksize and number of tx to blocks table
 * Add tx size to transaction table
 06/06/2022 ----
-
-## In Progress
 * On disconnect move to next ip address in the list
 
+## In Progress
+
+* Log connect/disconnect to database
 * Check on mainnet
 
 

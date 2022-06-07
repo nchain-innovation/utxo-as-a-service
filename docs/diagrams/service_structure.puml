@@ -35,7 +35,7 @@ class Config {
     service: Service
     mainnet: NetworkSettings
     testnet: NetworkSettings
-    collection: List[Collection]
+    collection: Vec<Collection>
 }
 
 Config o-- Service: 1:1
@@ -82,17 +82,49 @@ class PeerThread {
 class ThreadTracker {
     children: HashMap<IpAddr, PeerThread>
 }
-ThreadTracker o-- PeerThread: has
+ThreadTracker o-- PeerThread: has_a
 PeerThread o-- PeerThreadStatus: has_a
 
 
 class ThreadManager {
-
-
+    rx: mpsc::Receiver<PeerEvent>
+    tx: mpsc::Sender<PeerEvent>
 }
 
-ThreadManager o-- ThreadTracker
-
+ThreadManager --> ThreadTracker :uses
 Main --> ThreadManager
+
+class PeerConnection {
+    peer: Arc<Peer>
+    event_handler: Arc<EventHandler>
+}
+
+PeerThread o-- PeerConnection : has_a
+
+PeerConnection --> EventType: sends
+EventType --> ThreadManager: receives
+
+
+enum ServerStateType {
+    Starting
+    Disconnected
+    Connected
+    Ready
+}
+
+class Logic {
+    state: ServerStateType
+    block_manager: BlockManager
+    tx_analyser: TxAnalyser
+    address_manager: AddressManager
+    blocks_downloaded: usize
+    last_block_rx_time: Option<Instant>
+    need_to_request_blocks: bool
+    block_request_period: u64
+}
+ThreadManager --> Logic : calls
+
+Logic o-- ServerStateType
+
 
 @enduml

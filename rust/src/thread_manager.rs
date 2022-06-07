@@ -20,7 +20,7 @@ pub struct ThreadManager {
 
 impl ThreadManager {
     pub fn new() -> Self {
-        // Used to send messages from child to main
+        // Used to send messages from PeerConnection(s) to ThreadManager
         let (tx, rx) = mpsc::channel();
         ThreadManager { rx, tx }
     }
@@ -34,7 +34,7 @@ impl ThreadManager {
         let local_config = config.clone();
         let local_tx = self.tx.clone();
 
-        // Used to send messages from main to child PeerConnection
+        // Used to send messages from ThreadManager to child PeerConnection
         let (request_tx, request_rx) = mpsc::channel();
 
         let local_running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
@@ -65,12 +65,14 @@ impl ThreadManager {
                     thread_tracker.set_status(&received.peer, PeerThreadStatus::Connected);
                     thread_tracker.print();
                     logic.set_state(ServerStateType::Connected);
+                    logic.connection.on_connect(&received.peer);
                 }
 
                 EventType::Disconnected => {
                     // If we have disconnected then there is the opportunity to start another thread
                     thread_tracker.set_status(&received.peer, PeerThreadStatus::Disconnected);
                     logic.set_state(ServerStateType::Disconnected);
+                    logic.connection.on_disconnect(&received.peer);
                     // Wait for thread, sets state to Finished
                     println!("join thread");
                     thread_tracker.stop(&received.peer);

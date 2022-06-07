@@ -41,6 +41,13 @@ Details of the messages and the Bitcoin SV peer to peer protocol can be found in
 
 
 Note as of Bitcoin SV 1.0.11 bloom filters are no longer supported.
+
+# Service Datastructures
+The Rust component of the service is constructed of the following components.
+
+![Structs](diagrams/service_structure.png)
+
+
 # Peer Thread Status States
 The peer thread works through the following states:
 

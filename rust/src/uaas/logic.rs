@@ -9,6 +9,7 @@ use crate::event_handler::RequestMessage;
 
 use super::address_manager::AddressManager;
 use super::block_manager::BlockManager;
+use super::connection::Connection;
 use super::tx_analyser::TxAnalyser;
 
 // Used to keep track of the server state
@@ -34,6 +35,7 @@ pub struct Logic {
     block_manager: BlockManager,
     tx_analyser: TxAnalyser,
     address_manager: AddressManager,
+    pub connection: Connection,
     // Used to keep track of the blocks downloaded, to determine if we need to download any more
     blocks_downloaded: usize,
     last_block_rx_time: Option<Instant>,
@@ -52,11 +54,13 @@ impl Logic {
         let block_conn = pool.get_conn().unwrap();
         let tx_conn = pool.get_conn().unwrap();
         let addr_conn = pool.get_conn().unwrap();
+        let connection_conn = pool.get_conn().unwrap();
         Logic {
             state: ServerStateType::Starting,
             tx_analyser: TxAnalyser::new(config, tx_conn),
             block_manager: BlockManager::new(config, block_conn),
             address_manager: AddressManager::new(config, addr_conn),
+            connection: Connection::new(config, connection_conn),
             blocks_downloaded: 0,
             last_block_rx_time: None,
             need_to_request_blocks: true,
@@ -70,7 +74,7 @@ impl Logic {
 
         self.tx_analyser.setup();
         self.block_manager.setup(&mut self.tx_analyser);
-
+        self.connection.setup();
         // Reset the request time
         // self.last_block_rx_time = Some(Instant::now());
     }
