@@ -1,7 +1,5 @@
 use std::time::Instant;
 
-// use mysql::prelude::*;
-//use mysql::*;
 use mysql::Pool;
 
 use sv::messages::{Addr, Block, Headers, Tx};
@@ -49,7 +47,7 @@ impl Logic {
     pub fn new(config: &Config) -> Self {
         // Set up database connections for the componets
         let pool = Pool::new(&config.get_mysql_url())
-            .expect("Problem connecting to database. Check database is connected and configuration is correct.\n");
+            .expect("Problem connecting to database. Check database is connected and database connection configuration is correct.\n");
 
         let block_conn = pool.get_conn().unwrap();
         let tx_conn = pool.get_conn().unwrap();

@@ -85,7 +85,11 @@ This section contains project status related notes.
 * Restart the thread if it stops/disconnects
 * On getting tx we could check to see if the output is spent or not
 
-* tag correct height on blocks as they arrive?
+* tag correct height on blocks as they arrive?  
+    * update the database to have the correct block height
+        * update blocks
+        * update tx
+
 
 
 

@@ -6,7 +6,6 @@ use sv::messages::{Addr, Block, Headers, Tx};
 
 use crate::uaas::util::timestamp_as_string;
 
-
 // EventsType - used to identify the type of event that is being sent to parent thread
 #[derive(PartialEq)]
 pub enum EventType {
