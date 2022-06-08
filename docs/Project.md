@@ -73,11 +73,15 @@ This section contains project status related notes.
 * Add tx size to transaction table
 06/06/2022 ----
 * On disconnect move to next ip address in the list
+* Log connect/disconnect to database connect table
 
 ## In Progress
 
-* Log connect/disconnect to database
 * Check on mainnet
+* tag correct height on blocks as they arrive
+    * update the database to have the correct block height
+        * update blocks
+        * update tx
 
 
 ## TODO
@@ -86,10 +90,6 @@ This section contains project status related notes.
 * Restart the thread if it stops/disconnects
 * On getting tx we could check to see if the output is spent or not
 
-* tag correct height on blocks as they arrive?  
-    * update the database to have the correct block height
-        * update blocks
-        * update tx
 
 
 

@@ -11,7 +11,6 @@ class Logic:
 
     def set_config(self, config: MutableMapping[str, Any]):
         self.network = config['service']['network']
-        self.start_block_height = config[self.network]['start_block_height']
 
     def _get_last_block_time(self) -> str:
         result = database.query("SELECT timestamp FROM blocks ORDER BY height desc LIMIT 1;")
@@ -25,7 +24,7 @@ class Logic:
         return result[0][0]
 
     def get_status(self) -> Dict[str, Dict[str, Any]]:
-        block_height = self._get_no_of_entries("SELECT COUNT(*) FROM blocks;") + self.start_block_height
+        block_height = self._get_no_of_entries("SELECT max(height) FROM blocks;")
         return {
             "status": {
                 "network": self.network,

@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, MutableMapping
+from typing import List, Dict, Any, Optional
 import time
 from database import database
 from blockfile import blockfile
@@ -8,17 +8,13 @@ class BlockManager:
     def __init__(self):
         self.start_block_height: int
 
-    def set_config(self, config: MutableMapping[str, Any]):
-        network = config['service']['network']
-        self.start_block_height = config[network]['start_block_height']
-
     def _read_latest_blocks(self) -> List[Dict[str, Any]]:
         # Read blocks from database
         result = database.query("SELECT * FROM blocks ORDER BY height desc LIMIT 20;")
         retval = []
         for x in result:
             retval.append({
-                "height": x[0] + self.start_block_height + 1,
+                "height": x[0],
                 "hash": x[1],
                 "version": f'{x[2]:08x}',
                 "prev_hash": x[3],
@@ -40,8 +36,7 @@ class BlockManager:
 
     def _read_block_offset(self, height: int) -> Optional[int]:
         # Read block from database
-        h1 = (height - self.start_block_height) + 1
-        retval = database.query(f"SELECT offset FROM blocks WHERE height = '{h1}';")
+        retval = database.query(f"SELECT offset FROM blocks WHERE height = '{height}';")
         if retval != []:
             return int(retval[0][0])
         else:

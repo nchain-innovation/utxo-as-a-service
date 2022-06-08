@@ -16,7 +16,7 @@ use crate::uaas::util::{timestamp_age_as_sec, timestamp_as_string};
 
 // database header structure
 struct DBHeader {
-    _height: u32,
+    height: u32,
     _hash: String,
     version: u32,
     prev_hash: String,
@@ -43,12 +43,12 @@ pub struct BlockManager {
     block_file: String,
 
     pub block_headers: Vec<BlockHeader>,
-    pub hash_to_index: HashMap<Hash256, usize>,
+    pub hash_to_index: HashMap<Hash256, u32>,
     // BlockManager status
     // last block hash we processed
     last_hash_processed: Hash256,
 
-    height: usize,
+    height: u32,
 
     // Queue of blocks that have arrived out of order - for later proceessing
     // we have changed to hashmap indexed by prev_hash for quicker processing
@@ -67,7 +67,7 @@ impl BlockManager {
             block_file: config.get_network_settings().block_file.clone(),
             block_headers: Vec::new(),
             hash_to_index: HashMap::new(),
-            height: 0,
+            height: config.get_network_settings().start_block_height + 1,
             last_hash_processed: Hash256::decode(&config.get_network_settings().start_block_hash)
                 .unwrap(),
             block_queue: HashMap::new(),
@@ -119,7 +119,7 @@ impl BlockManager {
             .query_map(
                 "SELECT * FROM blocks ORDER BY height",
                 |(
-                    _height,
+                    height,
                     _hash,
                     version,
                     prev_hash,
@@ -132,7 +132,7 @@ impl BlockManager {
                     _numtxs,
                 )| {
                     DBHeader {
-                        _height,
+                        height,
                         _hash,
                         version,
                         prev_hash,
@@ -159,9 +159,9 @@ impl BlockManager {
             };
             // Store the block header
             let hash = block_header.hash();
-            self.hash_to_index.insert(hash, self.height);
+            self.hash_to_index.insert(hash, b.height);
             self.block_headers.push(block_header);
-            self.height += 1;
+            self.height = b.height + 1;
         }
         println!(
             "Loaded {} headers in {} seconds",
@@ -172,7 +172,7 @@ impl BlockManager {
 
     fn process_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
         // Block processing functionality
-        // This method is shared with reading from file and receiving blocks
+        // This method is shared with reading from file and receiving blocks from network
         let hash = block.header.hash();
         println!(
             "process_block = {} {}",
@@ -185,6 +185,7 @@ impl BlockManager {
         assert_eq!(self.last_hash_processed, block.header.prev_hash);
         self.last_hash_processed = hash;
 
+        // try_into().unwrap() is required to convert u32 -> i32
         tx_analyser.process_block(&block, self.height.try_into().unwrap());
         // Store the block header
         self.hash_to_index.insert(hash, self.height);
@@ -201,12 +202,11 @@ impl BlockManager {
     ) {
         // Write the block header to a database
         // Needs to be called before process block as process block increments the self.height
-        let index = self.height;
 
         let blocks_insert = format!(
             "INSERT INTO blocks
             VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {}, {}, {}, {});",
-            index,
+            self.height,
             header.hash().encode(),
             header.version,
             header.prev_hash.encode(),
@@ -250,7 +250,6 @@ impl BlockManager {
                     None => panic!("should not get here as we dont have the pos in file..."),
                 }
             }
-
             self.process_block(b, tx_analyser);
         }
     }

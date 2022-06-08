@@ -14,6 +14,7 @@ pub struct NetworkSettings {
     pub mysql_url: String,
     pub mysql_url_docker: String,
     pub start_block_hash: String,
+    pub start_block_height: u32,
     pub startup_load_from_database: bool,
     pub block_file: String,
 }
