@@ -2,7 +2,10 @@ use std::sync::mpsc;
 use std::time;
 
 use std::sync::{Arc, Mutex};
-use sv::messages::{Addr, Block, BlockLocator, Headers, Inv, InvVect, Message, Tx};
+use sv::messages::{
+    Addr, Block, BlockLocator, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx,
+};
+
 use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
 use sv::util::rx::Observer;
 use sv::util::Hash256;
@@ -119,6 +122,25 @@ impl EventHandler {
         };
         self.send_msg(msg);
     }
+
+    fn on_feefilter(&self, value: &FeeFilter, peer: &Arc<Peer>) {
+        println!("on_feefilter {:?}", value);
+
+        let p = FeeFilter { minfee: 0 };
+        let m = Message::FeeFilter(p);
+
+        peer.send(&m).unwrap();
+    }
+
+    fn on_sendcmpct(&self, data: &SendCmpct, peer: &Arc<Peer>) {
+        println!("on_sendcmpct {:?}", data);
+        let p = SendCmpct {
+            enable: 0,
+            version: 1,
+        };
+        let m = Message::SendCmpct(p);
+        peer.send(&m).unwrap();
+    }
 }
 
 impl Observer<PeerConnected> for EventHandler {
@@ -174,9 +196,10 @@ impl Observer<PeerMessage> for EventHandler {
             Message::Block(block) => self.on_block(block, &event.peer),
             Message::Tx(tx) => self.on_tx(tx, &event.peer),
             Message::Headers(headers) => self.on_headers(headers, &event.peer),
-
-            _msg => {
-                //println!("default {:?}", msg)
+            Message::FeeFilter(value) => self.on_feefilter(value, &event.peer),
+            Message::SendCmpct(data) => self.on_sendcmpct(data, &event.peer),
+            msg => {
+                println!("default {:?}", msg)
             }
         }
 

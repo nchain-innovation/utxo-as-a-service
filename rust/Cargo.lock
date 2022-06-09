@@ -1257,8 +1257,6 @@ checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 [[package]]
 name = "sv"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe08ebd64ceb9d51529fbf972b2d6f26534ac3cc11a8b66028f9f1176f66138a"
 dependencies = [
  "byteorder",
  "digest 0.7.6",

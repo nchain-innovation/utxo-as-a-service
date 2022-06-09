@@ -16,6 +16,8 @@ For more details on setting up a `Collection` see the configuration documentatio
 This project uses the following Bitcoin SV Rust library for processing peer to peer (P2P) messages:
 https://github.com/brentongunning/rust-sv
 
+Note that this version of the library has not yet incorporated Daniel Connolly's pull request which enables unlimited block size.
+Therefore if connecting to `mainnet` use the `rust-sv` library from https://bitbucket.stressedsharks.com/projects/SDL/repos/rust-sv/browse.
 
 ## To Build the Service
 The service is developed in Rust.

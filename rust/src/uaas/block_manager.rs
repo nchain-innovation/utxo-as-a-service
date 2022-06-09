@@ -410,6 +410,9 @@ impl BlockManager {
             false
         } else {
             let diff = timestamp_age_as_sec(self.block_headers.last().unwrap().timestamp);
+            let header = self.block_headers.last().unwrap();
+            println!("last header = {}", header.hash().encode());
+            println!("has_chain_tip - diff = {}", &diff);
             // Assume chain tip if the block time is less than 10 mins ago
             // Note that we know all the predecessors are present in the list
             diff < 600

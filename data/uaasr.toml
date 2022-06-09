@@ -1,7 +1,7 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.9/"
-# network = "mainnet"
-network = "testnet"
+network = "mainnet"
+# network = "testnet"
 
 [mainnet]
 ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
@@ -18,10 +18,12 @@ ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
 # ip = ["52.28.166.147"] - dropped us
 # ip = ["23.92.74.110"] # - dropped after requesting block
 port = 8333
-start_block_hash = "0000000000000000080a088b22f8f23882c760f8e828f63513fb93d49b4ac7e7" # current tip
-start_block_height = 739854
+start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
+start_block_height = 739859
+# start_block_hash = "0000000000000000080a088b22f8f23882c760f8e828f63513fb93d49b4ac7e7" # current tip
+# start_block_height = 739854
 
-timeout_period = 120.0
+timeout_period = 2048.0
 block_request_period = 80
 
 startup_load_from_database = true

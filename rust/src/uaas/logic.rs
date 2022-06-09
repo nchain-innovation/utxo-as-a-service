@@ -47,7 +47,7 @@ pub struct Logic {
 
 impl Logic {
     pub fn new(config: &Config) -> Self {
-        // Set up database connections for the componets
+        // Set up database connections for the components
         let pool = Pool::new(&config.get_mysql_url())
             .expect("Problem connecting to database. Check database is connected and database connection configuration is correct.\n");
 

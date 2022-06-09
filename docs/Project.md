@@ -71,28 +71,30 @@ This section contains project status related notes.
 
 * Add blocksize and number of tx to blocks table
 * Add tx size to transaction table
+* remove utxo on tx
 06/06/2022 ----
 * On disconnect move to next ip address in the list
 * Log connect/disconnect to database connect table
-
-## In Progress
-
-* Check on mainnet
 * tag correct height on blocks as they arrive
     * update the database to have the correct block height
         * update blocks
         * update tx
+* Check on mainnet
+    * got working, required change to rust-sv library to support larger blocks
+    * Mainnet nodes disconnect
+        * Appears to work if you request the tip (or close to it)
+        * Still occurs even if you set the start_height: 738839 in version
+        * Got disconnected when we kept asking for the current tip
+
+## In Progress
+* Got working on mainnet
 
 
 ## TODO
 * Search for TODOs
-* remove utxo on tx
-* Restart the thread if it stops/disconnects
 * On getting tx we could check to see if the output is spent or not
 
-
-
-
+* Store whole transaction in mempool table
 
 * Prevent sql injection attack on string fields - clean entry...
 
@@ -117,10 +119,6 @@ This section contains project status related notes.
 
 * use blocktime to age tx
 
-* Mainnet nodes disconnect
-    * Appears to work if you request the tip (or close to it)
-    * Still occurs even if you set the start_height: 738839 in version
-    * Got disconnected when we kept asking for the current tip
 
 * May need to support larger p2p messages
     * add len() to script
