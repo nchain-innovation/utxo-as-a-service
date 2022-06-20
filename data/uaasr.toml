@@ -1,12 +1,12 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.9/"
-network = "mainnet"
-# network = "testnet"
+# network = "mainnet"
+network = "testnet"
 
 [mainnet]
-ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
-# ip = ["18.192.253.59"] # Same as above
-# ip = ["13.86.34.113"]
+# ip = ["18.157.234.254",
+ip = ["18.192.253.59"]
+# "13.86.34.113"]
 # ip = ["18.157.234.254"]
 #ip = ["162.55.95.167"]
 # ip = ["65.21.201.45" ]
@@ -18,15 +18,31 @@ ip = ["18.157.234.254"] # Works at tip, does not work 3 blocks down!
 # ip = ["52.28.166.147"] - dropped us
 # ip = ["23.92.74.110"] # - dropped after requesting block
 port = 8333
-start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
-start_block_height = 739859
+#start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
+#start_block_height = 739859
 # start_block_hash = "0000000000000000080a088b22f8f23882c760f8e828f63513fb93d49b4ac7e7" # current tip
 # start_block_height = 739854
 
-timeout_period = 2048.0
-block_request_period = 80
+# Just before 2GB block
+# Block processing took 214.147 seconds
+#start_block_hash = "0000000000000000042436555faa41fa943bb873c4ea864fa30347f84658770f"
+#start_block_height = 739881
 
-startup_load_from_database = true
+# Just before 3.8GB block - the largest block
+#start_block_hash = "000000000000000000e3f481c2903c272301f215b8efbd06e56a8565e1b6df37"
+#start_block_height = 725510
+
+# Just before -2 3.8GB block - the largest block
+start_block_hash = "000000000000000002875eb589e0ccebad07400949ec536cc3ef616149044671"
+start_block_height = 725508
+
+
+timeout_period = 2048.0
+block_request_period = 280
+
+# startup_load_from_database = true
+startup_load_from_database = false
+
 mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
 mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
 
@@ -67,8 +83,6 @@ startup_load_from_database = true
 
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
-
-
 
 # Python database access
 host = "host.docker.internal"

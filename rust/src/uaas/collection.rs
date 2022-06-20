@@ -54,7 +54,7 @@ impl WorkingCollection {
 
     pub fn create_table(&self, conn: &mut PooledConn) {
         let table = format!(
-            "CREATE TABLE {} (hash varchar(64), tx mediumtext, CONSTRAINT PK_Entry PRIMARY KEY (hash));",
+            "CREATE TABLE {} (hash varchar(64), tx longtext, CONSTRAINT PK_Entry PRIMARY KEY (hash));",
             self.collection.name
         );
         conn.query_drop(table).unwrap();

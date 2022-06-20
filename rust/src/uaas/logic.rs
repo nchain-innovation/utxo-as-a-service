@@ -81,9 +81,13 @@ impl Logic {
 
     pub fn set_state(&mut self, state: ServerStateType) {
         // Handles state changes
-        // Ensure that the state changes
-        assert_ne!(state, self.state);
+
         println!("set_state({:?})", &state);
+        if state == ServerStateType::Connected {
+            // Reset the request time on reconnection
+            self.last_block_rx_time = None;
+            self.need_to_request_blocks = true;
+        }
         self.state = state;
     }
 
@@ -147,7 +151,7 @@ impl Logic {
         if !self.state.is_ready() {
             // no debug info once in ready mode
             dbg!(self.blocks_downloaded);
-            // dbg!(self.need_to_request_blocks);
+            dbg!(self.need_to_request_blocks);
         }
         if self.need_to_request_blocks() {
             self.blocks_downloaded = 0;

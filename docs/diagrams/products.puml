@@ -15,23 +15,18 @@ package Current {
 BNAR_Athena -up-|> UaaS_Python: inspired_by
 UaaS_Rust -up-|> UaaS_Python: inspired_by
 
-class Wireshark_BSV
-note right
-Required to investigate
-issues downloading blocks
-with UaaS_Rust on mainnet
-end note
 
 package Future {
     class UaaS_BitBlock_Integration
     class BSV_NOC
-
+    class Wireshark_BSV
 }
 
 
-Wireshark_BSV -up- UaaS_Rust :required
-UaaS_BitBlock_Integration -up-* UaaS_Rust: uses
-BSV_NOC -up-* BNAR_Athena: uses
+Wireshark_BSV -up-|> UaaS_Rust : was_required
+UaaS_BitBlock_Integration -up-|> UaaS_Rust: uses
+BSV_NOC -up-|> BNAR_Athena: uses
+BSV_NOC -up-|> UaaS_Rust: uses
 
 
 

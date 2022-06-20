@@ -40,7 +40,7 @@ impl PeerConnection {
             services: NODE_BITCOIN_CASH,
             timestamp: secs_since(time::UNIX_EPOCH) as i64,
             user_agent: user_agent.to_string(),
-            relay: true, // This is required to receive Tx messages
+            relay: false, // This must be set to true to receive Tx messages
             nonce: rng.gen::<u64>(),
             start_height: 738839,
             ..Default::default()

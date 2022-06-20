@@ -6,8 +6,10 @@ use mysql::prelude::*;
 use mysql::PooledConn;
 use mysql::*;
 
+use super::hexslice::HexSlice;
+
 use sv::messages::{Block, OutPoint, Payload, Tx, TxOut};
-use sv::util::Hash256;
+use sv::util::{Hash256, Serializable};
 
 use crate::config::Config;
 use crate::uaas::collection::WorkingCollection;
@@ -50,6 +52,7 @@ pub struct MempoolDB {
     locktime: u32,
     fee: u64,
     age: u64,
+    _tx: Vec<u8>,
 }
 
 // Used to store all txs (in blocks)
@@ -133,9 +136,11 @@ impl TxAnalyser {
                     hash varchar(64),
                     locktime int unsigned,
                     fee bigint unsigned,
-                    time int unsigned)",
+                    time int unsigned,
+                    tx longtext)",
                 )
                 .unwrap();
+            // Note that tx longtext should be good for 4GB
             self.conn
                 .query_drop(r"CREATE INDEX idx_txkey ON mempool (hash);")
                 .unwrap();
@@ -205,11 +210,12 @@ impl TxAnalyser {
             .conn
             .query_map(
                 "SELECT * FROM mempool ORDER BY time",
-                |(hash, locktime, fee, time)| MempoolDB {
+                |(hash, locktime, fee, time, tx)| MempoolDB {
                     hash,
                     locktime,
                     fee,
                     age: time,
+                    _tx: tx,
                 },
             )
             .unwrap();
@@ -505,15 +511,23 @@ impl TxAnalyser {
         };
         self.mempool.insert(hash, mempool_entry);
 
+        // Write the tx as hexstr
+        let mut b = Vec::with_capacity(tx.size());
+        tx.write(&mut b).unwrap();
+        let tx_hex = format!("{}", HexSlice::new(&b));
+
         // Write mempool entry to database
         let mempool_insert = format!(
-            "INSERT INTO mempool VALUES ('{}', {}, {}, {});",
+            "INSERT INTO mempool VALUES ('{}', {}, {}, {},'{}');",
             &hash.encode(),
             &locktime,
             &fee,
             &age,
+            &tx_hex,
         );
-        self.conn.exec_drop(&mempool_insert, Params::Empty).unwrap();
+        self.conn.exec_drop(&mempool_insert, Params::Empty).expect(
+            "Problem writing to mempool table. Check that tx field is present in mempool table.\n",
+        );
 
         // Process inputs
         const NOT_A_COINBASE_TX: usize = 1;

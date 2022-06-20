@@ -87,14 +87,12 @@ This section contains project status related notes.
         * Got disconnected when we kept asking for the current tip
 
 ## In Progress
-* Got working on mainnet
 
+* Store whole transaction in mempool table
 
 ## TODO
 * Search for TODOs
 * On getting tx we could check to see if the output is spent or not
-
-* Store whole transaction in mempool table
 
 * Prevent sql injection attack on string fields - clean entry...
 
@@ -117,7 +115,7 @@ This section contains project status related notes.
         4,294,967,295.
 
 
-* use blocktime to age tx
+* Use blocktime to age tx
 
 
 * May need to support larger p2p messages
@@ -172,3 +170,14 @@ https://test.whatsonchain.com/tx/52422e31e46673709226c48a4482e180a5f6c02b832e628
 
 Block with lots of OP_RETURN and multisig
 https://test.whatsonchain.com/block/00000000000217ccba9ce86db2c867cc81c7aceb89ba241f83083890d6a0f6a0
+
+
+Note two2GB bloc
+00000000000000001062062463df0b4560203c0be8256a59b7bdeecfcb58a226
+
+https://whatsonchain.com/block/00000000000000001062062463df0b4560203c0be8256a59b7bdeecfcb58a226
+
+Largest block
+https://whatsonchain.com/block-height/725511?tncpw_session=b439cbfa9ed22a498d11b9a59e89cd87bf82554ceb114c7ee7bc94bd556aab8d
+
+
