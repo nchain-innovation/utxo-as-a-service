@@ -198,8 +198,8 @@ impl Observer<PeerMessage> for EventHandler {
             Message::Headers(headers) => self.on_headers(headers, &event.peer),
             Message::FeeFilter(value) => self.on_feefilter(value, &event.peer),
             Message::SendCmpct(data) => self.on_sendcmpct(data, &event.peer),
-            msg => {
-                println!("default {:?}", msg)
+            _msg => {
+                // println!("default {:?}", _msg)
             }
         }
 
