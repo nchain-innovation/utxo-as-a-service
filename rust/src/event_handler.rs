@@ -10,29 +10,28 @@ use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
 use sv::util::rx::Observer;
 use sv::util::Hash256;
 
-use crate::peer_event::{EventType, PeerEvent};
+use crate::peer_event::{PeerEventType, PeerEventMessage};
 use crate::services::decode_services;
 
 // Constants for inv messages
 const TX: u32 = 1;
 const BLOCK: u32 = 2;
 
-// These are messages sent from the main thread to the peer threads
-#[derive(Debug)]
+// These are messages sent from the main (ThreadManager) thread to the peer (EventHandler) threads
 pub enum RequestMessage {
     BlockRequest(String),
+    BroadcastTx(Tx),
 }
 
 // Event handler - processes peer events
 pub struct EventHandler {
     last_event: Mutex<time::Instant>,
-    mutex_tx: Mutex<mpsc::Sender<PeerEvent>>,
-    //arc_mutex_rx: Arc<Mutex<mpsc::Receiver<RequestMessage>>>,
+    mutex_tx: Mutex<mpsc::Sender<PeerEventMessage>>,
     mutex_rx: Mutex<mpsc::Receiver<RequestMessage>>,
 }
 
 impl EventHandler {
-    pub fn new(tx: mpsc::Sender<PeerEvent>, rx: mpsc::Receiver<RequestMessage>) -> Self {
+    pub fn new(tx: mpsc::Sender<PeerEventMessage>, rx: mpsc::Receiver<RequestMessage>) -> Self {
         EventHandler {
             last_event: Mutex::new(time::Instant::now()),
             mutex_tx: Mutex::new(tx),
@@ -52,7 +51,7 @@ impl EventHandler {
         *x = time::Instant::now();
     }
 
-    fn send_msg(&self, msg: PeerEvent) {
+    fn send_msg(&self, msg: PeerEventMessage) {
         let tx = self.mutex_tx.lock().unwrap();
         tx.send(msg).unwrap()
     }
@@ -67,10 +66,10 @@ impl EventHandler {
     fn on_addr(&self, addr: &Addr, peer: &Arc<Peer>) {
         // On addr message
         //for address in addr.addrs.iter() {
-        let msg = PeerEvent {
+        let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: peer.ip,
-            event: EventType::Addr(addr.clone()),
+            event: PeerEventType::Addr(addr.clone()),
         };
         self.send_msg(msg);
     }
@@ -95,30 +94,30 @@ impl EventHandler {
 
     fn on_block(&self, block: &Block, peer: &Arc<Peer>) {
         // println!("on_block {:?}", block);
-        let msg = PeerEvent {
+        let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: peer.ip,
-            event: EventType::Block(block.clone()),
+            event: PeerEventType::Block(block.clone()),
         };
         self.send_msg(msg);
     }
 
     fn on_tx(&self, tx: &Tx, peer: &Arc<Peer>) {
         // println!("on_tx {:?}", tx);
-        let msg = PeerEvent {
+        let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: peer.ip,
-            event: EventType::Tx(tx.clone()),
+            event: PeerEventType::Tx(tx.clone()),
         };
         self.send_msg(msg);
     }
 
     fn on_headers(&self, headers: &Headers, peer: &Arc<Peer>) {
         // println!("on_on_headers {:?}", headers);
-        let msg = PeerEvent {
+        let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: peer.ip,
-            event: EventType::Headers(headers.clone()),
+            event: PeerEventType::Headers(headers.clone()),
         };
         self.send_msg(msg);
     }
@@ -158,10 +157,10 @@ impl Observer<PeerConnected> for EventHandler {
             decode_services(version.tx_addr.services)
         );
 
-        let msg = PeerEvent {
+        let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: event.peer.ip,
-            event: EventType::Connected(detail),
+            event: PeerEventType::Connected(detail),
         };
         self.send_msg(msg);
     }
@@ -172,10 +171,10 @@ impl Observer<PeerDisconnected> for EventHandler {
         // On disconnected
         self.update_timer();
 
-        let msg = PeerEvent {
+        let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: event.peer.ip,
-            event: EventType::Disconnected,
+            event: PeerEventType::Disconnected,
         };
         self.send_msg(msg);
     }
@@ -213,7 +212,12 @@ impl Observer<PeerMessage> for EventHandler {
 
                     locator.block_locator_hashes.push(hash);
                     let message = Message::GetBlocks(locator);
-
+                    event.peer.send(&message).unwrap();
+                },
+                RequestMessage::BroadcastTx(tx) => {
+                    // Send broadcast tx
+                    dbg!(&tx);
+                    let message = Message::Tx(tx.clone());
                     event.peer.send(&message).unwrap();
                 }
             }

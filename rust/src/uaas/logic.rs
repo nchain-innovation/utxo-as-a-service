@@ -102,6 +102,7 @@ impl Logic {
         // Call the block manager
         self.block_manager.on_block(block, &mut self.tx_analyser);
 
+        // Check to see if we need to request any more blocks
         if !self.state.is_ready() {
             if self.block_manager.has_chain_tip() {
                 self.set_state(ServerStateType::Ready);

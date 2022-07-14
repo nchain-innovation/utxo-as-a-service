@@ -1,0 +1,48 @@
+@startuml
+title UaaS-Rust Configuration
+
+top to bottom direction
+
+class Main {
+    fn message_processor()
+}
+
+
+class Service {
+    user_agent: String
+    network: String
+    rust_address: String
+}
+
+class NetworkSettings {
+    ip: List[String]
+    port: u16
+    timeout_period: f64
+    block_request_period: u64
+    mysql_url: String
+    mysql_url_docker: String
+    start_block_hash: String
+    startup_load_from_database: bool
+    block_file: String
+}
+
+class Collection {
+    name: String
+    track_descendants: bool
+    locking_script_pattern: Option<String>
+}
+
+
+class Config {
+    service: Service
+    mainnet: NetworkSettings
+    testnet: NetworkSettings
+    collection: Vec<Collection>
+}
+
+Config o-- Service: 1:1
+Config o-- NetworkSettings: 1:2
+Config o-- Collection: 1:*
+
+Main --> Config: reads
+@enduml

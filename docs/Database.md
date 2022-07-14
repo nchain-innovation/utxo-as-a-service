@@ -55,7 +55,7 @@ Then creating the following `root` users:
 ```bash
 CREATE USER 'root'@'127.0.0.1' IDENTIFIED BY 'root-password';
 CREATE USER 'root'@'::1' IDENTIFIED BY 'root-password';
-CREATE USER 'root'@'172.17.0.1' IDENTIFIED BY 'root-password;
+CREATE USER 'root'@'172.17.0.1' IDENTIFIED BY 'root-password';
 ```
 
 4. Create user `uaas`

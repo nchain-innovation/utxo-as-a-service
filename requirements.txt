@@ -9,3 +9,4 @@ fastapi
 fastapi_utils
 uvicorn[standard]
 mysql-connector-python
+requests

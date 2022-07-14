@@ -1,34 +1,27 @@
 @startuml
-title UaaS Projects and Tools
-
+title UaaS Related Projects and Tools
 
 package Complete {
     class UaaS_Python
 }
 
 package Current {
-    class BNAR_Athena
     class UaaS_Rust
-
+    class BNAR_Athena
+    class Wireshark_BSV
 }
 
 BNAR_Athena -up-|> UaaS_Python: inspired_by
 UaaS_Rust -up-|> UaaS_Python: inspired_by
 
-
 package Future {
-    class UaaS_BitBlock_Integration
     class BSV_NOC
-    class Wireshark_BSV
+    class UaaS_BitBlock_Integration
 }
 
-
-Wireshark_BSV -up-|> UaaS_Rust : was_required
-UaaS_BitBlock_Integration -up-|> UaaS_Rust: uses
-BSV_NOC -up-|> BNAR_Athena: uses
-BSV_NOC -up-|> UaaS_Rust: uses
-
-
-
+UaaS_Rust -right-> Wireshark_BSV : required
+UaaS_BitBlock_Integration -up-|> UaaS_Rust: could_use
+BSV_NOC -up-|> BNAR_Athena: could_use
+BSV_NOC -up-|> UaaS_Rust: could_use
 
 @enduml

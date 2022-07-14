@@ -4,46 +4,8 @@ title UaaS-Rust Components
 top to bottom direction
 
 class Main {
-    fn message_processor()
+    main()
 }
-
-class NetworkSettings {
-    ip: List[String]
-    port: u16
-    timeout_period: f64
-    block_request_period: u64
-    mysql_url: String
-    mysql_url_docker: String
-    start_block_hash: String
-    startup_load_from_database: bool
-    block_file: String
-}
-
-class Service {
-    user_agent: String
-    network: String
-}
-
-class Collection {
-    name: String
-    track_descendants: bool
-    locking_script_pattern: Option<String>
-}
-
-
-class Config {
-    service: Service
-    mainnet: NetworkSettings
-    testnet: NetworkSettings
-    collection: Vec<Collection>
-}
-
-Config o-- Service: 1:1
-Config o-- NetworkSettings: has_a
-Config o-- Collection: 1:*
-
-Main --> Config: reads
-
 enum PeerThreadStatus {
     Started
     Connected
@@ -51,7 +13,7 @@ enum PeerThreadStatus {
     Finished
 }
 
-enum EventType {
+enum PeerEventType {
     {field} Connected(String)
     Disconnected
     {field} Addr(Addr)
@@ -60,16 +22,14 @@ enum EventType {
     {field} Headers(Headers)
 }
 
-
-
-class PeerEvent {
+class PeerEventMessage {
     time: SystemTime
     peer: IpAddr
-    event: EventType
+    event: PeerEventType
 }
 
 
-PeerEvent o-- EventType
+PeerEventMessage o-- PeerEventType
 
 
 class PeerThread {
@@ -87,12 +47,25 @@ PeerThread o-- PeerThreadStatus: has_a
 
 
 class ThreadManager {
-    rx: mpsc::Receiver<PeerEvent>
-    tx: mpsc::Sender<PeerEvent>
+    rx: mpsc::Receiver<PeerEventMessage>
+    tx: mpsc::Sender<PeerEventMessage>
 }
 
 ThreadManager --> ThreadTracker :uses
 Main --> ThreadManager
+
+enum RequestMessage {
+    BlockRequest<String>
+    BroadcastTx<String>
+}
+
+class EventHandler {
+    last_event: Mutex<time::Instant>
+    mutex_tx: Mutex<mpsc::Sender<PeerEventMessage>>
+    mutex_rx: Mutex<mpsc::Receiver<RequestMessage>>
+}
+
+EventHandler --> RequestMessage: receives
 
 class PeerConnection {
     peer: Arc<Peer>
@@ -101,8 +74,11 @@ class PeerConnection {
 
 PeerThread o-- PeerConnection : has_a
 
-PeerConnection --> EventType: sends
-EventType --> ThreadManager: receives
+PeerConnection --> PeerEventMessage: sends
+PeerConnection --> EventHandler: has_a
+PeerEventType --> ThreadManager: receives
+
+
 
 
 enum ServerStateType {
@@ -121,10 +97,12 @@ class Logic {
     last_block_rx_time: Option<Instant>
     need_to_request_blocks: bool
     block_request_period: u64
+    message_to_send() -> Option<RequestMessage>
+
 }
 ThreadManager --> Logic : calls
 
 Logic o-- ServerStateType
-
+ThreadManager --> RequestMessage: sends
 
 @enduml

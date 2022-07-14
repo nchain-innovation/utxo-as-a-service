@@ -181,3 +181,32 @@ Largest block
 https://whatsonchain.com/block-height/725511?tncpw_session=b439cbfa9ed22a498d11b9a59e89cd87bf82554ceb114c7ee7bc94bd556aab8d
 
 
+# Issues
+
+## Issue 1
+Appeared to lock up processing the following block
+    ```
+    [src/uaas/logic.rs:153] self.blocks_downloaded = 2
+    [src/uaas/logic.rs:154] self.need_to_request_blocks = false
+    Requesting more blocks from hash = 00000000000000ca4d601d1567ac8379b3a296553a77be319957baee58cc6843
+    1657719427.711466s, 176.9.148.163, Block=000000000000055dff158110f8517c68dd8c00946bfc5b66c30c882de8a267f8 - 2022-07-13 11:08:35
+    process_block = 000000000000055dff158110f8517c68dd8c00946bfc5b66c30c882de8a267f8 2022-07-13 11:08:35
+    ```
+
+## Issue 1
+Investigate Martyn issue
+
+    Blockmanager callchain to write_blockheader_to_database
+        Process_read_block - not being called
+        Process_block_queue - not being called
+
+        On_block()
+            Checks the hash_to_index only proceeds if not in hashmap
+                Write_blockheader_to_database
+                Process_block - update hash_to_index hashmap
+
+    The error appears to be database related
+        https://www.digitalocean.com/community/tutorials/how-to-fix-corrupted-tables-in-mysql
+        Check table <table_name>;
+        Repair_table <table_name>;
+

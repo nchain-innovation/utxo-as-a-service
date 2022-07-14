@@ -8,14 +8,19 @@ use std::time::Instant;
 
 use crate::config::Config;
 use crate::peer_connection::PeerConnection;
-use crate::peer_event::{EventType, PeerEvent};
+use crate::peer_event::{PeerEventType, PeerEventMessage};
 use crate::peer_thread::{PeerThread, PeerThreadStatus};
 use crate::thread_tracker::ThreadTracker;
 use crate::uaas::logic::{Logic, ServerStateType};
+use crate::rest_api::AppState;
+use crate::event_handler::RequestMessage;
+use actix_web::web;
+
+
 
 pub struct ThreadManager {
-    rx: mpsc::Receiver<PeerEvent>,
-    tx: mpsc::Sender<PeerEvent>,
+    rx: mpsc::Receiver<PeerEventMessage>,
+    tx: mpsc::Sender<PeerEventMessage>,
 }
 
 impl ThreadManager {
@@ -56,19 +61,19 @@ impl ThreadManager {
         thread_tracker.add(ip, peer);
     }
 
-    pub fn process_messages(&mut self, thread_tracker: &mut ThreadTracker, logic: &mut Logic) {
+    pub fn process_messages(&mut self, thread_tracker: &mut ThreadTracker, logic: &mut Logic,  data: &web::Data<AppState>) {
         //for received in rx {
         while let Ok(received) = self.rx.recv() {
             println!("{}", received);
             match received.event {
-                EventType::Connected(_) => {
+                PeerEventType::Connected(_) => {
                     thread_tracker.set_status(&received.peer, PeerThreadStatus::Connected);
                     thread_tracker.print();
                     logic.set_state(ServerStateType::Connected);
                     logic.connection.on_connect(&received.peer);
                 }
 
-                EventType::Disconnected => {
+                PeerEventType::Disconnected => {
                     // If we have disconnected then there is the opportunity to start another thread
                     thread_tracker.set_status(&received.peer, PeerThreadStatus::Disconnected);
                     logic.set_state(ServerStateType::Disconnected);
@@ -84,18 +89,29 @@ impl ThreadManager {
                     }
                 }
 
-                EventType::Tx(tx) => logic.on_tx(tx),
-                EventType::Block(block) => logic.on_block(block),
-                EventType::Addr(addr) => logic.on_addr(addr),
-                EventType::Headers(headers) => logic.on_headers(headers),
+                PeerEventType::Tx(tx) => logic.on_tx(tx),
+                PeerEventType::Block(block) => logic.on_block(block),
+                PeerEventType::Addr(addr) => logic.on_addr(addr),
+                PeerEventType::Headers(headers) => logic.on_headers(headers),
             }
-
+            // Check to see if logic has something to send
             if let Some(msg) = logic.message_to_send() {
-                // request a block
+                // Request a block
                 if let Some(request_tx) = thread_tracker.get_request_tx(&received.peer) {
                     request_tx.send(msg).unwrap();
                 }
             }
+            // Check to see if any tx to broadcast
+            let mut txs_for_broadcast = data.txs_for_broadcast.lock().unwrap();
+            while let Some(tx) = txs_for_broadcast.pop() {
+                dbg!(&tx);
+                if let Some(request_tx) = thread_tracker.get_request_tx(&received.peer) {
+                    let message = RequestMessage::BroadcastTx(tx);
+                    request_tx.send(message).unwrap();
+                }
+            }
+
+
         }
     }
 }

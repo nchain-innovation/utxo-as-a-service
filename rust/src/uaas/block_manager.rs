@@ -90,17 +90,17 @@ impl BlockManager {
             self.conn
                 .query_drop(
                     r"CREATE TABLE blocks (
-                    height int unsigned,
-                    hash varchar(64),
-                    version int unsigned,
-                    prev_hash varchar(64),
-                    merkle_root varchar(64),
-                    timestamp int unsigned,
-                    bits int unsigned,
-                    nonce int unsigned,
-                    offset bigint unsigned,
-                    blocksize int unsigned,
-                    numtxs int unsigned,
+                    height int unsigned not null,
+                    hash varchar(64) not null,
+                    version int unsigned not null,
+                    prev_hash varchar(64) not null,
+                    merkle_root varchar(64) not null,
+                    timestamp int unsigned not null,
+                    bits int unsigned not null,
+                    nonce int unsigned not null,
+                    offset bigint unsigned not null,
+                    blocksize int unsigned not null,
+                    numtxs int unsigned not null,
                     CONSTRAINT PK_Entry PRIMARY KEY (hash));",
                 )
                 .unwrap();

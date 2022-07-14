@@ -15,7 +15,7 @@ use sv::util::secs_since;
 
 use crate::config::Config;
 use crate::event_handler::{EventHandler, RequestMessage};
-use crate::peer_event::PeerEvent;
+use crate::peer_event::PeerEventMessage;
 
 pub struct PeerConnection {
     peer: Arc<Peer>,
@@ -26,7 +26,7 @@ impl PeerConnection {
     pub fn new(
         ip: IpAddr,
         config: &Config,
-        tx: mpsc::Sender<PeerEvent>,
+        tx: mpsc::Sender<PeerEventMessage>,
         rx: mpsc::Receiver<RequestMessage>,
     ) -> Self {
         let port = config.get_network_settings().port;

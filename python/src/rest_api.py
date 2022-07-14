@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Any, MutableMapping, Dict
+import requests
 
 from util import load_config
 from address_manager import address_manager
@@ -34,16 +35,18 @@ app.add_middleware(
 
 config: MutableMapping[str, Any] = {}
 web_address: str = ""
+rust_url: str = ""
 
 
 @app.on_event("startup")
 def startup():
     """When the application starts read the config
     """
-    global config, web_address
+    global config, web_address, rust_url
 
     config = load_config("../data/uaasr.toml")
     web_address = config["web_interface"]["address"]
+    rust_url = config["web_interface"]["rust_url"]
 
 
 @app.get("/", tags=["Web"])
@@ -80,6 +83,18 @@ def get_transaction(hash: str) -> Dict[str, Any]:
 def get_tx_raw(hash: str) -> Dict[str, Any]:
     """ Return the tx raw entry identified by hash"""
     return tx_analyser.get_tx_raw_entry(hash)
+
+
+@app.post("/tx/raw", tags=["Tx"])
+def broadcast_tx_raw(tx: str) -> Dict[str, Any]:
+    """ Broadcast the provided transaction to the network"""
+    result = requests.post(rust_url + "/tx/raw", data=tx)
+    print(result.status_code)
+    print(result.text)
+    if result.status_code == 200:
+        return result.json()
+    else:
+        return {"failure": result.text}
 
 
 @app.get("/tx/mempool", tags=["Tx"])

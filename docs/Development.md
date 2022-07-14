@@ -48,6 +48,12 @@ The Rust component of the service is constructed of the following components.
 ![Structs](diagrams/service_structure.png)
 
 
+# Service Configuration
+The Rust component of the service uses the following configuration components.
+
+![Structs](diagrams/config_structure.png)
+
+
 # Peer Thread Status States
 The peer thread works through the following states:
 

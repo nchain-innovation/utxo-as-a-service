@@ -23,6 +23,7 @@ pub struct NetworkSettings {
 pub struct Service {
     pub user_agent: String,
     pub network: String,
+    pub rust_address: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

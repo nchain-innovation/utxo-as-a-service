@@ -2,6 +2,9 @@
 user_agent = "/Bitcoin SV:1.0.9/"
 # network = "mainnet"
 network = "testnet"
+# For serving Python FAST API
+rust_address = "127.0.0.1:8080"
+
 
 [mainnet]
 # ip = ["18.157.234.254",
@@ -112,3 +115,4 @@ locking_script_pattern = "7576a914[0-9a-f]{40}88ac$"
 address = '127.0.0.1:5010'
 log_level = 'info'
 reload = false
+rust_url = "http://host.docker.internal:8080"

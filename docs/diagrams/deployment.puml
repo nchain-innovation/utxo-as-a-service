@@ -21,7 +21,7 @@ package Service {
     }
 
     PeerNode <-down-> UaaS: P2P Messages
-
+    WebService -right-> UaaS: broadcast_tx(tx)
 
     package SharedData_Mounted {
         file blocks.dat

@@ -8,7 +8,7 @@ use crate::uaas::util::timestamp_as_string;
 
 // EventsType - used to identify the type of event that is being sent to parent thread
 #[derive(PartialEq)]
-pub enum EventType {
+pub enum PeerEventType {
     Connected(String),
     Disconnected,
     Addr(Addr),
@@ -17,32 +17,32 @@ pub enum EventType {
     Headers(Headers),
 }
 
-impl fmt::Display for EventType {
+impl fmt::Display for PeerEventType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &*self {
-            EventType::Connected(detail) => write!(f, "Connected=({})", detail),
-            EventType::Disconnected => write!(f, "Disconnected"),
-            EventType::Addr(addr) => write!(f, "Addr={}", addr.addrs.len()),
-            EventType::Tx(tx) => write!(f, "Tx={:?}", tx.hash()),
-            EventType::Block(block) => write!(
+            PeerEventType::Connected(detail) => write!(f, "Connected=({})", detail),
+            PeerEventType::Disconnected => write!(f, "Disconnected"),
+            PeerEventType::Addr(addr) => write!(f, "Addr={}", addr.addrs.len()),
+            PeerEventType::Tx(tx) => write!(f, "Tx={:?}", tx.hash()),
+            PeerEventType::Block(block) => write!(
                 f,
                 "Block={:?} - {}",
                 block.header.hash(),
                 timestamp_as_string(block.header.timestamp)
             ),
-            EventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
+            PeerEventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
         }
     }
 }
 
-// PeerEvents - used for sending messages from peer threads to main thread
-pub struct PeerEvent {
+// PeerEventMessages - used for sending messages from peer threads to main thread
+pub struct PeerEventMessage {
     pub time: time::SystemTime,
     pub peer: IpAddr,
-    pub event: EventType,
+    pub event: PeerEventType,
 }
 
-impl fmt::Display for PeerEvent {
+impl fmt::Display for PeerEventMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let sys_time = self
             .time
