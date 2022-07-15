@@ -6,8 +6,10 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use sv::messages::{BlockLocator, Message};
+use sv::util::Hash256;
+
 use crate::config::Config;
-use crate::event_handler::RequestMessage;
 use crate::peer_connection::PeerConnection;
 use crate::peer_event::{PeerEventMessage, PeerEventType};
 use crate::peer_thread::{PeerThread, PeerThreadStatus};
@@ -37,26 +39,24 @@ impl ThreadManager {
         let local_config = config.clone();
         let local_tx = self.tx.clone();
 
-        // Used to send messages from ThreadManager to child PeerConnection
-        let (request_tx, request_rx) = mpsc::channel();
-
         let local_running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
         let peer_running = local_running.clone();
 
         // Read config
         let timeout_period = config.get_network_settings().timeout_period;
 
-        let peer = PeerThread {
+        let peer_connection = PeerConnection::new(ip, &local_config, local_tx);
+        let peer = peer_connection.peer.clone();
+        let peer_thread = PeerThread {
             thread: Some(thread::spawn(move || {
-                let peer = PeerConnection::new(ip, &local_config, local_tx, request_rx);
-                peer.wait_for_messages(timeout_period, local_running);
+                peer_connection.wait_for_messages(timeout_period, local_running);
             })),
             status: PeerThreadStatus::Started,
             running: peer_running,
             started_at: Instant::now(),
-            request_tx,
+            peer: Some(peer),
         };
-        thread_tracker.add(ip, peer);
+        thread_tracker.add(ip, peer_thread);
     }
 
     fn process_event(
@@ -116,10 +116,15 @@ impl ThreadManager {
                 keep_looping = self.process_event(received.clone(), thread_tracker, logic);
 
                 // Check to see if logic has something to send
-                if let Some(msg) = logic.message_to_send() {
+                if let Some(value) = logic.message_to_send() {
                     // Request a block
-                    if let Some(request_tx) = thread_tracker.get_request_tx(&received.peer) {
-                        request_tx.send(msg).unwrap();
+                    if let Some(peer) = thread_tracker.get_connected_peer() {
+                        // Build message
+                        let mut locator = BlockLocator::default();
+                        let hash = Hash256::decode(&value).unwrap();
+                        locator.block_locator_hashes.push(hash);
+                        let message = Message::GetBlocks(locator);
+                        peer.send(&message).unwrap();
                     }
                 }
             }
@@ -128,9 +133,9 @@ impl ThreadManager {
             let mut txs_for_broadcast = data.txs_for_broadcast.lock().unwrap();
             while let Some(tx) = txs_for_broadcast.pop() {
                 dbg!(&tx);
-                if let Some(request_tx) = thread_tracker.get_connected_peer() {
-                    let message = RequestMessage::BroadcastTx(tx);
-                    request_tx.send(message).unwrap();
+                if let Some(peer) = thread_tracker.get_connected_peer() {
+                    let message = Message::Tx(tx.clone());
+                    peer.send(&message).unwrap();
                 }
             }
         }

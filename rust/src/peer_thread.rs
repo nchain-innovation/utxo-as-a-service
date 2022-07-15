@@ -1,10 +1,9 @@
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
-use crate::event_handler::RequestMessage;
+use sv::peer::Peer;
 
 // Used to track the threads
 #[derive(Debug, PartialEq)]
@@ -21,5 +20,5 @@ pub struct PeerThread {
     pub status: PeerThreadStatus,
     pub running: Arc<AtomicBool>,
     pub started_at: Instant,
-    pub request_tx: mpsc::Sender<RequestMessage>,
+    pub peer: Option<Arc<Peer>>,
 }

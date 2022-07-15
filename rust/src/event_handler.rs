@@ -2,13 +2,10 @@ use std::sync::mpsc;
 use std::time;
 
 use std::sync::{Arc, Mutex};
-use sv::messages::{
-    Addr, Block, BlockLocator, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx,
-};
+use sv::messages::{Addr, Block, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx};
 
 use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
 use sv::util::rx::Observer;
-use sv::util::Hash256;
 
 use crate::peer_event::{PeerEventMessage, PeerEventType};
 use crate::services::decode_services;
@@ -17,25 +14,17 @@ use crate::services::decode_services;
 const TX: u32 = 1;
 const BLOCK: u32 = 2;
 
-// These are messages sent from the main (ThreadManager) thread to the peer (EventHandler) threads
-pub enum RequestMessage {
-    BlockRequest(String),
-    BroadcastTx(Tx),
-}
-
 // Event handler - processes peer events
 pub struct EventHandler {
     last_event: Mutex<time::Instant>,
     mutex_tx: Mutex<mpsc::Sender<PeerEventMessage>>,
-    mutex_rx: Mutex<mpsc::Receiver<RequestMessage>>,
 }
 
 impl EventHandler {
-    pub fn new(tx: mpsc::Sender<PeerEventMessage>, rx: mpsc::Receiver<RequestMessage>) -> Self {
+    pub fn new(tx: mpsc::Sender<PeerEventMessage>) -> Self {
         EventHandler {
             last_event: Mutex::new(time::Instant::now()),
             mutex_tx: Mutex::new(tx),
-            mutex_rx: Mutex::new(rx),
         }
     }
 
@@ -54,12 +43,6 @@ impl EventHandler {
     fn send_msg(&self, msg: PeerEventMessage) {
         let tx = self.mutex_tx.lock().unwrap();
         tx.send(msg).unwrap()
-    }
-
-    fn recv_msg(&self) -> Result<RequestMessage, mpsc::TryRecvError> {
-        //let rx = self.arc_mutex_rx.lock().unwrap();
-        let rx = self.mutex_rx.lock().unwrap();
-        rx.try_recv()
     }
 
     // Message handlers
@@ -199,27 +182,6 @@ impl Observer<PeerMessage> for EventHandler {
             Message::SendCmpct(data) => self.on_sendcmpct(data, &event.peer),
             _msg => {
                 // println!("default {:?}", _msg)
-            }
-        }
-
-        // Check to see if we have received anything to send
-        if let Ok(msg) = self.recv_msg() {
-            match &msg {
-                RequestMessage::BlockRequest(value) => {
-                    // Build message
-                    let mut locator = BlockLocator::default();
-                    let hash = Hash256::decode(value).unwrap();
-
-                    locator.block_locator_hashes.push(hash);
-                    let message = Message::GetBlocks(locator);
-                    event.peer.send(&message).unwrap();
-                }
-                RequestMessage::BroadcastTx(tx) => {
-                    // Send broadcast tx
-                    println!("tx sent {}", tx.hash().encode());
-                    let message = Message::Tx(tx.clone());
-                    event.peer.send(&message).unwrap();
-                }
             }
         }
     }

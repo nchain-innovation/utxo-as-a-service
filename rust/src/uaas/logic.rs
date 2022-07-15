@@ -5,7 +5,6 @@ use mysql::Pool;
 use sv::messages::{Addr, Block, Headers, Tx};
 
 use crate::config::Config;
-use crate::event_handler::RequestMessage;
 
 use super::address_manager::AddressManager;
 use super::block_manager::BlockManager;
@@ -147,7 +146,7 @@ impl Logic {
         }
     }
 
-    pub fn message_to_send(&mut self) -> Option<RequestMessage> {
+    pub fn message_to_send(&mut self) -> Option<String> {
         // Return a message to send tp request blocks, if any
         if !self.state.is_ready() {
             // no debug info once in ready mode
@@ -163,7 +162,7 @@ impl Logic {
             // Get the hash of the last known block
             let required_hash = self.block_manager.get_last_known_block_hash();
             println!("Requesting more blocks from hash = {}", &required_hash);
-            Some(RequestMessage::BlockRequest(required_hash))
+            Some(required_hash)
         } else {
             None
         }

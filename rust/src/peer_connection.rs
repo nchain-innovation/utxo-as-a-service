@@ -14,21 +14,16 @@ use sv::util::rx::Observable;
 use sv::util::secs_since;
 
 use crate::config::Config;
-use crate::event_handler::{EventHandler, RequestMessage};
+use crate::event_handler::EventHandler;
 use crate::peer_event::PeerEventMessage;
 
 pub struct PeerConnection {
-    peer: Arc<Peer>,
+    pub peer: Arc<Peer>,
     event_handler: Arc<EventHandler>,
 }
 
 impl PeerConnection {
-    pub fn new(
-        ip: IpAddr,
-        config: &Config,
-        tx: mpsc::Sender<PeerEventMessage>,
-        rx: mpsc::Receiver<RequestMessage>,
-    ) -> Self {
+    pub fn new(ip: IpAddr, config: &Config, tx: mpsc::Sender<PeerEventMessage>) -> Self {
         let port = config.get_network_settings().port;
         let network = config.get_network().expect("Error decoding config network");
         let user_agent = &config.service.user_agent;
@@ -48,7 +43,7 @@ impl PeerConnection {
 
         let peer = Peer::connect(ip, port, network, version, SVPeerFilter::new(0));
 
-        let event_handler = Arc::new(EventHandler::new(tx, rx));
+        let event_handler = Arc::new(EventHandler::new(tx));
         peer.connected_event().subscribe(&event_handler);
         peer.disconnected_event().subscribe(&event_handler);
         peer.messages().subscribe(&event_handler);

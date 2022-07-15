@@ -37,12 +37,22 @@ class PeerThread {
     status: PeerThreadStatus
     running: Arc<AtomicBool>
     started_at: Instant
-    request_tx: mpsc::Sender<RequestMessage>
+    peer: Option<Arc<Peer>>
+
 }
 
 class ThreadTracker {
     children: HashMap<IpAddr, PeerThread>
+    new() -> Self
+    add(&mut self, ip, peer)
+    print(&self)
+    all_finished(&self) -> bool
+    set_status(&mut self, ip, status)
+    get_connected_peer(&self) -> Option<&Arc<Peer>>
+    stop(&mut self, ip)
+    join_thread(&mut self, ip)
 }
+
 ThreadTracker o-- PeerThread: has_a
 PeerThread o-- PeerThreadStatus: has_a
 
@@ -50,33 +60,35 @@ PeerThread o-- PeerThreadStatus: has_a
 class ThreadManager {
     rx: mpsc::Receiver<PeerEventMessage>
     tx: mpsc::Sender<PeerEventMessage>
+
+    new() -> Self
+    create_thread(&mut self, ip, thread_tracker, config)
+    process_event(&self, received, thread_tracker, logic) -> bool
+    process_messages(&mut self, thread_tracker, logic: &mut Logic,  data)
 }
 
 ThreadManager --> ThreadTracker :uses
 Main --> ThreadManager
 
-enum RequestMessage {
-    BlockRequest<String>
-    BroadcastTx<String>
-}
 
 class EventHandler {
     last_event: Mutex<time::Instant>
     mutex_tx: Mutex<mpsc::Sender<PeerEventMessage>>
-    mutex_rx: Mutex<mpsc::Receiver<RequestMessage>>
 }
-
-RequestMessage --> EventHandler : receives
 
 class PeerConnection {
     peer: Arc<Peer>
     event_handler: Arc<EventHandler>
+
+    new(ip, config, tx, rx) -> Self
+    wait_for_messages(&self, timeout_period, running)
+
 }
 
-PeerThread o-- PeerConnection : has_a
+ThreadManager --> PeerConnection : starts_a
 
 EventHandler --> PeerEventMessage: sends
-PeerConnection --> EventHandler: has_a
+PeerConnection o-- EventHandler: has_a
 PeerEventMessage --> ThreadManager: receives
 
 
@@ -98,12 +110,11 @@ class Logic {
     last_block_rx_time: Option<Instant>
     need_to_request_blocks: bool
     block_request_period: u64
-    message_to_send() -> Option<RequestMessage>
+    message_to_send() -> Option<String>
 
 }
 ThreadManager --> Logic : calls
 
 Logic o-- ServerStateType
-ThreadManager --> RequestMessage: sends
 
 @enduml
