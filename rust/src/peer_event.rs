@@ -7,7 +7,7 @@ use sv::messages::{Addr, Block, Headers, Tx};
 use crate::uaas::util::timestamp_as_string;
 
 // EventsType - used to identify the type of event that is being sent to parent thread
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum PeerEventType {
     Connected(String),
     Disconnected,
@@ -35,6 +35,7 @@ impl fmt::Display for PeerEventType {
     }
 }
 
+#[derive(Clone)]
 // PeerEventMessages - used for sending messages from peer threads to main thread
 pub struct PeerEventMessage {
     pub time: time::SystemTime,

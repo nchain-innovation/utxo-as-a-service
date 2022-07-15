@@ -37,6 +37,7 @@ class PeerThread {
     status: PeerThreadStatus
     running: Arc<AtomicBool>
     started_at: Instant
+    request_tx: mpsc::Sender<RequestMessage>
 }
 
 class ThreadTracker {
@@ -65,7 +66,7 @@ class EventHandler {
     mutex_rx: Mutex<mpsc::Receiver<RequestMessage>>
 }
 
-EventHandler --> RequestMessage: receives
+RequestMessage --> EventHandler : receives
 
 class PeerConnection {
     peer: Arc<Peer>
@@ -74,9 +75,9 @@ class PeerConnection {
 
 PeerThread o-- PeerConnection : has_a
 
-PeerConnection --> PeerEventMessage: sends
+EventHandler --> PeerEventMessage: sends
 PeerConnection --> EventHandler: has_a
-PeerEventType --> ThreadManager: receives
+PeerEventMessage --> ThreadManager: receives
 
 
 

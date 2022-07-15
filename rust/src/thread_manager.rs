@@ -4,19 +4,17 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::config::Config;
+use crate::event_handler::RequestMessage;
 use crate::peer_connection::PeerConnection;
-use crate::peer_event::{PeerEventType, PeerEventMessage};
+use crate::peer_event::{PeerEventMessage, PeerEventType};
 use crate::peer_thread::{PeerThread, PeerThreadStatus};
+use crate::rest_api::AppState;
 use crate::thread_tracker::ThreadTracker;
 use crate::uaas::logic::{Logic, ServerStateType};
-use crate::rest_api::AppState;
-use crate::event_handler::RequestMessage;
 use actix_web::web;
-
-
 
 pub struct ThreadManager {
     rx: mpsc::Receiver<PeerEventMessage>,
@@ -61,57 +59,80 @@ impl ThreadManager {
         thread_tracker.add(ip, peer);
     }
 
-    pub fn process_messages(&mut self, thread_tracker: &mut ThreadTracker, logic: &mut Logic,  data: &web::Data<AppState>) {
-        //for received in rx {
-        while let Ok(received) = self.rx.recv() {
-            println!("{}", received);
-            match received.event {
-                PeerEventType::Connected(_) => {
-                    thread_tracker.set_status(&received.peer, PeerThreadStatus::Connected);
-                    thread_tracker.print();
-                    logic.set_state(ServerStateType::Connected);
-                    logic.connection.on_connect(&received.peer);
-                }
+    fn process_event(
+        &self,
+        received: PeerEventMessage,
+        thread_tracker: &mut ThreadTracker,
+        logic: &mut Logic,
+    ) -> bool {
+        // Return false if enclosing loop should finish
+        println!("{}", received);
+        match received.event {
+            PeerEventType::Connected(_) => {
+                thread_tracker.set_status(&received.peer, PeerThreadStatus::Connected);
+                thread_tracker.print();
+                logic.set_state(ServerStateType::Connected);
+                logic.connection.on_connect(&received.peer);
+            }
 
-                PeerEventType::Disconnected => {
-                    // If we have disconnected then there is the opportunity to start another thread
-                    thread_tracker.set_status(&received.peer, PeerThreadStatus::Disconnected);
-                    logic.set_state(ServerStateType::Disconnected);
-                    logic.connection.on_disconnect(&received.peer);
-                    // Wait for thread, sets state to Finished
-                    println!("join thread");
-                    thread_tracker.stop(&received.peer);
-                    thread_tracker.join_thread(&received.peer);
-                    thread_tracker.print();
-                    if thread_tracker.all_finished() {
-                        println!("all finished");
-                        break;
+            PeerEventType::Disconnected => {
+                // If we have disconnected then there is the opportunity to start another thread
+                thread_tracker.set_status(&received.peer, PeerThreadStatus::Disconnected);
+                logic.set_state(ServerStateType::Disconnected);
+                logic.connection.on_disconnect(&received.peer);
+                // Wait for thread, sets state to Finished
+                println!("join thread");
+                thread_tracker.stop(&received.peer);
+                thread_tracker.join_thread(&received.peer);
+                thread_tracker.print();
+                if thread_tracker.all_finished() {
+                    println!("all finished");
+                    return false;
+                }
+            }
+
+            PeerEventType::Tx(tx) => logic.on_tx(tx),
+            PeerEventType::Block(block) => logic.on_block(block),
+            PeerEventType::Addr(addr) => logic.on_addr(addr),
+            PeerEventType::Headers(headers) => logic.on_headers(headers),
+        }
+        true
+    }
+
+    pub fn process_messages(
+        &mut self,
+        thread_tracker: &mut ThreadTracker,
+        logic: &mut Logic,
+        data: &web::Data<AppState>,
+    ) {
+        let recv_duration = Duration::from_millis(500);
+        let mut keep_looping = true;
+
+        while keep_looping {
+            let r = self.rx.recv_timeout(recv_duration);
+
+            if let Ok(received) = r {
+                // Process the event
+                keep_looping = self.process_event(received.clone(), thread_tracker, logic);
+
+                // Check to see if logic has something to send
+                if let Some(msg) = logic.message_to_send() {
+                    // Request a block
+                    if let Some(request_tx) = thread_tracker.get_request_tx(&received.peer) {
+                        request_tx.send(msg).unwrap();
                     }
                 }
+            }
 
-                PeerEventType::Tx(tx) => logic.on_tx(tx),
-                PeerEventType::Block(block) => logic.on_block(block),
-                PeerEventType::Addr(addr) => logic.on_addr(addr),
-                PeerEventType::Headers(headers) => logic.on_headers(headers),
-            }
-            // Check to see if logic has something to send
-            if let Some(msg) = logic.message_to_send() {
-                // Request a block
-                if let Some(request_tx) = thread_tracker.get_request_tx(&received.peer) {
-                    request_tx.send(msg).unwrap();
-                }
-            }
             // Check to see if any tx to broadcast
             let mut txs_for_broadcast = data.txs_for_broadcast.lock().unwrap();
             while let Some(tx) = txs_for_broadcast.pop() {
                 dbg!(&tx);
-                if let Some(request_tx) = thread_tracker.get_request_tx(&received.peer) {
+                if let Some(request_tx) = thread_tracker.get_connected_peer() {
                     let message = RequestMessage::BroadcastTx(tx);
                     request_tx.send(message).unwrap();
                 }
             }
-
-
         }
     }
 }

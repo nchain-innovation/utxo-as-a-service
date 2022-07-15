@@ -50,11 +50,22 @@ impl ThreadTracker {
     }
 
     pub fn get_request_tx(&self, ip: &IpAddr) -> Option<&mpsc::Sender<RequestMessage>> {
+        // Given an ip address return the channel to that peer EventHandler
         if let Some(x) = self.children.get(ip) {
             Some(&x.request_tx)
         } else {
             None
         }
+    }
+
+    pub fn get_connected_peer(&self) -> Option<&mpsc::Sender<RequestMessage>> {
+        // Return a channel to a connected peer EventHandler
+        for child in self.children.values() {
+            if child.status == PeerThreadStatus::Connected {
+                return Some(&child.request_tx);
+            }
+        }
+        None
     }
 
     pub fn stop(&mut self, ip: &IpAddr) {

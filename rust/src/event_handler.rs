@@ -10,7 +10,7 @@ use sv::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
 use sv::util::rx::Observer;
 use sv::util::Hash256;
 
-use crate::peer_event::{PeerEventType, PeerEventMessage};
+use crate::peer_event::{PeerEventMessage, PeerEventType};
 use crate::services::decode_services;
 
 // Constants for inv messages
@@ -213,10 +213,10 @@ impl Observer<PeerMessage> for EventHandler {
                     locator.block_locator_hashes.push(hash);
                     let message = Message::GetBlocks(locator);
                     event.peer.send(&message).unwrap();
-                },
+                }
                 RequestMessage::BroadcastTx(tx) => {
                     // Send broadcast tx
-                    dbg!(&tx);
+                    println!("tx sent {}", tx.hash().encode());
                     let message = Message::Tx(tx.clone());
                     event.peer.send(&message).unwrap();
                 }

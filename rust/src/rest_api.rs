@@ -1,8 +1,8 @@
-use std::sync::Mutex;
 use std::io::Cursor;
+use std::sync::Mutex;
 
+use actix_web::{post, web, Responder, Result};
 use serde::Serialize;
-use actix_web::{post, Responder, web, Result};
 
 use sv::messages::Tx;
 use sv::util::Serializable;
@@ -12,7 +12,7 @@ use crate::uaas::util::decode_hexstr;
 // web interface state
 #[derive(Default)]
 pub struct AppState {
-    pub txs_for_broadcast: Mutex<Vec<Tx>>
+    pub txs_for_broadcast: Mutex<Vec<Tx>>,
 }
 
 #[derive(Serialize)]
@@ -20,8 +20,6 @@ struct BroadcastTxResponse {
     status: String,
     detail: String,
 }
-
-
 
 // to test
 // curl -X POST -d 'txt=txt' 127.0.0.1:8080/echo
@@ -37,7 +35,7 @@ async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl 
                 detail: "Failed to decode hex".to_string(),
             };
             return Ok(web::Json(response));
-        },
+        }
     };
 
     let tx = match Tx::read(&mut Cursor::new(&bytes)) {
@@ -48,7 +46,7 @@ async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl 
                 detail: "Failed to convert hex to tx".to_string(),
             };
             return Ok(web::Json(response));
-        },
+        }
     };
 
     let hash = tx.hash().encode();
@@ -65,4 +63,3 @@ async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl 
 
     Ok(web::Json(response))
 }
-

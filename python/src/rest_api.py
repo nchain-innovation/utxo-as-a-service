@@ -88,7 +88,14 @@ def get_tx_raw(hash: str) -> Dict[str, Any]:
 @app.post("/tx/raw", tags=["Tx"])
 def broadcast_tx_raw(tx: str) -> Dict[str, Any]:
     """ Broadcast the provided transaction to the network"""
-    result = requests.post(rust_url + "/tx/raw", data=tx)
+    try:
+        result = requests.post(rust_url + "/tx/raw", data=tx)
+    except requests.exceptions.ConnectionError as e:
+        print(f"failure = {str(e)}")
+        return {"failure": "Unable to connect with Rust service"}
+    except requests.exceptions.RequestException as e:
+        return {"failure": str(e)}
+
     print(result.status_code)
     print(result.text)
     if result.status_code == 200:

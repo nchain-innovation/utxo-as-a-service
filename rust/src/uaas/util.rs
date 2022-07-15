@@ -4,7 +4,6 @@ use chrono::Utc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fmt, num::ParseIntError};
 
-
 pub fn timestamp_as_string(timestamp: u32) -> String {
     // Convert block timestamp to something readable
     let seconds: u64 = timestamp.into();
