@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Any, MutableMapping, Dict
 import requests
+from io import BytesIO
+
+from p2p_framework.object import CTransaction
 
 from util import load_config
 from address_manager import address_manager
@@ -88,6 +91,18 @@ def get_tx_raw(hash: str) -> Dict[str, Any]:
 @app.post("/tx/raw", tags=["Tx"])
 def broadcast_tx_raw(tx: str) -> Dict[str, Any]:
     """ Broadcast the provided transaction to the network"""
+    # tx -> hash
+    bytes = bytearray.fromhex(tx)
+    transaction = CTransaction()
+    transaction.deserialize(BytesIO(bytes))
+    transaction.rehash()
+    hash = transaction.hash
+    assert isinstance(hash, str)
+    # CTransaction
+    if tx_analyser.tx_exist(hash):
+        print(f"failure: Transaction {hash} already exists.")
+        return {"failure": f" Transaction {hash} already exists."}
+
     try:
         result = requests.post(rust_url + "/tx/raw", data=tx)
     except requests.exceptions.ConnectionError as e:

@@ -1,6 +1,8 @@
 import datetime
 from typing import List, Dict, Any, Optional
 
+from sqlalchemy import true
+
 from database import database
 from blockfile import blockfile
 
@@ -92,6 +94,16 @@ class TxAnalyser:
         return {
             "tx": b.hex(),
         }
+
+    def tx_exist(self, hash: str) -> bool:
+        # Return true if txid is in txs or mempool
+        # self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
+        txs = database.query(f"SELECT * FROM tx WHERE hash = '{hash}';")
+        if len(txs) > 0:
+            return true
+        else:
+            mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
+            return len(mempool) > 0
 
 
 tx_analyser = TxAnalyser()

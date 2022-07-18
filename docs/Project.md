@@ -86,13 +86,15 @@ This section contains project status related notes.
         * Still occurs even if you set the start_height: 738839 in version
         * Got disconnected when we kept asking for the current tip
 
+* Store whole transaction in mempool table
+* Broadcast tx
 ## In Progress
 
-* Store whole transaction in mempool table
 
 ## TODO
 * Search for TODOs
 * On getting tx we could check to see if the output is spent or not
+* Check broadcast tx hash against known hashes in REST API
 
 * Prevent sql injection attack on string fields - clean entry...
 
@@ -114,9 +116,7 @@ This section contains project status related notes.
         NTFS Maximum number of files in a single folder:
         4,294,967,295.
 
-
 * Use blocktime to age tx
-
 
 * May need to support larger p2p messages
     * add len() to script
