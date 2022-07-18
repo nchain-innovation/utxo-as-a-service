@@ -540,4 +540,9 @@ impl TxAnalyser {
         // Collection processing
         self.process_collection(tx, NOT_IN_BLOCK, NOT_IN_BLOCK);
     }
+
+    pub fn tx_exists(&self, hash: Hash256) -> bool {
+        // Return true if txid is in txs or mempool
+        self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
+    }
 }

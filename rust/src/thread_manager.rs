@@ -133,6 +133,10 @@ impl ThreadManager {
             let mut txs_for_broadcast = data.txs_for_broadcast.lock().unwrap();
             while let Some(tx) = txs_for_broadcast.pop() {
                 dbg!(&tx);
+                if logic.tx_exists(tx.hash()) {
+                    println!("Tx already exists {}", &tx.hash().encode());
+                    continue;
+                }
                 if let Some(peer) = thread_tracker.get_connected_peer() {
                     let message = Message::Tx(tx.clone());
                     peer.send(&message).unwrap();

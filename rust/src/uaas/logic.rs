@@ -3,6 +3,7 @@ use std::time::Instant;
 use mysql::Pool;
 
 use sv::messages::{Addr, Block, Headers, Tx};
+use sv::util::Hash256;
 
 use crate::config::Config;
 
@@ -121,6 +122,10 @@ impl Logic {
         // Handle TX message
         // Process straight away - goes to mempool
         self.tx_analyser.process_standalone_tx(&tx);
+    }
+
+    pub fn tx_exists(&self, hash: Hash256) -> bool {
+        self.tx_analyser.tx_exists(hash)
     }
 
     pub fn on_addr(&mut self, addr: Addr) {
