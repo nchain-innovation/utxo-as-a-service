@@ -34,10 +34,11 @@ PeerEventMessage o-- PeerEventType
 
 class PeerThread {
     {field} thread: Option<thread::JoinHandle<()>>
+    peer: Option<Arc<Peer>>
     status: PeerThreadStatus
     running: Arc<AtomicBool>
     started_at: Instant
-    peer: Option<Arc<Peer>>
+
 
 }
 

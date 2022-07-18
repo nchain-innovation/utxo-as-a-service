@@ -17,8 +17,8 @@ pub enum PeerThreadStatus {
 #[derive(Debug)]
 pub struct PeerThread {
     pub thread: Option<thread::JoinHandle<()>>,
+    pub peer: Option<Arc<Peer>>,
     pub status: PeerThreadStatus,
     pub running: Arc<AtomicBool>,
     pub started_at: Instant,
-    pub peer: Option<Arc<Peer>>,
 }

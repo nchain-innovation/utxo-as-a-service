@@ -136,6 +136,7 @@ impl ThreadManager {
                 if let Some(peer) = thread_tracker.get_connected_peer() {
                     let message = Message::Tx(tx.clone());
                     peer.send(&message).unwrap();
+                    logic.on_tx(tx);
                 }
             }
         }
