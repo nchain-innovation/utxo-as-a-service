@@ -1,0 +1,15 @@
+@startuml
+title P2P messages - getheaders
+hide footbox
+
+participant UaaS as u
+participant Peer as p
+
+
+u -> p: getblocks(hash, stophash)
+p --> u: inv(hash1, hash2)
+u -> p: getdata(hash1)
+p -> u: block(hash)
+
+
+@enduml
