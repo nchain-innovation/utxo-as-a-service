@@ -221,7 +221,7 @@ impl BlockManager {
         self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
     }
 
-    fn process_block_queue(&mut self, tx_analyser: &mut TxAnalyser, write_to_file: bool) {
+    fn process_block_queue(&mut self, tx_analyser: &mut TxAnalyser) {
         // Check block_queue to see if there are blocks that we can now process
         // loop through until last_hash_processed  == block.header.prev_hash
         // if found then check again
@@ -234,22 +234,13 @@ impl BlockManager {
             let blocksize = b.size() as u32;
             let numtxs = b.txns.len() as u32;
 
-            if write_to_file {
-                let pos = self.write_block_to_file(&b);
-                // write to database
-
-                self.write_blockheader_to_database(&b.header, pos, blocksize, numtxs);
-                // this should only be the case if postion has not been set
-                assert_eq!(blockwithpos.position, None);
-            } else {
-                // Get the block position off the queue and write the header to the database
-                match blockwithpos.position {
-                    Some(pos) => {
-                        self.write_blockheader_to_database(&b.header, pos, blocksize, numtxs)
-                    }
-                    None => panic!("should not get here as we dont have the pos in file..."),
-                }
-            }
+            // pos is either in the blockfile or we need to write to file
+            let pos = match blockwithpos.position {
+                Some(pos) => pos,
+                None => self.write_block_to_file(&b),
+            };
+            // Write to database
+            self.write_blockheader_to_database(&b.header, pos, blocksize, numtxs);
             self.process_block(b, tx_analyser);
         }
     }
@@ -282,7 +273,7 @@ impl BlockManager {
                 self.process_block(block, tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process
-                self.process_block_queue(tx_analyser, false);
+                self.process_block_queue(tx_analyser);
             } else {
                 // Store block for later processing - if it is not already present
                 if !self.block_queue.contains_key(&block.header.prev_hash) {
@@ -372,7 +363,7 @@ impl BlockManager {
                 self.process_block(block.clone(), tx_analyser);
 
                 // Check block_queue to see if there are blocks that we can now process
-                self.process_block_queue(tx_analyser, true);
+                self.process_block_queue(tx_analyser);
             } else {
                 // Store block for later processing - if it is not already present
 

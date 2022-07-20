@@ -55,7 +55,7 @@ cd python\src
 ```
 Note again that this is dependent on `MySQL` database.
 
-This will provides a REST API with a Swagger interface at http://localhost:5010/docs
+This will provide a REST API with a Swagger interface at http://localhost:5010/docs
 
 ![Rest Api](docs/diagrams/UaaS_REST_API.png)
 
