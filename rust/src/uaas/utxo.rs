@@ -25,7 +25,7 @@ struct UtxoEntryDB {
     pub height: i32,
 }
 
-// provides access to utxo state and wraps interface to DB
+// provides access to utxo state and wraps interface to utxo table
 pub struct Utxo {
     // Unspent tx
     utxo: HashMap<OutPoint, UtxoEntry>,
@@ -56,16 +56,18 @@ impl Utxo {
         self.conn
             .query_drop(
                 r"CREATE TABLE utxo (
-                hash varchar(64),
-                pos int unsigned,
-                satoshis bigint unsigned,
-                height int,
-                CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
+                hash varchar(64) not null,
+                pos int unsigned not null,
+                satoshis bigint unsigned not null,
+                height int not null);"
+                // CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
             )
             .unwrap();
+        /*
         self.conn
             .query_drop(r"CREATE INDEX idx_key ON utxo (hash, pos);")
             .unwrap();
+        */
     }
 
     pub fn load_utxo(&mut self) {

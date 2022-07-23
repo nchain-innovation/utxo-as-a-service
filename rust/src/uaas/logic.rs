@@ -103,7 +103,20 @@ impl Logic {
 
         if self.state.is_ready() {
             // if we are in ready state write utxo out
+            let start = Instant::now();
+            println!("Writing utxo");
             self.tx_analyser.utxo.update_db();
+            let elapsed_time = start.elapsed().as_millis() as f64;
+            println!("Writing utxo took {} seconds", elapsed_time / 1000.0);
+
+            let start2= Instant::now();
+
+            println!("Writing mempool and tx");
+            self.tx_analyser.txdb.batch_delete_from_mempool();
+            self.tx_analyser.txdb.batch_write_tx_to_table();
+            let elapsed_time2 = start2.elapsed().as_millis() as f64;
+            println!("Writing mempool and tx took {} seconds", elapsed_time2 / 1000.0);
+
         } else {
             // Check to see if we need to request any more blocks
             if self.block_manager.has_chain_tip() {
