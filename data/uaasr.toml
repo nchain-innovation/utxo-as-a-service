@@ -60,8 +60,11 @@ block_file = "../data/main-block.dat"
 
 
 [testnet]
-ip = ["176.9.148.163", "167.99.91.85"]
+# ip = ["176.9.148.163", "167.99.91.85"]
 # ip = [ "176.9.148.163"]
+ip = [ "167.172.61.80"]  # Murphy machine
+
+# ip = [ "93.95.100.153"]
 port = 18333
 
 start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
@@ -81,8 +84,8 @@ block_request_period = 80
 #   * blocks, tx, utxo, mempool
 # Prior to starting the service.
 
-startup_load_from_database = true
 # startup_load_from_database = false
+startup_load_from_database = false
 
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"

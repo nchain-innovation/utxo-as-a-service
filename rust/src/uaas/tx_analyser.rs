@@ -3,40 +3,25 @@ use std::collections::HashMap;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mysql::prelude::*;
+use mysql::Pool;
 use mysql::PooledConn;
 use mysql::*;
 
 use super::hexslice::HexSlice;
 
-use sv::messages::{Block, OutPoint, Payload, Tx, TxOut};
+use sv::messages::{Block, Payload, Tx, TxOut};
 use sv::util::{Hash256, Serializable};
 
+use super::utxo::Utxo;
 use crate::config::Config;
 use crate::uaas::collection::WorkingCollection;
+
 /*
     in - unlock_script - script sig
     out - lock_script - script public key
-
 */
 
 const NOT_IN_BLOCK: i32 = -1; // use -1 to indicate that this tx is not in block
-
-// Used to store the unspent txs (UTXO)
-pub struct UnspentEntry {
-    satoshis: i64,
-    // lock_script: Script, - have seen some very large script lengths here - removed for now
-    _height: i32, // use NOT_IN_BLOCK -1 to indicate that tx is not in block
-}
-
-// UtxoEntry - used to store data into utxo table
-#[derive(Debug)]
-
-struct UtxoEntry {
-    pub hash: String,
-    pub pos: u32,
-    pub satoshis: i64,
-    pub height: i32,
-}
 
 // Used to store all txs (in mempool)
 pub struct MempoolEntry {
@@ -47,7 +32,7 @@ pub struct MempoolEntry {
 }
 
 // Used for loading tx from mempool table
-pub struct MempoolDB {
+pub struct MempoolEntryDB {
     pub hash: String,
     locktime: u32,
     fee: u64,
@@ -59,13 +44,15 @@ pub struct MempoolDB {
 pub struct TxEntry {
     _tx: Option<Tx>,
     _height: usize,
+    _blockindex: u32,
     _size: u32,
 }
 
 // Used for loading tx from tx table
-struct HashHeight {
+struct TxEntryDB {
     pub hash: String,
     pub height: usize,
+    pub blockindex: u32,
     pub size: u32,
 }
 
@@ -76,8 +63,9 @@ pub struct TxAnalyser {
     // mempool - transactions that are not in blocks
     mempool: HashMap<Hash256, MempoolEntry>,
 
-    // Unspent tx
-    unspent: HashMap<OutPoint, UnspentEntry>,
+    // Unspent tx - make public so logic can write to database when in ready state
+    pub utxo: Utxo,
+
     // Database connection
     conn: PooledConn,
 
@@ -86,15 +74,18 @@ pub struct TxAnalyser {
 }
 
 impl TxAnalyser {
-    pub fn new(config: &Config, conn: PooledConn) -> Self {
+    pub fn new(config: &Config, pool: Pool) -> Self {
+        let tx_conn = pool.get_conn().unwrap();
+        let utxo_conn = pool.get_conn().unwrap();
         let mut txanal = TxAnalyser {
             txs: HashMap::new(),
             mempool: HashMap::new(),
-            unspent: HashMap::new(),
-            conn,
+            utxo: Utxo::new(utxo_conn),
+            conn: tx_conn,
             collection: Vec::new(),
         };
 
+        // Load the collections
         for collection in &config.collection {
             let wc = WorkingCollection::new(collection.clone());
             txanal.collection.push(wc);
@@ -119,6 +110,7 @@ impl TxAnalyser {
                     r"CREATE TABLE tx (
                     hash varchar(64),
                     height int unsigned,
+                    blockindex int unsigned,
                     txsize int unsigned,
                     CONSTRAINT PK_Entry PRIMARY KEY (hash));",
                 )
@@ -148,20 +140,7 @@ impl TxAnalyser {
 
         // utxo
         if !tables.iter().any(|x| x.as_str() == "utxo") {
-            println!("Table utxo not found - creating");
-            self.conn
-                .query_drop(
-                    r"CREATE TABLE utxo (
-                    hash varchar(64),
-                    pos int unsigned,
-                    satoshis bigint unsigned,
-                    height int,
-                    CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
-                )
-                .unwrap();
-            self.conn
-                .query_drop(r"CREATE INDEX idx_key ON utxo (hash, pos);")
-                .unwrap();
+            self.utxo.create_table();
         }
 
         // Collection tables
@@ -175,14 +154,19 @@ impl TxAnalyser {
     }
 
     fn load_tx(&mut self) {
-        // load tx - (tx hash and height) from database
+        // Load tx - (tx hash and height) from database
         let start = Instant::now();
 
-        let txs: Vec<HashHeight> = self
+        let txs: Vec<TxEntryDB> = self
             .conn
             .query_map(
                 "SELECT * FROM tx ORDER BY height",
-                |(hash, height, size)| HashHeight { hash, height, size },
+                |(hash, height, blockindex, size)| TxEntryDB {
+                    hash,
+                    height,
+                    blockindex,
+                    size,
+                },
             )
             .unwrap();
 
@@ -190,6 +174,7 @@ impl TxAnalyser {
             let tx_entry = TxEntry {
                 _tx: None,
                 _height: tx.height,
+                _blockindex: tx.blockindex,
                 _size: tx.size,
             };
             let hash = Hash256::decode(&tx.hash).unwrap();
@@ -206,11 +191,11 @@ impl TxAnalyser {
         // load mempool - tx hash and height from database
         let start = Instant::now();
 
-        let txs: Vec<MempoolDB> = self
+        let txs: Vec<MempoolEntryDB> = self
             .conn
             .query_map(
                 "SELECT * FROM mempool ORDER BY time",
-                |(hash, locktime, fee, time, tx)| MempoolDB {
+                |(hash, locktime, fee, time, tx)| MempoolEntryDB {
                     hash,
                     locktime,
                     fee,
@@ -238,49 +223,11 @@ impl TxAnalyser {
         );
     }
 
-    fn load_utxo(&mut self) {
-        // load outpoints from database
-        let start = Instant::now();
-
-        let txs: Vec<UtxoEntry> = self
-            .conn
-            .query_map("SELECT * FROM utxo", |(hash, pos, satoshis, height)| {
-                UtxoEntry {
-                    hash,
-                    pos,
-                    satoshis,
-                    height,
-                }
-            })
-            .unwrap();
-
-        for tx in txs {
-            let hash = Hash256::decode(&tx.hash).unwrap();
-
-            let outpoint = OutPoint {
-                hash,
-                index: tx.pos,
-            };
-            let utxo_entry = UnspentEntry {
-                satoshis: tx.satoshis,
-                _height: tx.height,
-            };
-            // add to list
-            self.unspent.insert(outpoint, utxo_entry);
-        }
-
-        println!(
-            "UTXO {} Loaded in {} seconds",
-            self.unspent.len(),
-            start.elapsed().as_millis() as f64 / 1000.0
-        );
-    }
-
     fn read_tables(&mut self) {
         // Load datastructures from the database tables
         self.load_mempool();
         self.load_tx();
-        self.load_utxo();
+        self.utxo.load_utxo();
         for c in self.collection.iter_mut() {
             c.load_txs(&mut self.conn);
         }
@@ -306,81 +253,29 @@ impl TxAnalyser {
     }
 
     fn process_tx_outputs(&mut self, tx: &Tx, height: i32) {
-        // process the tx outputs and place them in the unspents
-        // Record for batch write to utxo table
-        let mut utxo_entries: Vec<UtxoEntry> = Vec::new();
+        // process the tx outputs and place them in the utxo
 
         let hash = tx.hash();
 
-        // Process outputs - add to unspent
+        // Process outputs - add to utxo
         for (index, vout) in tx.outputs.iter().enumerate() {
             if self.is_spendable(vout) {
-                let outpoint = OutPoint {
-                    hash,
-                    index: index.try_into().unwrap(),
-                };
-
-                let new_entry = UnspentEntry {
-                    satoshis: vout.satoshis,
-                    // lock_script: vout.lock_script.clone(),
-                    _height: height,
-                };
-                // add to list
-                self.unspent.insert(outpoint, new_entry);
-
-                // Record for batch write to utxo table
-                let utxo_entry = UtxoEntry {
-                    hash: hash.encode(),
-                    pos: index.try_into().unwrap(),
-                    satoshis: vout.satoshis,
-                    height,
-                };
-                utxo_entries.push(utxo_entry);
+                self.utxo.add(hash, index, vout.satoshis, height);
             }
         }
-
-        // bulk/batch write tx output to utxo table
-        self.conn
-            .exec_batch(
-                //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-                "REPLACE INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-                utxo_entries
-                    .iter()
-                    .map(|x| params! {
-                        "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height
-                    }),
-            )
-            .unwrap();
     }
 
-    fn process_tx_inputs(&mut self, tx: &Tx, tx_index: usize) {
-        // Process inputs - remove from unspent
-        let mut utxo_deletes: Vec<&OutPoint> = Vec::new();
-
-        if tx_index == 0 {
-            // if is coinbase - nothing to process as these won't be in the unspent
+    fn process_tx_inputs(&mut self, tx: &Tx, blockindex: usize) {
+        if blockindex == 0 {
+            // if is coinbase - nothing to process as these won't be in the utxo
         } else {
             for vin in tx.inputs.iter() {
-                // Remove from unspent
-                match self.unspent.remove(&vin.prev_output) {
-                    // Remove from utxo table
-                    Some(_) => utxo_deletes.push(&vin.prev_output),
-                    None => {}
-                }
+                self.utxo.delete(&vin.prev_output);
             }
         }
-        // bulk/batch delete utxo table entries
-        self.conn
-            .exec_batch(
-                "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
-                utxo_deletes
-                    .iter()
-                    .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
-            )
-            .unwrap();
     }
 
-    fn process_collection(&mut self, tx: &Tx, _height: i32, _tx_index: i32) {
+    fn process_collection(&mut self, tx: &Tx, _height: i32, _blockindex: i32) {
         for c in self.collection.iter_mut() {
             // Check to see if we have already processed it if so quit
             if c.already_have_tx(tx.hash()) {
@@ -406,7 +301,7 @@ impl TxAnalyser {
         }
     }
 
-    pub fn process_block_tx(&mut self, tx: &Tx, height: i32, tx_index: usize) {
+    pub fn process_block_tx(&mut self, tx: &Tx, height: i32, blockindex: usize) {
         // Process tx as received in a block from a peer
         let hash = tx.hash();
 
@@ -414,6 +309,7 @@ impl TxAnalyser {
         let tx_entry = TxEntry {
             _tx: Some(tx.clone()),
             _height: height.try_into().unwrap(),
+            _blockindex: blockindex.try_into().unwrap(),
             _size: tx.size() as u32,
         };
 
@@ -426,15 +322,15 @@ impl TxAnalyser {
         self.mempool.remove(&hash);
 
         // process inputs
-        self.process_tx_inputs(tx, tx_index);
+        self.process_tx_inputs(tx, blockindex);
 
         // Process outputs
-        // Note this will overwrite the unspent outpoints with height = NOT_IN_BLOCK(-1)
+        // Note this will overwrite the utxo outpoints with height = NOT_IN_BLOCK(-1)
         // and utxo entries
         self.process_tx_outputs(tx, height);
 
         // Collection processing
-        self.process_collection(tx, height, tx_index.try_into().unwrap());
+        self.process_collection(tx, height, blockindex.try_into().unwrap());
     }
 
     pub fn process_block(&mut self, block: &Block, height: i32) {
@@ -450,25 +346,26 @@ impl TxAnalyser {
             )
             .unwrap();
 
-        let hashes_and_size: Vec<(String, u32)> = block
+        let hash_blockindex_size: Vec<(String, u32, u32)> = block
             .txns
             .iter()
-            .map(|b| (b.hash().encode(), b.size() as u32))
+            .enumerate()
+            .map(|(i, b)| (b.hash().encode(), i as u32, b.size() as u32))
             .collect();
 
         // Batch write tx to tx database table
         self.conn
             .exec_batch(
-                "INSERT INTO tx (hash, height, txsize) VALUES (:hash, :height, :txsize)",
-                hashes_and_size.iter().map(
-                    |(hash, size)| params! {"hash" => hash, "height" => height, "txsize"=> size},
+                "INSERT INTO tx (hash, height, blockindex, txsize) VALUES (:hash, :height, :blockindex, :txsize)",
+                hash_blockindex_size.iter().map(
+                    |(hash, blockindex, size)| params! {"hash" => hash, "height" => height, "blockindex"=> blockindex, "txsize"=> size},
                 ),
             )
             .unwrap();
 
         // now process them...
-        for (tx_index, tx) in block.txns.iter().enumerate() {
-            self.process_block_tx(tx, height, tx_index);
+        for (blockindex, tx) in block.txns.iter().enumerate() {
+            self.process_block_tx(tx, height, blockindex);
         }
     }
 
@@ -476,8 +373,8 @@ impl TxAnalyser {
         // Given the tx attempt to determine the fee, return 0 if unable to calculate
         let mut inputs = 0i64;
         for vin in tx.inputs.iter() {
-            if let Some(entry) = self.unspent.get(&vin.prev_output) {
-                inputs += entry.satoshis;
+            if let Some(satoshis) = self.utxo.get_satoshis(&vin.prev_output) {
+                inputs += satoshis;
             } else {
                 // if any of the inputs are missing then return 0
                 return 0;

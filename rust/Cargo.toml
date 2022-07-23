@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# if connecting the service to mainnet use:
-# sv = { version = "0.2.2", path = "../../rust-sv" }
-# if connecting the sevice to testnet use:
-sv = "0.2.2"
+# if dowloading blocks >32 MB :
+sv = { version = "0.2.2", path = "../../rust-sv" }
+# else use:
+# sv = "0.2.2"
 # See README.md for details.
 
 serde = { version = "1.0", features =["derive"] }

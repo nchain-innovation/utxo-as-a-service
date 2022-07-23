@@ -88,13 +88,22 @@ This section contains project status related notes.
 
 * Store whole transaction in mempool table
 * Broadcast tx
+* Check broadcast tx hash against known hashes in REST API
 ## In Progress
+* Added field blockindex field to to txs to speed up merkle proofs
+
+* Merkle Proofs
+
+* Speed up IBD,
+    remove index on UTXO
+    Build UTXO in memory during IBD
+    Build tx and mempool in memory during IBD
 
 
 ## TODO
+
 * Search for TODOs
-* On getting tx we could check to see if the output is spent or not
-* Check broadcast tx hash against known hashes in REST API
+* On getting tx we could check to see if the output is spent or not?
 
 * Prevent sql injection attack on string fields - clean entry...
 
@@ -193,7 +202,7 @@ Appeared to lock up processing the following block
     process_block = 000000000000055dff158110f8517c68dd8c00946bfc5b66c30c882de8a267f8 2022-07-13 11:08:35
     ```
 
-## Issue 1
+## Issue 2
 Investigate Martyn issue
 
     Blockmanager callchain to write_blockheader_to_database
@@ -210,3 +219,87 @@ Investigate Martyn issue
         Check table <table_name>;
         Repair_table <table_name>;
 
+
+    Now having issues connecting to peers, not sure how this is related.
+    The fact that this is running in docker could be a contributing issue
+
+## Issue 3
+John issue
+    John has an issue where connecting to a peer fails.
+    He is due to try another db
+
+## Issue 3
+John issue
+connecting to db with another db but same username sees tables created on other db
+
+SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';
+
+
+Processing block 000000000000019e70ac8f03d28c9ce40a75ab87031a88be03119c2a6b3af847
+process_block = 000000000000019e70ac8f03d28c9ce40a75ab87031a88be03119c2a6b3af847 2022-06-01 17:41:25
+thread '<unnamed>' panicked at 'assertion failed: (left == right)
+  left: Some(0),
+ right: None', src/uaas/block_manager.rs:243:17
+stack backtrace:
+   0: rust_begin_unwind
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/std/src/panicking.rs:584:5
+   1: core::panicking::panic_fmt
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/panicking.rs:143:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/panicking.rs:225:17
+   3: core::panicking::assert_failed
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/panicking.rs:182:5
+   4: uaas::uaas::block_manager::BlockManager::process_block_queue
+             at ./src/uaas/block_manager.rs:243:17
+   5: uaas::uaas::block_manager::BlockManager::on_block
+             at ./src/uaas/block_manager.rs:375:17
+   6: uaas::uaas::logic::Logic::on_block
+             at ./src/uaas/logic.rs:103:9
+   7: uaas::thread_manager::ThreadManager::process_event
+             at ./src/thread_manager.rs:95:44
+   8: uaas::thread_manager::ThreadManager::process_messages
+             at ./src/thread_manager.rs:116:32
+   9: uaas::main::{{closure}}::{{closure}}
+             at ./src/main.rs:61:13
+note: Some details are omitted, run with RUST_BACKTRACE=full for a verbose backtrace.
+
+
+thread '<unnamed>' panicked at 'called Result::unwrap() on an Err value: SendError { .. }', src/event_handler.rs:45:22
+stack backtrace:
+   0: rust_begin_unwind
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/std/src/panicking.rs:584:5
+   1: core::panicking::panic_fmt
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/panicking.rs:143:14
+   2: core::result::unwrap_failed
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/result.rs:1749:5
+   3: core::result::Result<T,E>::unwrap
+             at /rustc/7737e0b5c4103216d6fd8cf941b7ab9bdbaace7c/library/core/src/result.rs:1065:23
+   4: uaas::event_handler::EventHandler::send_msg
+             at ./src/event_handler.rs:45:9
+   5: uaas::event_handler::EventHandler::on_tx
+             at ./src/event_handler.rs:95:9
+   6: <uaas::event_handler::EventHandler as sv::util::rx::Observer<sv::peer::peer::PeerMessage>>::next
+             at ./src/event_handler.rs:180:32
+   7: <sv::util::rx::Subject<T> as sv::util::rx::Observer<T>>::next
+             at /Users/j.murphy/.cargo/registry/src/github.com-1ecc6299db9ec823/sv-0.2.2/src/util/rx.rs:60:39
+   8: sv::peer::peer::Peer::connect_internal::{{closure}}
+             at /Users/j.murphy/.cargo/registry/src/github.com-1ecc6299db9ec823/sv-0.2.2/src/peer/peer.rs:290:29
+note: Some details are omitted, run with RUST_BACKTRACE=full for a verbose backtrace.
+timed out at 240.399890645 seconds
+
+
+# Issue
+
+Recovery from being asleep - this is a service, should not be run on a laptop that sleeps
+
+1658341900.770295s, 176.9.148.163, Tx=0874519e379014d61842a46ffc07d29000927a891c4d07786317ddeee45594fe
+Have been asleep for 2.798 seconds
+thread '<unnamed>' panicked at 'called `Result::unwrap()` on an `Err` value: IoError { server disconnected }', src/uaas/tx_analyser.rs:380:14
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+Same error different line
+
+
+process_block = 000000000000d27a7dcb1f943ac4401b89fc5888fef678b34f64d3be0766714e 2022-07-21 22:46:52
+thread '<unnamed>' panicked at 'called `Result::unwrap()` on an `Err` value: IoError { server disconnected }', src/uaas/tx_analyser.rs:353:14
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -52,12 +52,11 @@ impl Logic {
             .expect("Problem connecting to database. Check database is connected and database connection configuration is correct.\n");
 
         let block_conn = pool.get_conn().unwrap();
-        let tx_conn = pool.get_conn().unwrap();
         let addr_conn = pool.get_conn().unwrap();
         let connection_conn = pool.get_conn().unwrap();
         Logic {
             state: ServerStateType::Starting,
-            tx_analyser: TxAnalyser::new(config, tx_conn),
+            tx_analyser: TxAnalyser::new(config, pool),
             block_manager: BlockManager::new(config, block_conn),
             address_manager: AddressManager::new(config, addr_conn),
             connection: Connection::new(config, connection_conn),
@@ -102,8 +101,11 @@ impl Logic {
         // Call the block manager
         self.block_manager.on_block(block, &mut self.tx_analyser);
 
-        // Check to see if we need to request any more blocks
-        if !self.state.is_ready() {
+        if self.state.is_ready() {
+            // if we are in ready state write utxo out
+            self.tx_analyser.utxo.update_db();
+        } else {
+            // Check to see if we need to request any more blocks
             if self.block_manager.has_chain_tip() {
                 self.set_state(ServerStateType::Ready);
                 self.blocks_downloaded = 0;
@@ -122,6 +124,10 @@ impl Logic {
         // Handle TX message
         // Process straight away - goes to mempool
         self.tx_analyser.process_standalone_tx(&tx);
+        if self.state.is_ready() {
+            // if we are in ready state write utxo out
+            self.tx_analyser.utxo.update_db();
+        }
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {
