@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::mpsc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use sv::messages::{Block, Payload, Tx};
@@ -10,18 +11,11 @@ use mysql::prelude::*;
 use mysql::PooledConn;
 use mysql::*;
 
+use super::database::{DBOperationType, TxEntryWriteDB};
 
 // Used for loading tx from mempool table
 pub struct MempoolEntryDB {
     _hash: String,
-}
-
-// Used to store txs to write (in blocks)
-pub struct TxEntry {
-    hash: Hash256,
-    height: usize,
-    blockindex: u32,
-    size: u32,
 }
 
 // Used for loading tx from tx table
@@ -44,17 +38,21 @@ pub struct TxDB {
     hashes_to_delete: Vec<Hash256>,
 
     // txs to add to tx table
-    tx_entries: Vec<TxEntry>,
+    tx_entries: Vec<TxEntryWriteDB>,
+
+    // Channel to database
+    tx: mpsc::Sender<DBOperationType>,
 }
 
 impl TxDB {
-    pub fn new(conn: PooledConn) -> Self {
+    pub fn new(conn: PooledConn, tx: mpsc::Sender<DBOperationType>) -> Self {
         TxDB {
             conn,
             txs: HashMap::new(),
             mempool: HashMap::new(),
             hashes_to_delete: Vec::new(),
             tx_entries: Vec::new(),
+            tx,
         }
     }
 
@@ -67,15 +65,14 @@ impl TxDB {
                 hash varchar(64) not null,
                 height int unsigned not null,
                 blockindex int unsigned not null,
-                txsize int unsigned not null);"
-                //CONSTRAINT PK_Entry PRIMARY KEY (hash));",
+                txsize int unsigned not null,
+                CONSTRAINT PK_Entry PRIMARY KEY (hash));",
             )
             .unwrap();
-        /*
-            self.conn
+
+        self.conn
             .query_drop(r"CREATE INDEX idx_tx ON tx (hash);")
             .unwrap();
-        */
     }
 
     pub fn create_mempool_table(&mut self) {
@@ -90,12 +87,11 @@ impl TxDB {
                 tx longtext not null)",
             )
             .unwrap();
-        // Note that tx longtext should be good for 4GB
-        /*
+        // Note that tx longtext should be good for 4GB txs
+
         self.conn
             .query_drop(r"CREATE INDEX idx_txkey ON mempool (hash);")
             .unwrap();
-        */
     }
 
     pub fn load_tx(&mut self) {
@@ -104,12 +100,9 @@ impl TxDB {
 
         let txs: Vec<TxEntryDB> = self
             .conn
-            .query_map(
-                "SELECT hash FROM tx ORDER BY height",
-                |hash| TxEntryDB {
-                    hash,
-                },
-            )
+            .query_map("SELECT hash FROM tx ORDER BY height", |hash| TxEntryDB {
+                hash,
+            })
             .unwrap();
 
         for tx in txs {
@@ -129,12 +122,9 @@ impl TxDB {
 
         let txs: Vec<MempoolEntryDB> = self
             .conn
-            .query_map(
-                "SELECT hash FROM mempool ORDER BY time",
-                |hash| MempoolEntryDB {
-                    _hash: hash,
-                },
-            )
+            .query_map("SELECT hash FROM mempool ORDER BY time", |hash| {
+                MempoolEntryDB { _hash: hash }
+            })
             .unwrap();
 
         for tx in txs {
@@ -160,7 +150,7 @@ impl TxDB {
             }
 
             // Store tx - note that we only do this for tx in a block
-            let tx_entry = TxEntry {
+            let tx_entry = TxEntryWriteDB {
                 hash,
                 height: height.try_into().unwrap(),
                 blockindex: blockindex.try_into().unwrap(),
@@ -174,23 +164,29 @@ impl TxDB {
                 // We must have already processed this tx in a block
                 panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
             }
-
         }
     }
 
     pub fn batch_delete_from_mempool(&mut self) {
         // Batch Delete from mempool
+        /*
         self.conn
             .exec_batch(
                 "DELETE FROM mempool WHERE hash = :hash;",
                 self.hashes_to_delete.iter().map(|x| params! {"hash" => x.encode()}),
             )
             .unwrap();
-
+        */
+        self.tx
+            .send(DBOperationType::MempoolBatchDelete(
+                self.hashes_to_delete.clone(),
+            ))
+            .unwrap();
         self.hashes_to_delete.clear();
     }
 
     pub fn batch_write_tx_to_table(&mut self) {
+        /*
         self.conn
         .exec_batch(
             "INSERT INTO tx (hash, height, blockindex, txsize) VALUES (:hash, :height, :blockindex, :txsize)",
@@ -199,6 +195,12 @@ impl TxDB {
             ),
         )
         .unwrap();
+        */
+
+        self.tx
+            .send(DBOperationType::TxBatchWrite(self.tx_entries.clone()))
+            .unwrap();
+        self.tx_entries.clear();
     }
 
     pub fn add_to_mempool(&mut self, tx: &Tx, fee: i64) {

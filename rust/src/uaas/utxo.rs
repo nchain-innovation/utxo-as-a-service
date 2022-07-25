@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::mpsc;
 
 use std::time::Instant;
 
@@ -7,22 +8,16 @@ use sv::util::Hash256;
 
 use mysql::prelude::*;
 use mysql::PooledConn;
-use mysql::*;
+// use mysql::*;
+
+use super::database::{DBOperationType, UtxoEntryDB};
 
 // Used to store the unspent txs (UTXO)
+#[derive(Clone)]
 pub struct UtxoEntry {
     satoshis: i64,
     // lock_script: Script, - have seen some very large script lengths here - removed for now
     _height: i32, // use NOT_IN_BLOCK -1 to indicate that tx is not in block
-}
-
-// UtxoEntry - used to store data into utxo table
-#[derive(Debug)]
-struct UtxoEntryDB {
-    pub hash: String,
-    pub pos: u32,
-    pub satoshis: i64,
-    pub height: i32,
 }
 
 // provides access to utxo state and wraps interface to utxo table
@@ -37,15 +32,19 @@ pub struct Utxo {
 
     // Process inputs - remove from utxo
     utxo_deletes: Vec<OutPoint>,
+
+    // Channel to database
+    tx: mpsc::Sender<DBOperationType>,
 }
 
 impl Utxo {
-    pub fn new(conn: PooledConn) -> Self {
+    pub fn new(conn: PooledConn, tx: mpsc::Sender<DBOperationType>) -> Self {
         Utxo {
             utxo: HashMap::new(),
             conn,
             utxo_entries: HashMap::new(),
             utxo_deletes: Vec::new(),
+            tx,
         }
     }
 
@@ -59,15 +58,14 @@ impl Utxo {
                 hash varchar(64) not null,
                 pos int unsigned not null,
                 satoshis bigint unsigned not null,
-                height int not null);"
-                // CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
+                height int not null,
+                CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
             )
             .unwrap();
-        /*
+
         self.conn
             .query_drop(r"CREATE INDEX idx_key ON utxo (hash, pos);")
             .unwrap();
-        */
     }
 
     pub fn load_utxo(&mut self) {
@@ -153,30 +151,16 @@ impl Utxo {
 
     pub fn update_db(&mut self) {
         // bulk/batch write tx output to utxo table
-        self.conn
-        .exec_batch(
-            //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-            "REPLACE INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-            self.utxo_entries
-                .iter()
-                .map(|(_key, x)| params! {
-                    "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height
-                }),
-        )
-        .unwrap();
-
+        let request: Vec<UtxoEntryDB> = self.utxo_entries.clone().into_values().collect();
+        self.tx
+            .send(DBOperationType::UtxoBatchWrite(request))
+            .unwrap();
         self.utxo_entries.clear();
 
         // bulk/batch delete utxo table entries
-        self.conn
-            .exec_batch(
-                "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
-                self.utxo_deletes
-                    .iter()
-                    .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
-            )
+        self.tx
+            .send(DBOperationType::UtxoBatchDelete(self.utxo_deletes.clone()))
             .unwrap();
-
         self.utxo_deletes.clear();
     }
 }

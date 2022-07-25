@@ -1,4 +1,5 @@
 use std::cmp;
+use std::sync::mpsc;
 
 use mysql::prelude::*;
 use mysql::Pool;
@@ -12,6 +13,7 @@ use super::utxo::Utxo;
 use crate::config::Config;
 use crate::uaas::collection::WorkingCollection;
 
+use super::database::DBOperationType;
 /*
     in - unlock_script - script sig
     out - lock_script - script public key
@@ -31,13 +33,15 @@ pub struct TxAnalyser {
 }
 
 impl TxAnalyser {
-    pub fn new(config: &Config, pool: Pool) -> Self {
+    pub fn new(config: &Config, pool: Pool, tx: mpsc::Sender<DBOperationType>) -> Self {
+        // database connections
         let tx_conn = pool.get_conn().unwrap();
         let utxo_conn = pool.get_conn().unwrap();
         let txdb_conn = pool.get_conn().unwrap();
+
         let mut txanal = TxAnalyser {
-            txdb: TxDB::new(txdb_conn),
-            utxo: Utxo::new(utxo_conn),
+            txdb: TxDB::new(txdb_conn, tx.clone()),
+            utxo: Utxo::new(utxo_conn, tx),
             conn: tx_conn,
             collection: Vec::new(),
         };
@@ -185,6 +189,11 @@ impl TxAnalyser {
         for (blockindex, tx) in block.txns.iter().enumerate() {
             self.process_block_tx(tx, height, blockindex);
         }
+
+        // Do db writes here
+        self.utxo.update_db();
+        self.txdb.batch_delete_from_mempool();
+        self.txdb.batch_write_tx_to_table();
     }
 
     fn calc_fee(&self, tx: &Tx) -> i64 {

@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom};
+use std::sync::mpsc;
 use std::time::Instant;
 
 use mysql::prelude::*;
 use mysql::PooledConn;
-use mysql::*;
 
 use sv::messages::{Block, BlockHeader, Payload};
 use sv::util::{Hash256, Serializable};
@@ -13,6 +13,8 @@ use sv::util::{Hash256, Serializable};
 use crate::config::Config;
 use crate::uaas::tx_analyser::TxAnalyser;
 use crate::uaas::util::{timestamp_age_as_sec, timestamp_as_string};
+
+use super::database::{DBBlockHeaderWrite, DBOperationType};
 
 // database header structure
 struct DBHeader {
@@ -57,10 +59,13 @@ pub struct BlockManager {
 
     // Database connection
     conn: PooledConn,
+
+    // Channel to database
+    tx: mpsc::Sender<DBOperationType>,
 }
 
 impl BlockManager {
-    pub fn new(config: &Config, conn: PooledConn) -> Self {
+    pub fn new(config: &Config, conn: PooledConn, tx: mpsc::Sender<DBOperationType>) -> Self {
         BlockManager {
             start_block_hash: config.get_network_settings().start_block_hash.clone(),
             startup_load_from_database: config.get_network_settings().startup_load_from_database,
@@ -72,6 +77,7 @@ impl BlockManager {
                 .unwrap(),
             block_queue: HashMap::new(),
             conn,
+            tx,
         }
     }
 
@@ -202,23 +208,23 @@ impl BlockManager {
     ) {
         // Write the block header to a database
         // Needs to be called before process block as process block increments the self.height
-
-        let blocks_insert = format!(
-            "INSERT INTO blocks
-            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {}, {}, {}, {});",
-            self.height,
-            header.hash().encode(),
-            header.version,
-            header.prev_hash.encode(),
-            header.merkle_root.encode(),
-            header.timestamp,
-            header.bits,
-            header.nonce,
+        let block_header = DBBlockHeaderWrite {
+            height: self.height,
+            hash: header.hash(),
+            version: header.version,
+            prev_hash: header.prev_hash,
+            merkle_root: header.merkle_root,
+            timestamp: header.timestamp,
+            bits: header.bits,
+            nonce: header.nonce,
             position,
             blocksize,
             numtxs,
-        );
-        self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
+        };
+
+        self.tx
+            .send(DBOperationType::BlockHeaderWrite(block_header))
+            .unwrap();
     }
 
     fn process_block_queue(&mut self, tx_analyser: &mut TxAnalyser) {

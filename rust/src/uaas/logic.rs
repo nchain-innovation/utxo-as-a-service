@@ -1,3 +1,5 @@
+use std::sync::mpsc;
+use std::thread;
 use std::time::Instant;
 
 use mysql::Pool;
@@ -10,6 +12,7 @@ use crate::config::Config;
 use super::address_manager::AddressManager;
 use super::block_manager::BlockManager;
 use super::connection::Connection;
+use super::database::Database;
 use super::tx_analyser::TxAnalyser;
 
 // Used to keep track of the server state
@@ -43,6 +46,9 @@ pub struct Logic {
 
     // Used to determine the time between requesting blocks
     block_request_period: u64,
+
+    //database: Database,
+    thread: Option<thread::JoinHandle<()>>,
 }
 
 impl Logic {
@@ -54,17 +60,31 @@ impl Logic {
         let block_conn = pool.get_conn().unwrap();
         let addr_conn = pool.get_conn().unwrap();
         let connection_conn = pool.get_conn().unwrap();
-        Logic {
+        let db_conn = pool.get_conn().unwrap();
+
+        // Channel for database writes
+        let (tx, rx) = mpsc::channel();
+
+        let mut logic = Logic {
             state: ServerStateType::Starting,
-            tx_analyser: TxAnalyser::new(config, pool),
-            block_manager: BlockManager::new(config, block_conn),
+            tx_analyser: TxAnalyser::new(config, pool, tx.clone()),
+            block_manager: BlockManager::new(config, block_conn, tx),
             address_manager: AddressManager::new(config, addr_conn),
             connection: Connection::new(config, connection_conn),
             blocks_downloaded: 0,
             last_block_rx_time: None,
             need_to_request_blocks: true,
             block_request_period: config.get_network_settings().block_request_period,
-        }
+            //database:
+            thread: None,
+        };
+
+        logic.thread = Some(thread::spawn(move || {
+            let mut database = Database::new(db_conn, rx);
+            database.perform_db_operations();
+        }));
+
+        logic
     }
 
     pub fn setup(&mut self) {
@@ -101,23 +121,7 @@ impl Logic {
         // Call the block manager
         self.block_manager.on_block(block, &mut self.tx_analyser);
 
-        if self.state.is_ready() {
-            // if we are in ready state write utxo out
-            let start = Instant::now();
-            println!("Writing utxo");
-            self.tx_analyser.utxo.update_db();
-            let elapsed_time = start.elapsed().as_millis() as f64;
-            println!("Writing utxo took {} seconds", elapsed_time / 1000.0);
-
-            let start2= Instant::now();
-
-            println!("Writing mempool and tx");
-            self.tx_analyser.txdb.batch_delete_from_mempool();
-            self.tx_analyser.txdb.batch_write_tx_to_table();
-            let elapsed_time2 = start2.elapsed().as_millis() as f64;
-            println!("Writing mempool and tx took {} seconds", elapsed_time2 / 1000.0);
-
-        } else {
+        if !self.state.is_ready() {
             // Check to see if we need to request any more blocks
             if self.block_manager.has_chain_tip() {
                 self.set_state(ServerStateType::Ready);

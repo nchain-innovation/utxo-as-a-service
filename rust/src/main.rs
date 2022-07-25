@@ -6,6 +6,8 @@ extern crate rand;
 extern crate regex;
 
 use std::net::IpAddr;
+use std::panic;
+use std::process;
 use std::thread;
 
 use actix_web::{web, App, HttpServer};
@@ -29,6 +31,14 @@ use crate::uaas::logic::Logic;
 
 #[actix_web::main]
 async fn main() {
+    // Hook in our own panic handler
+    let orig_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        // invoke the default handler and exit the process
+        orig_hook(panic_info);
+        process::exit(1);
+    }));
+
     // Read the config
     let config = match get_config("UAASR_CONFIG", "../data/uaasr.toml") {
         Some(config) => config,

@@ -45,5 +45,5 @@ def main(fname: str) -> None:
 if __name__ == '__main__':
     # config: MutableMapping[str, Any] = load_config("../data/uaas.toml")
     # blockfile = "../" + config["Blocks"]["block_file"]
-    blockfile = "../../../data/block.dat"
+    blockfile = "../../../data/block2.dat"
     main(blockfile)
