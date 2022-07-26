@@ -18,6 +18,7 @@ const BLOCK: u32 = 2;
 pub struct EventHandler {
     last_event: Mutex<time::Instant>,
     mutex_tx: Mutex<mpsc::Sender<PeerEventMessage>>,
+    connected_to_peer: Mutex<bool>,
 }
 
 impl EventHandler {
@@ -25,13 +26,24 @@ impl EventHandler {
         EventHandler {
             last_event: Mutex::new(time::Instant::now()),
             mutex_tx: Mutex::new(tx),
-        }
+            connected_to_peer: Mutex::new(false),
+         }
     }
 
     pub fn get_elapsed_time(&self) -> f64 {
         // Return how much time has passed since last message
         let x = self.last_event.lock().unwrap();
         x.elapsed().as_secs_f64()
+    }
+
+    fn set_connected(&self, connected: bool) {
+        let mut connected_to_peer = self.connected_to_peer.lock().unwrap();
+        *connected_to_peer = connected;
+    }
+
+    fn get_connected(&self) -> bool {
+        let connected_to_peer = self.connected_to_peer.lock().unwrap();
+        *connected_to_peer
     }
 
     fn update_timer(&self) {
@@ -71,7 +83,9 @@ impl EventHandler {
         // Request the txs and blocks in the inv message
         if !objects.is_empty() {
             let want = Message::GetData(Inv { objects });
-            peer.send(&want).unwrap();
+            if self.get_connected() {
+                peer.send(&want).unwrap();
+            }
         }
     }
 
@@ -110,8 +124,9 @@ impl EventHandler {
 
         let p = FeeFilter { minfee: 0 };
         let m = Message::FeeFilter(p);
-
-        peer.send(&m).unwrap();
+        if self.get_connected() {
+            peer.send(&m).unwrap();
+        }
     }
 
     fn on_sendcmpct(&self, data: &SendCmpct, peer: &Arc<Peer>) {
@@ -121,7 +136,9 @@ impl EventHandler {
             version: 1,
         };
         let m = Message::SendCmpct(p);
-        peer.send(&m).unwrap();
+        if self.get_connected() {
+            peer.send(&m).unwrap();
+        }
     }
 }
 
@@ -131,6 +148,7 @@ impl Observer<PeerConnected> for EventHandler {
         self.update_timer();
 
         let version = event.peer.version().expect("failed to get version!");
+        self.set_connected(true);
 
         // dbg!(&version);
         let detail = format!(
@@ -153,7 +171,7 @@ impl Observer<PeerDisconnected> for EventHandler {
     fn next(&self, event: &PeerDisconnected) {
         // On disconnected
         self.update_timer();
-
+        self.set_connected(false);
         let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: event.peer.ip,
