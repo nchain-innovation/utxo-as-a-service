@@ -19,7 +19,7 @@ use crate::peer_event::PeerEventMessage;
 
 pub struct PeerConnection {
     pub peer: Arc<Peer>,
-    event_handler: Arc<EventHandler>,
+    pub event_handler: Arc<EventHandler>,
 }
 
 impl PeerConnection {
@@ -66,6 +66,9 @@ impl PeerConnection {
             thread::sleep(one_second);
             // Check time here to see if we have been asleep
             if start.elapsed() > two_seconds {
+                // let the event_handler know we have been asleep
+                self.event_handler.set_connected(false);
+
                 let asleep_time = start.elapsed().as_millis() as f64;
                 println!("Have been asleep for {} seconds", asleep_time / 1000.0);
                 // If so stop

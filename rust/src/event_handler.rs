@@ -27,7 +27,7 @@ impl EventHandler {
             last_event: Mutex::new(time::Instant::now()),
             mutex_tx: Mutex::new(tx),
             connected_to_peer: Mutex::new(false),
-         }
+        }
     }
 
     pub fn get_elapsed_time(&self) -> f64 {
@@ -36,12 +36,12 @@ impl EventHandler {
         x.elapsed().as_secs_f64()
     }
 
-    fn set_connected(&self, connected: bool) {
+    pub fn set_connected(&self, connected: bool) {
         let mut connected_to_peer = self.connected_to_peer.lock().unwrap();
         *connected_to_peer = connected;
     }
 
-    fn get_connected(&self) -> bool {
+    pub fn get_connected(&self) -> bool {
         let connected_to_peer = self.connected_to_peer.lock().unwrap();
         *connected_to_peer
     }
