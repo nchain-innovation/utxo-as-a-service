@@ -84,8 +84,8 @@ block_request_period = 80
 #   * blocks, tx, utxo, mempool
 # Prior to starting the service.
 
+startup_load_from_database = true
 # startup_load_from_database = false
-startup_load_from_database = false
 
 mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
 mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"

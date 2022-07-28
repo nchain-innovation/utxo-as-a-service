@@ -4,17 +4,16 @@
 # Distributed under the Open BSV software license, see the accompanying file LICENSE.
 """Helpful routines for regression testing."""
 
-from binascii import hexlify, unhexlify
 import time
 from typing import Callable
 
 
 def bytes_to_hex_str(byte_str: bytes) -> str:
-    return hexlify(byte_str).decode('ascii')
+    return byte_str.hex()
 
 
 def hex_str_to_bytes(hex_str: str) -> bytes:
-    return unhexlify(hex_str.encode('ascii'))
+    return bytes.fromhex(hex_str)
 
 
 def int_to_hex_str(val: int) -> str:

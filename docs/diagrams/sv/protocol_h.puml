@@ -1,0 +1,114 @@
+@startuml
+title SV protocol.h
+top to bottom direction
+
+enum CMessageFields {
+    MESSAGE_START_SIZE
+    COMMAND_SIZE
+    CHECKSUM_SIZE
+
+    BASIC_MESSAGE_SIZE_SIZE
+    BASIC_MESSAGE_SIZE_OFFSET
+    CHECKSUM_OFFSET
+    BASIC_COMMAND_OFFSET
+
+    EXTENDED_MESSAGE_SIZE_SIZE
+
+    BASIC_HEADER_SIZE
+    EXTENDED_HEADER_SIZE
+}
+
+class CExtendedMessageHeader {
+    GetCommand() -> String
+    GetPayLoadLength() -> u64
+}
+
+class CMessageHeader {
+    GetCommand() -> String
+    GetPayLoadLength() -> u64
+}
+
+enum NetMsgType{
+    VERSION
+    VERACK
+    ADDR
+    INV
+    GETDATA
+    MERKLEBLOCK
+    GETBLOCKS
+    GETHEADERS
+    GETHDRSEN
+    TX
+    HEADERS
+    HDRSEN
+    BLOCK
+    GETADDR
+    MEMPOOL
+    PING
+    PONG
+    NOTFOUND
+    FILTERLOAD
+    FILTERADD
+    FILTERCLEAR
+    REJECT
+    SENDHEADERS
+    SENDHDRSEN
+    FEEFILTER
+    SENDCMPCT
+    CMPCTBLOCK
+    GETBLOCKTXN
+    BLOCKTXN
+    PROTOCONF
+    CREATESTREAM
+    STREAMACK
+    DSDETECTED
+    EXTMSG
+bool IsBlockLike(strCommand: String)
+uint64_t GetMaxMessageLength(command: String, config: Config)
+}
+
+enum ServiceFlags  {
+    NODE_NONE
+    NODE_NETWORK
+    NODE_GETUTXO
+    NODE_BLOOM
+    NODE_XTHIN
+    NODE_BITCOIN_CASH
+}
+
+class CNetAddr{
+    ip: u8[16]
+}
+class CService {
+    port: u32
+
+}
+class CAddress {
+    service_flags: ServiceFlags
+}
+
+CService -up-|> CNetAddr
+CAddress -up-|> CService
+CAddress o-- ServiceFlags
+
+enum GetDataMsg {
+    UNDEFINED
+    MSG_TX
+    MSG_BLOCK
+    MSG_FILTERED_BLOCK
+    MSG_CMPCT_BLOCK
+}
+
+class CInv {
+    uint32_t: type
+    uint256 hash
+}
+CInv o-- GetDataMsg
+
+class CProtoconf {
+    numberOfFields: u64
+    maxRecvPayloadLength: u32
+    streamPolicies: String
+
+}
+@enduml

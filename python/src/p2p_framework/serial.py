@@ -7,6 +7,8 @@ from p2p_framework.util import hex_str_to_bytes, bytes_to_hex_str
 from itertools import chain
 # Serialization/deserialization tools
 
+Uint256 = int
+
 
 def ser_compact_size(item: int) -> bytes:
     """ given int return bytes
@@ -73,7 +75,7 @@ def ser_string(s: str) -> Tuple[str]:
     return (s,)  # return tuple with single member
 
 
-def deser_uint256(f: BytesIO) -> int:
+def deser_uint256(f: BytesIO) -> Uint256:
     r = 0
     for i in range(8):
         t = struct.unpack("<I", f.read(4))[0]
@@ -81,7 +83,7 @@ def deser_uint256(f: BytesIO) -> int:
     return r
 
 
-def ser_uint256(u: int) -> bytes:
+def ser_uint256(u: Uint256) -> bytes:
     rs = b""
     for i in range(8):
         rs += struct.pack("<I", u & 0xFFFFFFFF)
@@ -89,7 +91,7 @@ def ser_uint256(u: int) -> bytes:
     return rs
 
 
-def uint256_from_bytes(s: bytes) -> int:
+def uint256_from_bytes(s: bytes) -> Uint256:
     r = 0
     t = struct.unpack("<IIIIIIII", s[:32])
     for i in range(8):
@@ -97,7 +99,7 @@ def uint256_from_bytes(s: bytes) -> int:
     return r
 
 
-def uint256_from_compact(c) -> int:
+def uint256_from_compact(c) -> Uint256:
     nbytes = (c >> 24) & 0xFF
     v = (c & 0xFFFFFF) << (8 * (nbytes - 3))
     return v

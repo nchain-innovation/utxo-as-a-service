@@ -10,16 +10,16 @@ import hashlib
 from typing import Tuple
 
 
-def sha256(s) -> bytes:
-    return hashlib.new('sha256', s).digest()
+def sha256(data) -> bytes:
+    return hashlib.new('sha256', data).digest()
 
 
-def ripemd160(s) -> bytes:
-    return hashlib.new('ripemd160', s).digest()
+def ripemd160(data) -> bytes:
+    return hashlib.new('ripemd160', data).digest()
 
 
-def hash256(s) -> bytes:
-    return sha256(sha256(s))
+def hash256(data) -> bytes:
+    return sha256(sha256(data))
 
 
 def rotl64(n: int, b: int) -> int:

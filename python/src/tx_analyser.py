@@ -1,10 +1,9 @@
 import datetime
 from typing import List, Dict, Any, Optional
 
-from sqlalchemy import true
-
 from database import database
 from blockfile import blockfile
+from merkle import create_merkle_branch
 
 
 class TxAnalyser:
@@ -100,10 +99,66 @@ class TxAnalyser:
         # self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
         txs = database.query(f"SELECT * FROM tx WHERE hash = '{hash}';")
         if len(txs) > 0:
-            return true
+            return True
         else:
             mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
             return len(mempool) > 0
 
+    def get_tx_merkle_proof(self, hash: str) -> Dict[str, Any]:
+        # Given the txid return the merkle branch proof for a confirmed transaction
+        # Get the block
+        block = database.query(f"SELECT  uaas_db.blocks.height , uaas_db.blocks.hash, merkle_root FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height WHERE uaas_db.tx.hash='{hash}';")
+        try:
+            print(block)
+            height = block[0][0]
+            block_hash = block[0][1]
+            merkle_root = block[0][2]
+        except IndexError:
+            return {
+                "status": f"Transaction {hash} not found in block"
+            }
+        # Get the txs in the block
+        result = database.query(f"SELECT  hash  FROM uaas_db.tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+        txs = [x[0] for x in result]
+        # create merkle proof
+        branches = create_merkle_branch(hash, txs)
+        return {
+            "block_hash": block_hash,
+            "merkle_root": merkle_root,
+            "tx_hash": hash,
+            # "txs": txs,
+            "branches": branches,
+        }
+
+
+"""
+curl --location --request GET  "https://api.whatsonchain.com/v1/bsv/main/tx/c1d32f28baa27a376ba977f6a8de6ce0a87041157cef0274b20bfda2b0d8df96/proof"
+[{
+    "blockHash":"0000000000000000091216c46973d82db057a6f9911352892b7769ed517681c3",
+    "branches":[
+        {"hash":"7e0ba1980522125f1f40d19a249ab3ae036001b991776813d25aebe08e8b8a50","pos":"R"},
+        {"hash":"1e3a5a8946e0caf07006f6c4f76773d7e474d4f240a276844f866bd09820adb3","pos":"R"}
+    ],
+    "hash":"c1d32f28baa27a376ba977f6a8de6ce0a87041157cef0274b20bfda2b0d8df96",
+    "merkleRoot":"95a920b1002bed05379a0d2650bb13eb216138f28ee80172f4cf21048528dc60"
+}]
+
+curl --location --request GET  "https://api.whatsonchain.com/v1/bsv/test/tx/a7362153a911704f247ddf0e82b370e6f982ea8e2b5adefc0396aaace19bdf87/proof"
+[{
+    "blockHash":"00000000000006221044332c2f7eaa928a3be87205dad6af48540b6deebf139d",
+    "branches":[
+        {"hash":"eb29e2c835cb768a28686b1197c7676725947304527584784be0b9d3c39984e5","pos":"R"},
+        {"hash":"05cbefbeda1186faafc29846aa748f713e37cf6cd3afbc27d0b7bd944a992f67","pos":"L"},
+        {"hash":"372e51252988c584a3fa4d17ceaf64b6482a65f3a31d2059a5ef4a33e4d798cf","pos":"L"},
+        {"hash":"816467446ab29cb4023ab2848797f7052d9adb297239d1a624aa98d1f68f8b07","pos":"L"},
+        {"hash":"5e40e668f18c0819c803010eee8249daa089863b334b138a7f790b092a231682","pos":"L"},
+        {"hash":"20e409c75a215c8daa65a37e726ff146288035a7a0d611ea4c49f840355c14cc","pos":"L"},
+        {"hash":"a191a73cf116300852f5934d42474f7f52c562dfe53d6821e7736326ca9ddbf1","pos":"R"}
+    ],
+    "hash":"a7362153a911704f247ddf0e82b370e6f982ea8e2b5adefc0396aaace19bdf87",
+    "merkleRoot":"91caa91ecef2a2f42eee00995ef15135414d319b7ece67bbfe1fa499b155cb64"
+}]
+
+"""
 
 tx_analyser = TxAnalyser()

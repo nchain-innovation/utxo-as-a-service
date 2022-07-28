@@ -89,8 +89,14 @@ This section contains project status related notes.
 * Store whole transaction in mempool table
 * Broadcast tx
 * Check broadcast tx hash against known hashes in REST API
-## In Progress
+* On getting tx we could check to see if the output is spent or not? - done
+
+* Used a separate thread to write to database now takes 5 mins to process blocks and 3 hours to write to database
 * Added field blockindex field to to txs to speed up merkle proofs
+* Martyn issue was because he let his machine go to sleep whilst performing block downloads
+* John's issue was because the block he was downloading was 40MB and we were not using the modified rust-sv library
+* Fixed John issue where the logic of reading blocks from file was throwing an assert
+## In Progress
 
 * Merkle Proofs
 
@@ -101,9 +107,9 @@ This section contains project status related notes.
 
 
 ## TODO
+* Speed up mysql database, see what can be done in config
 
 * Search for TODOs
-* On getting tx we could check to see if the output is spent or not?
 
 * Prevent sql injection attack on string fields - clean entry...
 
@@ -135,9 +141,10 @@ This section contains project status related notes.
 
 
 * unable to write blobs to database
-
 * add logging
 * Update documentation on Configuration settings
+
+
 
 # Memory usage
 * 05/05/2022 - 242 MB - mainnet
@@ -192,41 +199,6 @@ https://whatsonchain.com/block-height/725511?tncpw_session=b439cbfa9ed22a498d11b
 
 # Issues
 
-## Issue 1
-Appeared to lock up processing the following block
-    ```
-    [src/uaas/logic.rs:153] self.blocks_downloaded = 2
-    [src/uaas/logic.rs:154] self.need_to_request_blocks = false
-    Requesting more blocks from hash = 00000000000000ca4d601d1567ac8379b3a296553a77be319957baee58cc6843
-    1657719427.711466s, 176.9.148.163, Block=000000000000055dff158110f8517c68dd8c00946bfc5b66c30c882de8a267f8 - 2022-07-13 11:08:35
-    process_block = 000000000000055dff158110f8517c68dd8c00946bfc5b66c30c882de8a267f8 2022-07-13 11:08:35
-    ```
-
-## Issue 2
-Investigate Martyn issue
-
-    Blockmanager callchain to write_blockheader_to_database
-        Process_read_block - not being called
-        Process_block_queue - not being called
-
-        On_block()
-            Checks the hash_to_index only proceeds if not in hashmap
-                Write_blockheader_to_database
-                Process_block - update hash_to_index hashmap
-
-    The error appears to be database related
-        https://www.digitalocean.com/community/tutorials/how-to-fix-corrupted-tables-in-mysql
-        Check table <table_name>;
-        Repair_table <table_name>;
-
-
-    Now having issues connecting to peers, not sure how this is related.
-    The fact that this is running in docker could be a contributing issue
-
-## Issue 3
-John issue
-    John has an issue where connecting to a peer fails.
-    He is due to try another db
 
 ## Issue 3
 John issue
@@ -303,3 +275,43 @@ Same error different line
 process_block = 000000000000d27a7dcb1f943ac4401b89fc5888fef678b34f64d3be0766714e 2022-07-21 22:46:52
 thread '<unnamed>' panicked at 'called `Result::unwrap()` on an `Err` value: IoError { server disconnected }', src/uaas/tx_analyser.rs:353:14
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+Issue - Resolved
+
+Have now added a panic handler so that if any thread panics the service will stop.
+
+```
+set_state(Ready)
+1658789292.57072s, 167.172.61.80, Tx=639f9bffadc6f5f39e5ddcad45c7434654de23efec93e5c803f71c78d7af5446
+Have been asleep for 67.614 seconds
+1658796501.962826s, 167.172.61.80, Disconnected
+set_state(Disconnected)
+thread '<unnamed>' panicked at 'called `Result::unwrap()` on an `Err` value: IllegalState("Not connected")', src/event_handler.rs:74:30
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+a.gordon@8-lm-00250 rust %
+```
+
+Here we have a peer.send after the connection has disconnected.
+
+```
+    fn on_inv(&self, inv: &Inv, peer: &Arc<Peer>) {
+        // On inv message
+        let mut objects: Vec<InvVect> = Vec::new();
+
+        for i in inv.objects.iter() {
+            match i.obj_type {
+                TX | BLOCK => objects.push(i.clone()),
+                // ignore all others
+                _ => {}
+            }
+        }
+        // Request the txs and blocks in the inv message
+        if !objects.is_empty() {
+            let want = Message::GetData(Inv { objects });
+            peer.send(&want).unwrap();
+        }
+    }
+
+
+```

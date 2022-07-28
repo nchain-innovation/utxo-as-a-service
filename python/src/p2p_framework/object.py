@@ -12,7 +12,7 @@ from p2p_framework.serial import (
     deser_uint256, ser_uint256, deser_compact_size, ser_compact_size, deser_string, ser_string,
     deser_int_vector, ser_int_vector, ser_string_vector, deser_string_vector, deser_uint256_vector,
     ser_uint256_vector, ser_vector, deser_vector, uint256_from_bytes,
-    uint256_from_compact, deser_varint_vector, ser_varint_vector)
+    uint256_from_compact, deser_varint_vector, ser_varint_vector, Uint256)
 from p2p_framework.consensus import MY_VERSION, MAX_PROTOCOL_RECV_PAYLOAD_LENGTH, COIN
 from p2p_framework.hash import siphash256, hash256, sha256
 # Objects that map to bitcoind objects, which can be serialized/deserialized
@@ -280,7 +280,7 @@ class CTransaction():
         self.vin: List[CTxIn]
         self.vout: List[CTxOut]
         self.nLockTime: int
-        self.sha256: Optional[int]
+        self.sha256: Optional[Uint256]
         self.hash: Optional[str]
 
         if tx is None:
@@ -357,7 +357,7 @@ class CBlockHeader():
         self.nTime: int
         self.nBits: int  # number of 0s in the hash to solve
         self.nNonce: int
-        self.sha256: Optional[int]
+        self.sha256: Optional[Uint256]
         self.hash: Optional[str]
 
         if json_notification is None:

@@ -1,0 +1,320 @@
+@startuml
+title SV net.h
+top to bottom direction
+
+
+class AddedNodeInfo {
+    strAddedNode: String
+    resolvedAddress: CService
+    fConnected: bool
+    fInbound: bool
+}
+
+class NodeConnectInfo {
+
+    addrConnect: CAddress
+    pszDest: str
+    fCountFailure: bool
+    streamType: StreamType
+    streamPolicy: String
+    assocID AssociationIDPtr
+    fnewStream: bool
+}
+
+class CGetBlockMessageRequest {
+    CGetBlockMessageRequest(CDataStream vRecv)
+
+    GetRequestTime() -> Instant
+    GetLocator() -> CBlockLocator
+    GetHashStop()  -> uint256
+
+    mRequestTime: Instant
+    mLocator: CBlockLocator
+    mHashStop: uint256
+}
+
+class CTransaction
+class CClientUIInterface
+
+class CTransactionRef
+CTransactionRef -up-> CTransaction: points_to
+
+class CSerializedNetMsg{
+    mCommand: String
+    mPayloadType: PayloadType
+    mHash: uint256
+    mSize: size
+    mData: ptr
+}
+
+package CConnman {
+
+    enum NumConnections {
+        CONNECTIONS_NONE
+        CONNECTIONS_IN
+        CONNECTIONS_OUT
+        CONNECTIONS_ALL
+    }
+
+    class Options {
+        nLocalServices: ServiceFlags
+        nRelevantServices: ServiceFlags
+        nMaxConnections: i32
+        nMaxOutbound: i32
+        nMaxAddnode: i32
+        nMaxFeeler: i32
+        nBestHeight: i32
+        uiInterface: CClientUIInterface
+        nSendBufferMaxSize: u32
+        nReceiveFloodSize: u32
+        nMaxOutboundTimeframe: u64
+        nMaxOutboundLimit: u64
+    }
+
+    Options o-- CClientUIInterface
+
+    class CAsyncTaskPool{
+        AddToPool()
+        HasReachedSoftAsyncTaskLimit(id: i64) -> bool
+        HandleCompletedAsyncProcessing()
+        mPool: CThreadPool<CQueueAdaptor>
+        mRunningTasks: Vec<CRunningTask>
+        mPerInstanceSoftAsyncTaskLimit: i32
+    }
+
+    class CConnman {
+
+        GetTotalBytesRecv() -> u64
+        GetTotalBytesSent() -> u64
+
+        SetBestHeight(height: i32)
+        GetBestHeight() -> i32
+        Start() -> bool;
+        Stop()
+        Interrupt()
+        BindListenPort()
+        GetNetworkActive() -> bool
+        SetNetworkActive(active: bool)
+        OpenNetworkConnection() -> bool
+        CheckIncomingNonce(nonce: u64) -> bool
+
+        ForNode(NodeId id, std::function<bool(const CNodePtr& pnode)> func) -> bool
+
+        PushMessage(const CNodePtr& pnode, CSerializedNetMsg &&msg, StreamType stream = StreamType::UNKNOWN)
+
+        CNodePtr MoveStream(NodeId from, const AssociationIDPtr& newAssocID, StreamType newStreamType,
+            const std::string& streamPolicyName = "");
+        QueueNewStream(const CAddress& addr, StreamType streamType, const AssociationIDPtr& assocID,
+            const std::string& streamPolicyName = "");
+
+        StreamPolicyFactory& GetStreamPolicyFactory() const { return mStreamPolicyFactory; }
+
+        EnqueueTransaction(const CTxnSendingDetails& txn);
+        DequeueTransactions(const std::vector<CTransactionRef>& txns);
+
+        const std::shared_ptr<CTxnPropagator>& getTransactionPropagator() const { return mTxnPropagator; }
+
+        DSAttemptHandler& GetDSAttemptHandler()
+
+        ForEachNode(func: Callable)
+        ParallelForEachNode()
+
+        using PrioritisedChain = std::pair<TxInputDataSPtrRefVec,TxValidationPriority>;
+
+        ScheduleChains(txns: TxInputDataSPtrVec) -> Vec<PrioritisedChain>
+
+        ParallelTxnValidation()
+
+        GetTxIdTracker() -> TxIdTrackerSPtr
+        getTxnValidator() -> std::shared_ptr<CTxnValidator>
+        getRawTxValidator() -> std::shared_ptr<RawTxValidator>
+        getInvalidTxnPublisher() -> CInvalidTxnPublisher
+        EnqueueTxnForValidator(TxInputDataSPtr pTxInputData)
+        EnqueueTxnForValidator(std::vector<TxInputDataSPtr> vTxInputData)
+        FindNodeById(nodeIdL i64) -> CNodePtr
+        EraseOrphanTxnsFromPeer(NodeId peer)
+        EraseOrphanTxn(const uint256& txHash) -> i32
+        CheckOrphanTxnExists(const COutPoint& prevout) -> bool
+        CheckOrphanTxnExists(const uint256& txHash) -> bool
+        GetOrphanTxnsHash(const COutPoint& prevout) -> Vec<uint256>
+        CheckTxnInRecentRejects(const uint256& txHash) -> bool
+        ResetRecentRejects()
+        GetCompactExtraTxns() -> Vec<(uint256, CTransactionRef)>;
+
+        GetAddressCount() -> size_t
+        SetServices(const CService &addr, ServiceFlags nServices)
+        MarkAddressGood(const CAddress &addr)
+        AddNewAddress(const CAddress &addr, const CAddress &addrFrom, int64_t nTimePenalty = 0)
+        GetAddresses() -> Vec<CAddress>
+
+        void Ban(const CNetAddr &netAddr, const BanReason &reason,
+                int64_t bantimeoffset = 0, bool sinceUnixEpoch = false);
+
+        AddOneShot(strDest: String);
+
+        AddNode(node: String) -> bool;
+        bool RemoveAddedNode(const std::string &node) -> bool
+        GetAddedNodeInfo() -> Vec<AddedNodeInfo>
+
+        GetNodeCount(NumConnections num) -> size_t
+        GetNodeStats(std::vector<NodeStats> &vstats)
+        DisconnectNode(const std::string &node) -> bool
+        DisconnectNode(NodeId id) -> bool
+
+        GetSendBufferSize() -> u32
+
+        AddWhitelistedRange(subnet: CSubNet)
+
+         GetLocalServices() -> ServiceFlags
+
+        SetMaxOutboundTarget(limit: u64);
+        GetMaxOutboundTarget() -> u64
+
+        void SetMaxOutboundTimeframe(uint64_t timeframe);
+        GetMaxOutboundTimeframe() -> u64
+
+        bool OutboundTargetReached(bool historicalBlockServingLimit);
+
+        uint64_t GetOutboundTargetBytesLeft();
+
+        uint64_t GetMaxOutboundTimeLeftInCycle();
+
+        uint64_t GetTotalBytesRecv();
+        uint64_t GetTotalBytesSent();
+
+        void SetBestHeight(int32_t height);
+        int32_t GetBestHeight() -> i32const;
+
+         GetDeterministicRandomizer(id: u64) -> CSipHasher
+
+        GetReceiveFloodSize() -> u32
+        WakeMessageHandler()
+
+    }
+
+    CConnman --> AddedNodeInfo
+    CConnman --> NodeConnectInfo
+
+}
+
+
+class TxnAskFor{
+    id: uint256
+    expiryTime: i64
+}
+
+package txn_sending_details_h {
+    class CTxnSendingDetails {
+        getInv() -> CInv
+        getInfo() -> TxMempoolInfo
+
+        isForcedRelay() -> bool
+        getTxnRef() ->  CTransactionRef
+
+        mInv: CInv
+        mTxInfo: TxMempoolInfo
+        mForcedTx: CTransactionRef
+    }
+
+    CTxnSendingDetails o-up- CInv
+    CTxnSendingDetails --> CTransactionRef
+}
+
+class Amount {
+    amount: i64
+}
+
+class CNode {
+    private:
+    nServices: ServiceFlags
+    nServicesExpected: ServiceFlags
+
+    cs_sendProcessing: CCriticalSection
+    hashContinue: uint256
+    nStartingHeight : i32
+    vInventoryBlockToSend: Vec<uint256>
+    indexAskFor: TxnAskForMultiIndex
+    mapAskFor: HashMap<i64, CInv>
+    nNextInvSend: i64
+    vBlockHashesToAnnounce: Vec<uint256>
+    fSendMempool: bool
+    timeLastMempoolReq: i64
+    nLastBlockTime: i64
+    nLastTXTime: i64
+    cs_feeFilter: CCriticalSection
+    lastSentFeeFilter: Amount
+    nextSendTimeFeeFilter: i64
+
+    maxInvElements: u32
+    protoconfReceived: bool
+    maxRecvPayloadLength: u32
+    const uint64_t nLocalHostNonce: u64
+    const ServiceFlags nLocalServices {}
+    const int32_t nMyStartingHeight: i32
+    int nSendVersion {0}
+
+    addrName: String
+    mInvList: VecDeque<CTxnSendingDetails>
+
+    CCriticalSection cs_mInvList
+    mAsyncTaskPool: CAsyncTaskPool
+    mAssociation: Association
+    mSupportedStreamPolicies: String
+    mCommonStreamPolicies: String
+    mEnteredPauseSendRecv: bool
+
+    public:
+
+    AddTxnsToInventory(txns: Vec<CTxnSendingDetails>)
+    RemoveTxnsFromInventory(toRemove: Vec<CInv>)
+    FetchNInventory(n: size) -> Vec<CTxnSendingDetails>
+    GetId() -> NodeId
+
+    GetAssociation() -> Association
+
+    SetSupportedStreamPolicies(policies: String)
+    GetCommonStreamPoliciesStr() -> String
+    GetPreferredStreamPolicyName() -> String
+
+    GetLocalNonce() -> u64
+    GetMyStartingHeight() -> i32
+
+    SetSocketsForSelect(setRecv: fd_set, setSend: fd_set, setError: fd_set, SOCKET& socketMax) -> bool
+    ServiceSockets(fd_set& setRecv, fd_set& setSend, fd_set& setError, CConnman& connman,
+                        const Config& config, uint64_t& bytesRecv, uint64_t& bytesSent)
+
+    GetDisconnect() -> bool
+    GetPausedForSending(checkPauseRecv: bool) -> bool
+
+    SetRecvVersion(nVersionIn: i32)
+    GetRecvVersion() -> i32
+    SetSendVersion(nVersionIn: i32)
+    etSendVersion() -> i32
+    SendVersionIsSet() -> bool
+
+    PushMessage(serialisedHeader: Vec<u8>, msg: CSerializedNetMsg, stream: StreamType) -> u64
+
+    AddAddressKnown(addr: CAddress)
+    PushAddress(addr: CAddress, insecure_rand: FastRandomContext)
+
+    AddInventoryKnown(inv: CInv)
+    PushBlockInventory(inv:CInv)
+    PushBlockHash(hash: uint256)
+
+    AskFor(inv: CInv, config: Config)
+
+    CloseSocketDisconnect()
+
+    copyStats(stats: NodeStats)
+    GetLocalServices() -> ServiceFlags
+    GetAddrName() -> String
+    MaybeSetAddrName(addrNameIn: String)
+    RunAsyncProcessing()
+}
+
+CNode -right-> Amount: use
+CNode -right-> CSerializedNetMsg: use
+CNode -right-> CTxnSendingDetails: use
+CNode -right-> TxnAskFor: use
+CNode -right-> CConnman: use
+@enduml
