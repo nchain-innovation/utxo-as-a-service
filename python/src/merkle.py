@@ -262,24 +262,5 @@ curl --location --request GET  "https://api.whatsonchain.com/v1/bsv/test/tx/c164
 
 """
 
-"""
-def create_merkle_root(txs: List[str]) -> str:
-    # Given a list of txs return the merkle root
-    if len(txs) == 1:
-        return txs[0]
-    tx_hashes = [bytes.fromhex(x) for x in txs]
-    hashes = [h[::-1] for h in tx_hashes]
-    if len(hashes) %2 == 1:
-        hashes.append(hashes[-1])
-    while len(hashes) > 1:
-        parent_level = []
-        for i in range(0, len(hashes), 2):
-            parent = hash256(hashes[i] + hashes[i+1])
-            parent_level.append(parent)
-        hashes = parent_level
-    return hashes[0][::-1].hex()
-
-"""
-
 if __name__ == '__main__':
     unittest.main()
