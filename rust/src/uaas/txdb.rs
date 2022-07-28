@@ -110,7 +110,7 @@ impl TxDB {
             self.txs.insert(hash, hash);
         }
         println!(
-            "Txs {} loaded in {} seconds",
+            "{} txs loaded in {} seconds",
             self.txs.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );
@@ -133,7 +133,7 @@ impl TxDB {
         }
 
         println!(
-            "Mempool {} Loaded in {} seconds",
+            "{} Mempool tx Loaded in {} seconds",
             self.mempool.len(),
             start.elapsed().as_millis() as f64 / 1000.0
         );

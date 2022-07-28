@@ -4,6 +4,7 @@ extern crate chrono;
 extern crate hex;
 extern crate rand;
 extern crate regex;
+extern crate retry;
 
 use std::net::IpAddr;
 use std::panic;

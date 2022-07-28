@@ -7,6 +7,8 @@ use mysql::prelude::*;
 use mysql::PooledConn;
 use mysql::*;
 
+use retry::{delay, retry};
+
 // UtxoEntry - used to store data into utxo table
 #[derive(Clone)]
 pub struct UtxoEntryDB {
@@ -74,51 +76,58 @@ impl Database {
 
     fn utxo_batch_write(&mut self, utxo_entries: Vec<UtxoEntryDB>) {
         // bulk/batch write tx output to utxo table
-        self.conn
-        .exec_batch(
-            //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-            "REPLACE INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-            utxo_entries
-                .iter()
-                .map(|x| params! {
-                    "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height
-                }),
-        )
-        .unwrap();
+
+        let result = retry(delay::Fixed::from_millis(200).take(3), || {
+            self.conn
+            .exec_batch(
+                //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
+                "REPLACE INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
+                utxo_entries
+                    .iter()
+                    .map(|x| params! {
+                        "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height}),
+                )
+        });
+        result.unwrap();
     }
 
     fn utxo_batch_delete(&mut self, utxo_deletes: Vec<OutPoint>) {
         // bulk/batch delete utxo table entries
-        self.conn
-            .exec_batch(
+        let result = retry(delay::Fixed::from_millis(200).take(3), || {
+            self.conn.exec_batch(
                 "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
                 utxo_deletes
                     .iter()
                     .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
             )
-            .unwrap();
+        });
+        result.unwrap();
     }
 
     fn tx_batch_write(&mut self, tx_entries: Vec<TxEntryWriteDB>) {
-        self.conn
-        .exec_batch(
-            "INSERT INTO tx (hash, height, blockindex, txsize) VALUES (:hash, :height, :blockindex, :txsize)",
-            tx_entries.iter().map(
-                |tx| params! {"hash" => tx.hash.encode(), "height" => tx.height, "blockindex"=> tx.blockindex, "txsize"=> tx.size},
-            ),
-        )
-        .unwrap();
+        let result = retry(delay::Fixed::from_millis(200).take(3), || {
+            self.conn
+                .exec_batch(
+                    "INSERT INTO tx (hash, height, blockindex, txsize) VALUES (:hash, :height, :blockindex, :txsize)",
+                    tx_entries.iter().map(
+                        |tx| params! {"hash" => tx.hash.encode(), "height" => tx.height, "blockindex"=> tx.blockindex, "txsize"=> tx.size},
+                    ),
+                )
+        });
+
+        result.unwrap();
     }
 
     fn mempool_batch_delete(&mut self, mempool_hashes: Vec<Hash256>) {
-        self.conn
-            .exec_batch(
+        let result = retry(delay::Fixed::from_millis(200).take(3), || {
+            self.conn.exec_batch(
                 "DELETE FROM mempool WHERE hash = :hash;",
                 mempool_hashes
                     .iter()
                     .map(|x| params! {"hash" => x.encode()}),
             )
-            .unwrap();
+        });
+        result.unwrap();
     }
 
     fn block_header_write(&mut self, block_header: DBBlockHeaderWrite) {
@@ -137,7 +146,10 @@ impl Database {
             block_header.blocksize,
             block_header.numtxs,
         );
-        self.conn.exec_drop(&blocks_insert, Params::Empty).unwrap();
+        let result = retry(delay::Fixed::from_millis(200).take(3), || {
+            self.conn.exec_drop(&blocks_insert, Params::Empty)
+        });
+        result.unwrap();
     }
 
     pub fn perform_db_operations(&mut self) {
