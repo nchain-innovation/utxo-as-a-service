@@ -52,6 +52,14 @@ class TxAnalyser:
         except IndexError:
             return None
 
+    def _read_tx_height_and_blockindex(self, hash: str) -> Optional[List[int]]:
+        result = database.query(
+            f"SELECT height, blockindex FROM uaas_db.tx WHERE hash='{hash}';")
+        try:
+            return result[0]
+        except IndexError:
+            return None
+
     def get_tx_entry(self, hash: str) -> Dict[str, Any]:
         """ Return the transaction entry identified by hash
 
@@ -76,9 +84,19 @@ class TxAnalyser:
         for pos, vout in enumerate(tx_as_dict['vout']):
             vout["spent"] = pos not in utxo
 
-        return {
-            "tx": tx_as_dict,
-        }
+        height_and_blockindex = self._read_tx_height_and_blockindex(hash)
+        if height_and_blockindex is None:
+            return {
+                "hash": hash,
+                "tx": tx_as_dict,
+            }
+        else:
+            return {
+                "hash": hash,
+                "tx": tx_as_dict,
+                "height": height_and_blockindex[0],
+                "pos": height_and_blockindex[1],
+            }
 
     def get_tx_raw_entry(self, hash: str) -> Dict[str, Any]:
         """ return the serialised form of the transaction """
