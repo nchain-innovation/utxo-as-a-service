@@ -8,7 +8,6 @@ class BlockManager:
         self.start_block_height: int
 
     def _a_result_to_block(self, x) -> Dict[str, Any]:
-        print(x, type(x))
         block = {
             "height": x[0],
             "header": {
@@ -29,14 +28,9 @@ class BlockManager:
         # Read blocks from database
         result = database.query("SELECT * FROM blocks ORDER BY height desc LIMIT 20;")
         retval = []
-        print(result)
-        print("----")
         for x in result:
             y = list(x)
-            print(y)
             block = self._a_result_to_block(y)
-            print("=====")
-
             retval.append(block)
         return retval
 

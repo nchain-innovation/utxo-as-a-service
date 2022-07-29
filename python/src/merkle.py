@@ -1,4 +1,5 @@
 import math
+import time
 import unittest
 from typing import List, Dict, Union
 from p2p_framework.hash import hash256
@@ -119,9 +120,9 @@ class MerkleTree:
 
 def create_tree(hex_hashes: List[str]) -> MerkleTree:
     tree = MerkleTree(len(hex_hashes))
-    # print(f"tree.max_depth={tree.max_depth}")
-    # Set tree bottom
+    # Set tree bottom row of transaction hashes
     tree.nodes[tree.max_depth] = [str_to_node(h) for h in hex_hashes]
+
     tree.calc_root()
     return tree
 
@@ -161,8 +162,10 @@ def create_merkle_branch(hash: str, txs: List[str]) -> List[Dict[str, str]]:
     if len(txs) == 1:
         # special case of one tx (tx_hash == merkle_root)
         return []
+    start = time.time()
     tree = create_tree(txs)
-
+    elapsed_time = time.time() - start
+    print(f"time to create tree {elapsed_time}")
     # position of transaction of interest in the list
     pos = txs.index(hash)
     branches = walk_tree_from_pos(tree, pos, hash)

@@ -127,7 +127,6 @@ class TxAnalyser:
         # Get the block
         block = database.query(f"SELECT  uaas_db.blocks.height , uaas_db.blocks.hash, merkle_root FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height WHERE uaas_db.tx.hash='{hash}';")
         try:
-            print(block)
             height = block[0][0]
             block_hash = block[0][1]
             merkle_root = block[0][2]
