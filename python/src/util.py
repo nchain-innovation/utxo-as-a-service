@@ -8,10 +8,10 @@ from p2p_framework.object import CBlock
 LOGGER = logging.getLogger(__name__)
 
 
-Config = MutableMapping[str, Any]
+ConfigType = MutableMapping[str, Any]
 
 
-def load_config(filename: str) -> Config:
+def load_config(filename: str) -> ConfigType:
     """ Load config from provided toml file
     """
     try:

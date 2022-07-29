@@ -4,7 +4,7 @@ import sys
 sys.path.append('..')
 
 from database import database
-from util import load_config, Config
+from util import load_config, ConfigType
 
 
 def get_max_height(table_name: str) -> int:
@@ -13,7 +13,7 @@ def get_max_height(table_name: str) -> int:
     return int(result)
 
 
-def get_start_block_height(config: Config) -> int:
+def get_start_block_height(config: ConfigType) -> int:
     network = config["service"]["network"]
     return config[network]["start_block_height"]
 
