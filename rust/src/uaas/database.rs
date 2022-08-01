@@ -29,7 +29,7 @@ pub struct TxEntryWriteDB {
 
 // database header structure
 #[derive(Clone)]
-pub struct DBBlockHeaderWrite {
+pub struct BlockHeaderWriteDB {
     pub height: u32,
     pub hash: Hash256,
     pub version: u32,
@@ -43,13 +43,22 @@ pub struct DBBlockHeaderWrite {
     pub numtxs: u32,
 }
 
+pub struct MempoolEntryDB {
+    pub hash: Hash256,
+    pub locktime: u32,
+    pub fee: i64,
+    pub age: u64,
+    pub tx: String,
+}
+
 // DBOperationType - used to identify the type of operation that the database needs to do
 pub enum DBOperationType {
     UtxoBatchWrite(Vec<UtxoEntryDB>),
     UtxoBatchDelete(Vec<OutPoint>),
     TxBatchWrite(Vec<TxEntryWriteDB>),
     MempoolBatchDelete(Vec<Hash256>),
-    BlockHeaderWrite(DBBlockHeaderWrite),
+    MempoolWrite(MempoolEntryDB),
+    BlockHeaderWrite(BlockHeaderWriteDB),
 }
 
 // This will be run in a separate thread that will be responsible for all the database writes
@@ -114,8 +123,29 @@ impl Database {
                     ),
                 )
         });
-
         result.unwrap();
+    }
+
+    fn mempool_write(&mut self, mempool_entry: MempoolEntryDB) {
+        let mempool_insert = format!(
+            "INSERT INTO mempool VALUES ('{}', {}, {}, {},'{}');",
+            &mempool_entry.hash.encode(),
+            &mempool_entry.locktime,
+            &mempool_entry.fee,
+            &mempool_entry.age,
+            &mempool_entry.tx,
+        );
+
+        let result = retry(delay::Fixed::from_millis(200).take(3), || {
+            self.conn.exec_drop(&mempool_insert, Params::Empty)
+        });
+        result.unwrap();
+        /*
+        // Write mempool entry to database
+        self.conn.exec_drop(&mempool_insert, Params::Empty).expect(
+            "Problem writing to mempool table. Check that tx field is present in mempool table.\n",
+        );
+        */
     }
 
     fn mempool_batch_delete(&mut self, mempool_hashes: Vec<Hash256>) {
@@ -130,7 +160,7 @@ impl Database {
         result.unwrap();
     }
 
-    fn block_header_write(&mut self, block_header: DBBlockHeaderWrite) {
+    fn block_header_write(&mut self, block_header: BlockHeaderWriteDB) {
         let blocks_insert = format!(
             "INSERT INTO blocks
             VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {}, {}, {}, {});",
@@ -162,6 +192,8 @@ impl Database {
                     self.utxo_batch_delete(utxo_deletes)
                 }
                 DBOperationType::TxBatchWrite(tx_entries) => self.tx_batch_write(tx_entries),
+
+                DBOperationType::MempoolWrite(mempool_entry) => self.mempool_write(mempool_entry),
                 DBOperationType::MempoolBatchDelete(mempool_hashes) => {
                     self.mempool_batch_delete(mempool_hashes)
                 }

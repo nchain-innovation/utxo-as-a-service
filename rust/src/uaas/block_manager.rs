@@ -14,7 +14,7 @@ use crate::config::Config;
 use crate::uaas::tx_analyser::TxAnalyser;
 use crate::uaas::util::{timestamp_age_as_sec, timestamp_as_string};
 
-use super::database::{DBBlockHeaderWrite, DBOperationType};
+use super::database::{BlockHeaderWriteDB, DBOperationType};
 
 // database header structure
 struct DBHeader {
@@ -208,7 +208,7 @@ impl BlockManager {
     ) {
         // Write the block header to a database
         // Needs to be called before process block as process block increments the self.height
-        let block_header = DBBlockHeaderWrite {
+        let block_header = BlockHeaderWriteDB {
             height: self.height,
             hash: header.hash(),
             version: header.version,

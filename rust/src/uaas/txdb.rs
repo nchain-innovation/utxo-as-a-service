@@ -9,12 +9,11 @@ use super::hexslice::HexSlice;
 
 use mysql::prelude::*;
 use mysql::PooledConn;
-use mysql::*;
 
-use super::database::{DBOperationType, TxEntryWriteDB};
+use super::database::{DBOperationType, MempoolEntryDB, TxEntryWriteDB};
 
 // Used for loading tx from mempool table
-pub struct MempoolEntryDB {
+pub struct MempoolEntryReadDB {
     _hash: String,
 }
 
@@ -120,10 +119,10 @@ impl TxDB {
         // load mempool - tx hash and height from database
         let start = Instant::now();
 
-        let txs: Vec<MempoolEntryDB> = self
+        let txs: Vec<MempoolEntryReadDB> = self
             .conn
             .query_map("SELECT hash FROM mempool ORDER BY time", |hash| {
-                MempoolEntryDB { _hash: hash }
+                MempoolEntryReadDB { _hash: hash }
             })
             .unwrap();
 
@@ -169,14 +168,6 @@ impl TxDB {
 
     pub fn batch_delete_from_mempool(&mut self) {
         // Batch Delete from mempool
-        /*
-        self.conn
-            .exec_batch(
-                "DELETE FROM mempool WHERE hash = :hash;",
-                self.hashes_to_delete.iter().map(|x| params! {"hash" => x.encode()}),
-            )
-            .unwrap();
-        */
         self.tx
             .send(DBOperationType::MempoolBatchDelete(
                 self.hashes_to_delete.clone(),
@@ -186,17 +177,6 @@ impl TxDB {
     }
 
     pub fn batch_write_tx_to_table(&mut self) {
-        /*
-        self.conn
-        .exec_batch(
-            "INSERT INTO tx (hash, height, blockindex, txsize) VALUES (:hash, :height, :blockindex, :txsize)",
-            self.tx_entries.iter().map(
-                |tx| params! {"hash" => tx.hash.encode(), "height" => tx.height, "blockindex"=> tx.blockindex, "txsize"=> tx.size},
-            ),
-        )
-        .unwrap();
-        */
-
         self.tx
             .send(DBOperationType::TxBatchWrite(self.tx_entries.clone()))
             .unwrap();
@@ -210,7 +190,6 @@ impl TxDB {
             .unwrap()
             .as_secs();
 
-        let locktime = tx.lock_time;
         // Add it to the mempool
         self.mempool.insert(hash, hash);
 
@@ -219,18 +198,17 @@ impl TxDB {
         tx.write(&mut b).unwrap();
         let tx_hex = format!("{}", HexSlice::new(&b));
 
-        // Write mempool entry to database
-        let mempool_insert = format!(
-            "INSERT INTO mempool VALUES ('{}', {}, {}, {},'{}');",
-            &hash.encode(),
-            &locktime,
-            &fee,
-            &age,
-            &tx_hex,
-        );
-        self.conn.exec_drop(&mempool_insert, Params::Empty).expect(
-            "Problem writing to mempool table. Check that tx field is present in mempool table.\n",
-        );
+        let mempool_entry = MempoolEntryDB {
+            hash,
+            locktime: tx.lock_time,
+            fee,
+            age,
+            tx: tx_hex,
+        };
+
+        self.tx
+            .send(DBOperationType::MempoolWrite(mempool_entry))
+            .unwrap();
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {
