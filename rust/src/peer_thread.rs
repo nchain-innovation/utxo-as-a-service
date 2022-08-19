@@ -6,7 +6,7 @@ use std::time::Instant;
 use sv::peer::Peer;
 
 // Used to track the threads
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PeerThreadStatus {
     Started,
     Connected,

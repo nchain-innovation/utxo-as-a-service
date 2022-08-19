@@ -108,6 +108,7 @@ This section contains project status related notes.
 
 ## TODO
 * Speed up mysql database, see what can be done in config
+* Add configuration item to enble/disable blockfiles
 
 * Search for TODOs
 
@@ -188,12 +189,12 @@ Block with lots of OP_RETURN and multisig
 https://test.whatsonchain.com/block/00000000000217ccba9ce86db2c867cc81c7aceb89ba241f83083890d6a0f6a0
 
 
-Note two2GB bloc
+Note 2GB block
 00000000000000001062062463df0b4560203c0be8256a59b7bdeecfcb58a226
 
 https://whatsonchain.com/block/00000000000000001062062463df0b4560203c0be8256a59b7bdeecfcb58a226
 
-Largest block
+Largest block (Mainnet)
 https://whatsonchain.com/block-height/725511?tncpw_session=b439cbfa9ed22a498d11b9a59e89cd87bf82554ceb114c7ee7bc94bd556aab8d
 
 

@@ -16,7 +16,7 @@ use super::database::Database;
 use super::tx_analyser::TxAnalyser;
 
 // Used to keep track of the server state
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ServerStateType {
     Starting,
     Disconnected,

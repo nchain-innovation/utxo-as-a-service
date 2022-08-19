@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from database import database
 from blockfile import blockfile
 from merkle import create_merkle_branch
+from merkleblock import create_merkleblock
 
 
 class TxAnalyser:
@@ -137,14 +138,33 @@ class TxAnalyser:
         # Get the txs in the block
         result = database.query(f"SELECT  hash  FROM uaas_db.tx WHERE height = '{height}' ORDER BY blockindex ASC;")
         txs = [x[0] for x in result]
-        # create merkle proof
+        # Create merkle proof
         branches = create_merkle_branch(hash, txs)
         return {
             "block_hash": block_hash,
             "merkle_root": merkle_root,
             "tx_hash": hash,
-            # "txs": txs,
             "branches": branches,
+        }
+
+    def get_tx_merkleblock(self, hash: str) -> Dict[str, Any]:
+        # Given the txid return the merkle branch proof for a confirmed transaction in merkleblock format
+        # Get the block
+        block = database.query(f"SELECT uaas_db.blocks.height, version, prev_hash, merkle_root, uaas_db.blocks.timestamp, bits , nonce FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height WHERE uaas_db.tx.hash='{hash}';")
+        try:
+            blockheader = list(block[0])
+            height = blockheader[0]
+        except IndexError:
+            return {
+                "status": f"Transaction {hash} not found in block"
+            }
+        # Get the txs in the block
+        result = database.query(f"SELECT  hash  FROM uaas_db.tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+        txs = [x[0] for x in result]
+        # Create merkle proof, in merkleblock format
+        merkleblock = create_merkleblock(blockheader, hash, txs)
+        return {
+            "merkleblock": merkleblock,
         }
 
 

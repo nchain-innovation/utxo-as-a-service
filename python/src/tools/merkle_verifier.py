@@ -63,6 +63,11 @@ def request_merkle_proof(hash: str, python_url: str) -> str:
     return result.text
 
 
+def request_merkleblock(hash: str, python_url: str) -> str:
+    result = requests.get(python_url + "/tx/merkleblock", params={"hash": hash})
+    return result.text
+
+
 def process_args(args: argparse.Namespace, python_url: str) -> bool:
     if args.txid:
         proof = request_merkle_proof(args.txid, python_url)
@@ -74,6 +79,12 @@ def process_args(args: argparse.Namespace, python_url: str) -> bool:
         else:
             print("Calculated merkle root and block merkle root do not match for this branch.")
         return True
+    elif args.block:
+        proof = request_merkleblock(args.block, python_url)
+        print(f"proof={proof}\n")
+
+        return True
+
     else:
         return False
 
@@ -85,7 +96,9 @@ def main():
     python_url = "http://" + config["web_interface"]["address"]
 
     parser = argparse.ArgumentParser(description="Verify a transaction using a merkle tree.")
-    parser.add_argument("-txid", metavar="HASH", help="the hash of the transaction that you wish to verify")
+    parser.add_argument("-txid", metavar="HASH", help="the hash of the transaction that you wish to verify, in json format")
+    parser.add_argument("-block", metavar="HASH", help="the hash of the transaction that you wish to verify, in merkleblock format")
+
     args = parser.parse_args()
     if not process_args(args, python_url):
         parser.print_help()

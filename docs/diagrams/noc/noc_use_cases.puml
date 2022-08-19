@@ -1,0 +1,36 @@
+@startuml
+Title BSV-NOC Use Cases
+
+actor NOC_User_Administrator as NUA
+actor NOC_Alert_Administrator as NAA
+
+actor Incident_Management_Team as IMT
+
+actor NOC_Analyst as NAnal
+actor Researcher as R
+cloud BSV_Network
+
+
+package BSV_NOC {
+    (Permit/Revoke\nUser Access)
+    (Configure Alert\nTrigger) -up->  (Configure Alert\nSystem)
+    (Configure Tx\n Blacklist) -up-|>  (Configure Alert\nSystem)
+
+    (Monitor Network) -up-> BSV_Network
+    (View Historical\nNetwork State) -up->  (Monitor Network)
+    (View Network\nState) -up-> (Monitor Network)
+    (View Chain\nState) -up-> (Monitor Network)
+    (Send Alerts) -up-> (Monitor Network)
+}
+NAA -down-> (Configure Alert\nSystem)
+NUA -down-> (Permit/Revoke\nUser Access)
+
+NAnal -up-> (View Network\nState)
+IMT -up-> (View Network\nState)
+NAnal -up-> (View Chain\nState)
+IMT -up-> (View Chain\nState)
+R -up-> (View Historical\nNetwork State)
+
+(Send Alerts) -down-> IMT
+
+@enduml

@@ -9,7 +9,8 @@ NodeListType = List[NodeType]
 
 
 def node_to_str(value: NodeType) -> str:
-    """ Given a node return its value as a str
+    """ Given a node bytes return its value as a hexstr.
+        Note that the bytes are reversed order.
     """
     if isinstance(value, bytes):
         return value[::-1].hex()
@@ -18,8 +19,15 @@ def node_to_str(value: NodeType) -> str:
 
 
 def str_to_node(s: str) -> NodeType:
+    """ Given a hexstr return its value as a node bytes
+        Note that the bytes are reversed order.
+    """
     assert isinstance(s, str)
     return bytes.fromhex(s)[::-1]
+
+
+def merkle_parent(left: bytes, right: bytes) -> bytes:
+    return hash256(left + right)
 
 
 class MerkleTree:

@@ -89,6 +89,13 @@ def get_merkle_proof(hash: str) -> Dict[str, Any]:
     return tx_analyser.get_tx_merkle_proof(hash)
 
 
+@app.get("/tx/merkleblock", tags=["Tx"])
+def get_merkleblock(hash: str) -> Dict[str, Any]:
+    """ Return the merkle branch proof for a confirmed transaction in merkleblock form
+    """
+    return tx_analyser.get_tx_merkleblock(hash)
+
+
 @app.get("/tx/raw", tags=["Tx"])
 def get_tx_raw(hash: str) -> Dict[str, Any]:
     """ Return the tx raw entry identified by hash"""

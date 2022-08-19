@@ -1,0 +1,57 @@
+@startuml
+Title BSV-NOC Logical Architecure
+' left to right direction
+
+actor NOC_Analyst
+actor NOC_User_Administrator as NUA
+actor NOC_Alert_Administrator as NAA
+
+
+actor Incident_Management_Team
+cloud BitcoinNetwork {
+    collections "BSV_Node(s)" as BSV_Node
+
+}
+
+cloud NetworkAggregator {
+    component "WhatsOnChain"
+    component "BSVData"
+
+}
+
+package BSV_NOC {
+
+    collections "NetworkSensor(s)" as NS
+    component "SensorController" as SC
+    NS <-up-> BSV_Node
+    NS <-up-> WhatsOnChain
+    NS <-up-> BSVData
+    SC <-up-> NS: 1:*
+
+    component "PresentationLayer" as PL
+
+    component "EventMonitor" as EM
+
+    database Datastore  {
+    }
+
+    NS -down-> Datastore
+    SC --> Datastore
+    EM -left-> Datastore
+    PL -up-> Datastore
+    PL -up-> EM
+    EM -down-> Incident_Management_Team : Incident_Alert
+}
+
+NOC_Analyst -up-> PL
+Incident_Management_Team -up-> PL
+
+NAA -left-> EM: Configure_Alerts
+NAA -left-> SC: Configure_Sensors
+
+NUA -up-> PL: Permit_Revoke_User_Access
+
+Researcher -right-> PL
+Researcher -right-> Datastore
+
+@enduml

@@ -1,6 +1,7 @@
 
 # Rust compiler output
 /rust/target
+/rust/src/target
 
 # Compiled Python bytecode
 *.py[cod]

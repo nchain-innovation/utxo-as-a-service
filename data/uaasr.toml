@@ -8,7 +8,9 @@ rust_address = "127.0.0.1:8080"
 
 [mainnet]
 # ip = ["18.157.234.254",
-ip = ["18.192.253.59"]
+ip = ["65.108.14.253"]  # The murphy machine
+
+# ip = ["18.192.253.59"]
 # "13.86.34.113"]
 # ip = ["18.157.234.254"]
 #ip = ["162.55.95.167"]
@@ -36,15 +38,24 @@ port = 8333
 #start_block_height = 725510
 
 # Just before -2 3.8GB block - the largest block
-start_block_hash = "000000000000000002875eb589e0ccebad07400949ec536cc3ef616149044671"
-start_block_height = 725508
+# start_block_hash = "000000000000000002875eb589e0ccebad07400949ec536cc3ef616149044671"
+# start_block_height = 725508
+
+# Just a few before the largest block - john's setup
+# start_block_hash = "000000000000000009c61bf9d25689bd960e6f478a65326852add3dad17bbfef"
+# start_block_height = 725500
+
+# One before the largest block
+start_block_hash = "000000000000000000e3f481c2903c272301f215b8efbd06e56a8565e1b6df37"
+start_block_height = 725510
+
 
 
 timeout_period = 2048.0
 block_request_period = 280
 
-# startup_load_from_database = true
-startup_load_from_database = false
+startup_load_from_database = true
+# startup_load_from_database = false
 
 mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
 mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
