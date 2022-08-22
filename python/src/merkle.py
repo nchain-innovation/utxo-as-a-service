@@ -173,7 +173,7 @@ def create_merkle_branch(hash: str, txs: List[str]) -> List[Dict[str, str]]:
     start = time.time()
     tree = create_tree(txs)
     elapsed_time = time.time() - start
-    print(f"time to create tree {elapsed_time}")
+    print(f"Time to create tree {elapsed_time}")
     # position of transaction of interest in the list
     pos = txs.index(hash)
     branches = walk_tree_from_pos(tree, pos, hash)
