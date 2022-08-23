@@ -1,5 +1,6 @@
 use mysql::prelude::*;
 use mysql::*;
+use retry::{delay, retry};
 
 use crate::config::Config;
 use sv::messages::Addr;
@@ -75,8 +76,11 @@ impl AddressManager {
                 // if not add it to the table
                 let ip_addr = format!("{}", address.addr.ip);
 
-                self.conn.exec_drop(&addr_insert,
-                    params! { "ip" => ip_addr.clone() , "services" => address.addr.services, "port" => address.addr.port} ).unwrap();
+                let result = retry(delay::Fixed::from_millis(200).take(3), || {
+                    self.conn.exec_drop(&addr_insert, params! { "ip" => ip_addr.clone() , "services" => address.addr.services, "port" => address.addr.port})
+                });
+                result.unwrap();
+
                 self.addresses.push(ip_addr);
             }
         }
