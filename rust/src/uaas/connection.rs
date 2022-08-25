@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use chrono::Utc;
 use mysql::prelude::*;
 use mysql::*;
+use retry::{delay, retry};
 
 use crate::config::Config;
 
@@ -42,7 +43,7 @@ impl Connection {
     }
 
     fn insert_data(&mut self, ip: &IpAddr, event: &str) {
-        // On receiving an Addr message
+        // On receiving an Connect or Disconnect message, write it to the database
         let connect_insert = self
             .conn
             .prep("INSERT INTO connect (date, ip, event) VALUES (:date, :ip, :event)")
@@ -50,12 +51,14 @@ impl Connection {
 
         let date = Utc::now();
         let date_str = date.format("%Y-%m-%d %H:%M:%S").to_string();
-        self.conn
-            .exec_drop(
+
+        let result = retry(delay::Fixed::from_millis(200).take(3), || {
+            self.conn.exec_drop(
                 &connect_insert,
-                params! { "date" => date_str , "ip" => ip.to_string(), "event" => event},
+                params! { "date" => date_str.clone() , "ip" => ip.to_string(), "event" => event},
             )
-            .unwrap();
+        });
+        result.unwrap();
     }
 
     pub fn on_connect(&mut self, ip: &IpAddr) {
