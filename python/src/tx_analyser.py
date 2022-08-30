@@ -126,7 +126,7 @@ class TxAnalyser:
     def get_tx_merkle_proof(self, hash: str) -> Dict[str, Any]:
         # Given the txid return the merkle branch proof for a confirmed transaction
         # Get the block
-        block = database.query(f"SELECT  uaas_db.blocks.height , uaas_db.blocks.hash, merkle_root FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height WHERE uaas_db.tx.hash='{hash}';")
+        block = database.query(f"SELECT blocks.height, blocks.hash, merkle_root FROM blocks INNER JOIN tx on tx.height = blocks.height WHERE tx.hash='{hash}';")
         try:
             height = block[0][0]
             block_hash = block[0][1]
@@ -136,7 +136,7 @@ class TxAnalyser:
                 "status": f"Transaction {hash} not found in block"
             }
         # Get the txs in the block
-        result = database.query(f"SELECT  hash  FROM uaas_db.tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+        result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
         txs = [x[0] for x in result]
         # Create merkle proof
         branches = create_merkle_branch(hash, txs)
@@ -150,7 +150,7 @@ class TxAnalyser:
     def get_tx_merkleblock(self, hash: str) -> Dict[str, Any]:
         # Given the txid return the merkle branch proof for a confirmed transaction in merkleblock format
         # Get the block
-        block = database.query(f"SELECT uaas_db.blocks.height, version, prev_hash, merkle_root, uaas_db.blocks.timestamp, bits , nonce FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height WHERE uaas_db.tx.hash='{hash}';")
+        block = database.query(f"SELECT blocks.height, version, prev_hash, merkle_root, blocks.timestamp, bits , nonce FROM blocks INNER JOIN tx on tx.height = blocks.height WHERE tx.hash='{hash}';")
         try:
             blockheader = list(block[0])
             height = blockheader[0]

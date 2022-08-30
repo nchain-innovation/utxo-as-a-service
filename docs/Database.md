@@ -73,6 +73,12 @@ Query OK, 1 row affected (0.00 sec)
 mysql> GRANT ALL PRIVILEGES on uaas_db.* to 'uaas'@'172.17.0.1';
 Query OK, 0 rows affected (0.00 sec)
 ```
+``` bash
+CREATE USER 'uaas'@'::1' IDENTIFIED BY 'uaas-password';
+CREATE USER 'uaas'@'172.17.0.1' IDENTIFIED BY 'uaas-password';
+```
+
+
 
 6. Optional For `mainnet`
 Create user 'maas'
@@ -80,6 +86,10 @@ Create user 'maas'
 ```bash
 mysql> CREATE USER 'maas'@'172.17.0.1' IDENTIFIED BY 'maas-password';
 Query OK, 0 rows affected (0.01 sec)
+```
+``` bash
+CREATE USER 'maas'@'::1' IDENTIFIED BY 'maas-password';
+CREATE USER 'maas'@'172.17.0.1' IDENTIFIED BY 'maas-password';
 ```
 
 Create database 'main_uaas_db'
