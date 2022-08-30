@@ -64,7 +64,7 @@ class BlockManager:
         return self._results_to_block(retval)
 
     def _read_tx_at_height(self, height) -> List[str]:
-        result = database.query(f"SELECT  hash  FROM uaas_db.tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+        result = database.query(f"SELECT hash  FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
         return [x[0] for x in result]
 
     def get_block_at_height(self, height: int) -> Dict[str, Any]:

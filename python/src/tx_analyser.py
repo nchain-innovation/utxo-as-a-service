@@ -4,7 +4,6 @@ from typing import List, Dict, Any, Optional
 from database import database
 from blockfile import blockfile
 from merkle import create_merkle_branch
-from merkleblock import create_merkleblock
 
 
 class TxAnalyser:
@@ -47,7 +46,7 @@ class TxAnalyser:
     def _read_block_offset(self, hash: str) -> Optional[int]:
         # Read block offset based on tx hash from database
         result = database.query(
-            f"SELECT offset FROM uaas_db.blocks INNER JOIN uaas_db.tx on uaas_db.tx.height = uaas_db.blocks.height where uaas_db.tx.hash='{hash}';")
+            f"SELECT offset FROM blocks INNER JOIN tx on tx.height = blocks.height where tx.hash='{hash}';")
         try:
             return result[0][0]
         except IndexError:
@@ -55,7 +54,7 @@ class TxAnalyser:
 
     def _read_tx_height_and_blockindex(self, hash: str) -> Optional[List[int]]:
         result = database.query(
-            f"SELECT height, blockindex FROM uaas_db.tx WHERE hash='{hash}';")
+            f"SELECT height, blockindex FROM tx WHERE hash='{hash}';")
         try:
             return result[0]
         except IndexError:
@@ -145,26 +144,6 @@ class TxAnalyser:
             "merkle_root": merkle_root,
             "tx_hash": hash,
             "branches": branches,
-        }
-
-    def get_tx_merkleblock(self, hash: str) -> Dict[str, Any]:
-        # Given the txid return the merkle branch proof for a confirmed transaction in merkleblock format
-        # Get the block
-        block = database.query(f"SELECT blocks.height, version, prev_hash, merkle_root, blocks.timestamp, bits , nonce FROM blocks INNER JOIN tx on tx.height = blocks.height WHERE tx.hash='{hash}';")
-        try:
-            blockheader = list(block[0])
-            height = blockheader[0]
-        except IndexError:
-            return {
-                "status": f"Transaction {hash} not found in block"
-            }
-        # Get the txs in the block
-        result = database.query(f"SELECT  hash  FROM uaas_db.tx WHERE height = '{height}' ORDER BY blockindex ASC;")
-        txs = [x[0] for x in result]
-        # Create merkle proof, in merkleblock format
-        merkleblock = create_merkleblock(blockheader, hash, txs)
-        return {
-            "merkleblock": merkleblock,
         }
 
 
