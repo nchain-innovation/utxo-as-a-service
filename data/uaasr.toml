@@ -1,7 +1,7 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.9/"
-# network = "mainnet"
-network = "testnet"
+network = "mainnet"
+# network = "testnet"
 # For serving Python FAST API
 rust_address = "127.0.0.1:8080"
 
@@ -25,8 +25,8 @@ ip = ["65.108.14.253"]  # The murphy machine
 port = 8333
 #start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
 #start_block_height = 739859
-# start_block_hash = "0000000000000000080a088b22f8f23882c760f8e828f63513fb93d49b4ac7e7" # current tip
-# start_block_height = 739854
+start_block_hash = "0000000000000000080a088b22f8f23882c760f8e828f63513fb93d49b4ac7e7" # current tip
+start_block_height = 739854
 
 # Just before 2GB block
 # Block processing took 214.147 seconds
@@ -46,10 +46,8 @@ port = 8333
 # start_block_height = 725500
 
 # One before the largest block
-start_block_hash = "000000000000000000e3f481c2903c272301f215b8efbd06e56a8565e1b6df37"
-start_block_height = 725510
-
-
+#start_block_hash = "000000000000000000e3f481c2903c272301f215b8efbd06e56a8565e1b6df37"
+#start_block_height = 725510
 
 timeout_period = 2048.0
 block_request_period = 280
@@ -68,7 +66,7 @@ database = "main_uaas_db"
 
 # Used by Python and Rust
 block_file = "../data/main-block.dat"
-
+save_blocks = false
 
 [testnet]
 # ip = ["176.9.148.163", "167.99.91.85"]
@@ -109,6 +107,7 @@ database = "uaas_db"
 
 # Used by Python and Rust
 block_file = "../data/block4.dat"
+save_blocks = true
 
 #[[collection]]
 #name = "p2pkh"

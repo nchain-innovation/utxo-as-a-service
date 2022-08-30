@@ -47,6 +47,7 @@ password = "uaas-password"
 database = "uaas_db"
 
 block_file = "../data/block.dat"
+save_blocks = true
 ```
 
 The Network setting section contains the following fields:
@@ -62,6 +63,9 @@ The Network setting section contains the following fields:
 If this is set to `false` the service will load from the block file (see later), this is useful if the database structure is changed and we and want to repopulate the data without having to redownload all the blocks.
 Note when reading from the file, would expect to delete the following tables: blocks, tx, utxo, mempool, Prior to starting the service.
 
+* `block_file` - identifies where the blocks are stored, used by both the Rust service and Python REST API
+* `save_blocks` - when true the Rust service saves blocks to the `block_file`, when false no blocks are saved.
+
 * `mysql_url` - this is the url of the database, this is used by the Rust service on the local machine
 * `mysql_url_docker` - as `mysql_url` but for use in a Docker container
 
@@ -71,7 +75,6 @@ Note when reading from the file, would expect to delete the following tables: bl
 * `password` - the database password
 * `database` - the database connection
 
-* `block_file` - identifies where the blocks are stored, used by both the Rust service and Python REST API
 
 ## Collections
 Collections are used to identify transactions that are of interest. The service can follow multiple Collections.

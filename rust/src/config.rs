@@ -17,6 +17,7 @@ pub struct NetworkSettings {
     pub start_block_height: u32,
     pub startup_load_from_database: bool,
     pub block_file: String,
+    pub save_blocks: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]

@@ -43,6 +43,7 @@ pub struct BlockManager {
     startup_load_from_database: bool,
 
     block_file: String,
+    save_blocks: bool,
 
     pub block_headers: Vec<BlockHeader>,
     pub hash_to_index: HashMap<Hash256, u32>,
@@ -70,6 +71,7 @@ impl BlockManager {
             start_block_hash: config.get_network_settings().start_block_hash.clone(),
             startup_load_from_database: config.get_network_settings().startup_load_from_database,
             block_file: config.get_network_settings().block_file.clone(),
+            save_blocks: config.get_network_settings().save_blocks,
             block_headers: Vec::new(),
             hash_to_index: HashMap::new(),
             height: config.get_network_settings().start_block_height + 1,
@@ -338,14 +340,18 @@ impl BlockManager {
 
     fn write_block_to_file(&mut self, block: &Block) -> u64 {
         // Write a block to a block file - should only be called for blocks received on network
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.block_file)
-            .unwrap();
-        let pos = file.seek(SeekFrom::End(0)).unwrap();
-        block.write(&mut file).unwrap();
-        pos
+        if self.save_blocks {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.block_file)
+                .unwrap();
+            let pos = file.seek(SeekFrom::End(0)).unwrap();
+            block.write(&mut file).unwrap();
+            pos
+        } else {
+            0 // always give an offset of 0 if nothing is
+        }
     }
 
     pub fn on_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {

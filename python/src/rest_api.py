@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Any, MutableMapping, Dict
+from typing import Any, Dict
 import requests
 from io import BytesIO
 
 from p2p_framework.object import CTransaction
 
-from util import load_config
+from util import load_config, ConfigType
 from address_manager import address_manager
 from tx_analyser import tx_analyser
 from block_manager import block_manager
@@ -36,20 +36,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-config: MutableMapping[str, Any] = {}
-web_address: str = ""
-rust_url: str = ""
-
-
-@app.on_event("startup")
-def startup():
-    """When the application starts read the config
-    """
-    global config, web_address, rust_url
-
-    config = load_config("../data/uaasr.toml")
-    web_address = config["web_interface"]["address"]
-    rust_url = config["web_interface"]["rust_url"]
+config: ConfigType = load_config("../data/uaasr.toml")
+web_address: str = config["web_interface"]["address"]
+rust_url: str = config["web_interface"]["rust_url"]
 
 
 @app.get("/", tags=["Web"])
@@ -74,12 +63,20 @@ def get_addr() -> Dict[str, Any]:
     return address_manager.get_peers()
 
 
-@app.get("/tx", tags=["Tx"])
-def get_transaction(hash: str) -> Dict[str, Any]:
-    """ Return the transaction entry identified by hash as a dictionary
-        Note that this also indicates if the transaction outpoints have been spent or not
-    """
-    return tx_analyser.get_tx_entry(hash)
+if config[config["service"]["network"]]["save_blocks"]:
+    # Can only get this info if we have saved the blocks
+    @app.get("/tx", tags=["Tx"])
+    def get_transaction(hash: str) -> Dict[str, Any]:
+        """ Return the transaction entry identified by hash as a dictionary
+            Note that this also indicates if the transaction outpoints have been spent or not
+        """
+        return tx_analyser.get_tx_entry(hash)
+
+    # Can only get this info if we have saved the blocks
+    @app.get("/tx/raw", tags=["Tx"])
+    def get_tx_raw(hash: str) -> Dict[str, Any]:
+        """ Return the tx raw entry identified by hash"""
+        return tx_analyser.get_tx_raw_entry(hash)
 
 
 @app.get("/tx/proof", tags=["Tx"])
@@ -87,12 +84,6 @@ def get_merkle_proof(hash: str) -> Dict[str, Any]:
     """ Return the merkle branch proof for a confirmed transaction
     """
     return tx_analyser.get_tx_merkle_proof(hash)
-
-
-@app.get("/tx/raw", tags=["Tx"])
-def get_tx_raw(hash: str) -> Dict[str, Any]:
-    """ Return the tx raw entry identified by hash"""
-    return tx_analyser.get_tx_raw_entry(hash)
 
 
 @app.post("/tx/raw", tags=["Tx"])
