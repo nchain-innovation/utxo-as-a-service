@@ -1,5 +1,5 @@
 [service]
-user_agent = "/Bitcoin SV:1.0.9/"
+user_agent = "/Bitcoin SV:1.0.11/"
 network = "mainnet"
 # network = "testnet"
 # For serving Python FAST API
@@ -9,7 +9,7 @@ rust_address = "127.0.0.1:8080"
 [mainnet]
 # ip = ["18.157.234.254",
 ip = ["65.108.14.253"]  # The murphy machine
-
+# ip = ["3.96.15.234"]
 # ip = ["18.192.253.59"]
 # "13.86.34.113"]
 # ip = ["18.157.234.254"]

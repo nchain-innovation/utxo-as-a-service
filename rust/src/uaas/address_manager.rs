@@ -67,11 +67,10 @@ impl AddressManager {
 
         for address in addr.addrs.iter() {
             // Check to see if we have seen this address already
-            if self
+            if !self
                 .addresses
                 .iter()
-                .find(|x| *x == &format!("{}", address.addr.ip))
-                == None
+                .any(|x| x == &format!("{}", address.addr.ip))
             {
                 // if not add it to the table
                 let ip_addr = format!("{}", address.addr.ip);

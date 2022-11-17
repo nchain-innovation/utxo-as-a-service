@@ -65,6 +65,7 @@ impl TxDB {
                 height int unsigned not null,
                 blockindex int unsigned not null,
                 txsize int unsigned not null,
+                satoshis bigint unsigned not null,
                 CONSTRAINT PK_Entry PRIMARY KEY (hash));",
             )
             .unwrap();
@@ -148,12 +149,20 @@ impl TxDB {
                 self.hashes_to_delete.push(hash);
             }
 
+            let satoshi_out: u64 = tx
+                .outputs
+                .iter()
+                .map(|x| x.satoshis)
+                .sum::<i64>()
+                .try_into()
+                .unwrap();
             // Store tx - note that we only do this for tx in a block
             let tx_entry = TxEntryWriteDB {
                 hash,
                 height: height.try_into().unwrap(),
                 blockindex: blockindex.try_into().unwrap(),
                 size: tx.size() as u32,
+                satoshis: satoshi_out,
             };
 
             // Write to database later

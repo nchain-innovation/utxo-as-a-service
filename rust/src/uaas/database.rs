@@ -25,6 +25,7 @@ pub struct TxEntryWriteDB {
     pub height: usize,
     pub blockindex: u32,
     pub size: u32,
+    pub satoshis: u64,
 }
 
 // database header structure
@@ -117,9 +118,9 @@ impl Database {
         let result = retry(delay::Fixed::from_millis(200).take(3), || {
             self.conn
                 .exec_batch(
-                    "INSERT INTO tx (hash, height, blockindex, txsize) VALUES (:hash, :height, :blockindex, :txsize)",
+                    "INSERT INTO tx (hash, height, blockindex, txsize, satoshis) VALUES (:hash, :height, :blockindex, :txsize, :satoshis)",
                     tx_entries.iter().map(
-                        |tx| params! {"hash" => tx.hash.encode(), "height" => tx.height, "blockindex"=> tx.blockindex, "txsize"=> tx.size},
+                        |tx| params! {"hash" => tx.hash.encode(), "height" => tx.height, "blockindex"=> tx.blockindex, "txsize"=> tx.size, "satoshis" => tx.satoshis},
                     ),
                 )
         });

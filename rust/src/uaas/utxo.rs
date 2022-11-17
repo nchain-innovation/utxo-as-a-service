@@ -133,14 +133,11 @@ impl Utxo {
 
     pub fn delete(&mut self, outpoint: &OutPoint) {
         // Remove from utxo
-        match self.utxo.remove(outpoint) {
+        if self.utxo.remove(outpoint).is_some() {
             // Remove from utxo table
-            Some(_) => {
-                self.utxo_deletes.push(outpoint.clone());
-                // also remove from utxo entries if present
-                self.utxo_entries.remove(outpoint);
-            }
-            None => {}
+            self.utxo_deletes.push(outpoint.clone());
+            // also remove from utxo entries if present
+            self.utxo_entries.remove(outpoint);
         }
     }
 
