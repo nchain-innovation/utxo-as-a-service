@@ -96,6 +96,10 @@ This section contains project status related notes.
 * Martyn issue was because he let his machine go to sleep whilst performing block downloads
 * John's issue was because the block he was downloading was 40MB and we were not using the modified rust-sv library
 * Fixed John issue where the logic of reading blocks from file was throwing an assert
+
+---- 05/05/2023
+Make database delay and retry configurable
+
 ## In Progress
 
 * Merkle Proofs

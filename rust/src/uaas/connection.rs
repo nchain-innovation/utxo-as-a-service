@@ -9,11 +9,18 @@ use crate::config::Config;
 
 pub struct Connection {
     conn: PooledConn,
+    // Retry database connections
+    ms_delay: u64,
+    retries: usize,
 }
 
 impl Connection {
-    pub fn new(_config: &Config, conn: PooledConn) -> Self {
-        Connection { conn }
+    pub fn new(config: &Config, conn: PooledConn) -> Self {
+        Connection {
+            conn,
+            ms_delay: config.database.ms_delay,
+            retries: config.database.retries,
+        }
     }
 
     fn create_table(&mut self) {
@@ -52,12 +59,15 @@ impl Connection {
         let date = Utc::now();
         let date_str = date.format("%Y-%m-%d %H:%M:%S").to_string();
 
-        let result = retry(delay::Fixed::from_millis(200).take(3), || {
-            self.conn.exec_drop(
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || {
+                self.conn.exec_drop(
                 &connect_insert,
                 params! { "date" => date_str.clone() , "ip" => ip.to_string(), "event" => event},
             )
-        });
+            },
+        );
         result.unwrap();
     }
 

@@ -1,7 +1,7 @@
 [service]
 user_agent = "/Bitcoin SV:1.0.11/"
-network = "mainnet"
-# network = "testnet"
+# network = "mainnet"
+network = "testnet"
 # For serving Python FAST API
 rust_address = "127.0.0.1:8080"
 
@@ -25,8 +25,8 @@ ip = ["65.108.14.253"]  # The murphy machine
 port = 8333
 #start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
 #start_block_height = 739859
-start_block_hash = "0000000000000000080a088b22f8f23882c760f8e828f63513fb93d49b4ac7e7" # current tip
-start_block_height = 739854
+start_block_hash = "00000000000000000545267003727771023c9822756f187cbee83a5329ffecd8" # current tip
+start_block_height = 776082
 
 # Just before 2GB block
 # Block processing took 214.147 seconds
@@ -55,8 +55,6 @@ block_request_period = 280
 startup_load_from_database = true
 # startup_load_from_database = false
 
-mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
-mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
 
 # Python database access
 host = "host.docker.internal"
@@ -96,8 +94,6 @@ block_request_period = 80
 startup_load_from_database = true
 # startup_load_from_database = false
 
-mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
 
 # Python database access
 host = "host.docker.internal"
@@ -118,6 +114,17 @@ save_blocks = true
 #name = "not_p2pkh"
 #track_descendants = false
 #locking_script_pattern = "006a[0-9a-f]*"
+
+[database]
+#mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+#mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
+
+mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
+mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
+
+ms_delay = 300
+retries = 6
+
 
 [[collection]]
 name = "johns"

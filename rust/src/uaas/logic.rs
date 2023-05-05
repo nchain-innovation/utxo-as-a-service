@@ -79,8 +79,9 @@ impl Logic {
             thread: None,
         };
 
+        let db_config = config.clone();
         logic.thread = Some(thread::spawn(move || {
-            let mut database = Database::new(db_conn, rx);
+            let mut database = Database::new(db_conn, rx, &db_config);
             database.perform_db_operations();
         }));
 

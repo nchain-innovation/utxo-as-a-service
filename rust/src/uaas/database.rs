@@ -7,6 +7,7 @@ use mysql::prelude::*;
 use mysql::PooledConn;
 use mysql::*;
 
+use crate::config::Config;
 use retry::{delay, retry};
 
 // UtxoEntry - used to store data into utxo table
@@ -69,6 +70,10 @@ pub struct Database {
     conn: PooledConn,
     // Channel on which to receive operations
     rx: mpsc::Receiver<DBOperationType>,
+
+    // Retry database connections
+    ms_delay: u64,
+    retries: usize,
 }
 
 /*
@@ -79,16 +84,23 @@ Caller should set up channel and pass rx to database
 */
 
 impl Database {
-    pub fn new(conn: PooledConn, rx: mpsc::Receiver<DBOperationType>) -> Self {
+    pub fn new(conn: PooledConn, rx: mpsc::Receiver<DBOperationType>, config: &Config) -> Self {
         // Used to recieve database operations for processing
-        Database { conn, rx }
+        Database {
+            conn,
+            rx,
+            ms_delay: config.database.ms_delay,
+            retries: config.database.retries,
+        }
     }
 
     fn utxo_batch_write(&mut self, utxo_entries: Vec<UtxoEntryDB>) {
         // bulk/batch write tx output to utxo table
 
-        let result = retry(delay::Fixed::from_millis(200).take(3), || {
-            self.conn
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || {
+                self.conn
             .exec_batch(
                 //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
                 "REPLACE INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
@@ -97,33 +109,40 @@ impl Database {
                     .map(|x| params! {
                         "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height}),
                 )
-        });
+            },
+        );
         result.unwrap();
     }
 
     fn utxo_batch_delete(&mut self, utxo_deletes: Vec<OutPoint>) {
         // bulk/batch delete utxo table entries
-        let result = retry(delay::Fixed::from_millis(200).take(3), || {
-            self.conn.exec_batch(
-                "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
-                utxo_deletes
-                    .iter()
-                    .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
-            )
-        });
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || {
+                self.conn.exec_batch(
+                    "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
+                    utxo_deletes
+                        .iter()
+                        .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
+                )
+            },
+        );
         result.unwrap();
     }
 
     fn tx_batch_write(&mut self, tx_entries: Vec<TxEntryWriteDB>) {
-        let result = retry(delay::Fixed::from_millis(200).take(3), || {
-            self.conn
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || {
+                self.conn
                 .exec_batch(
                     "INSERT INTO tx (hash, height, blockindex, txsize, satoshis) VALUES (:hash, :height, :blockindex, :txsize, :satoshis)",
                     tx_entries.iter().map(
                         |tx| params! {"hash" => tx.hash.encode(), "height" => tx.height, "blockindex"=> tx.blockindex, "txsize"=> tx.size, "satoshis" => tx.satoshis},
                     ),
                 )
-        });
+            },
+        );
         result.unwrap();
     }
 
@@ -137,9 +156,10 @@ impl Database {
             &mempool_entry.tx,
         );
 
-        let result = retry(delay::Fixed::from_millis(200).take(3), || {
-            self.conn.exec_drop(&mempool_insert, Params::Empty)
-        });
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || self.conn.exec_drop(&mempool_insert, Params::Empty),
+        );
         result.unwrap();
         /*
         // Write mempool entry to database
@@ -150,14 +170,17 @@ impl Database {
     }
 
     fn mempool_batch_delete(&mut self, mempool_hashes: Vec<Hash256>) {
-        let result = retry(delay::Fixed::from_millis(200).take(3), || {
-            self.conn.exec_batch(
-                "DELETE FROM mempool WHERE hash = :hash;",
-                mempool_hashes
-                    .iter()
-                    .map(|x| params! {"hash" => x.encode()}),
-            )
-        });
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || {
+                self.conn.exec_batch(
+                    "DELETE FROM mempool WHERE hash = :hash;",
+                    mempool_hashes
+                        .iter()
+                        .map(|x| params! {"hash" => x.encode()}),
+                )
+            },
+        );
         result.unwrap();
     }
 
@@ -177,9 +200,10 @@ impl Database {
             block_header.blocksize,
             block_header.numtxs,
         );
-        let result = retry(delay::Fixed::from_millis(200).take(3), || {
-            self.conn.exec_drop(&blocks_insert, Params::Empty)
-        });
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || self.conn.exec_drop(&blocks_insert, Params::Empty),
+        );
         result.unwrap();
     }
 

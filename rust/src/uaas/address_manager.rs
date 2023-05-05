@@ -8,13 +8,18 @@ use sv::messages::Addr;
 pub struct AddressManager {
     addresses: Vec<String>,
     conn: PooledConn,
+    // Retry database connections
+    ms_delay: u64,
+    retries: usize,
 }
 
 impl AddressManager {
-    pub fn new(_config: &Config, conn: PooledConn) -> Self {
+    pub fn new(config: &Config, conn: PooledConn) -> Self {
         AddressManager {
             addresses: Vec::new(),
             conn,
+            ms_delay: config.database.ms_delay,
+            retries: config.database.retries,
         }
     }
 
@@ -75,9 +80,12 @@ impl AddressManager {
                 // if not add it to the table
                 let ip_addr = format!("{}", address.addr.ip);
 
-                let result = retry(delay::Fixed::from_millis(200).take(3), || {
-                    self.conn.exec_drop(&addr_insert, params! { "ip" => ip_addr.clone() , "services" => address.addr.services, "port" => address.addr.port})
-                });
+                let result = retry(
+                    delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+                    || {
+                        self.conn.exec_drop(&addr_insert, params! { "ip" => ip_addr.clone() , "services" => address.addr.services, "port" => address.addr.port})
+                    },
+                );
                 result.unwrap();
 
                 self.addresses.push(ip_addr);

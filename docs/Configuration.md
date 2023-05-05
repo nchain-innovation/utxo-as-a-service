@@ -37,9 +37,6 @@ timeout_period = 240.0
 block_request_period = 80
 startup_load_from_database = true
 
-mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
-
 # Python database access
 host = "host.docker.internal"
 user = "uaas"
@@ -66,14 +63,29 @@ Note when reading from the file, would expect to delete the following tables: bl
 * `block_file` - identifies where the blocks are stored, used by both the Rust service and Python REST API
 * `save_blocks` - when true the Rust service saves blocks to the `block_file`, when false no blocks are saved.
 
-* `mysql_url` - this is the url of the database, this is used by the Rust service on the local machine
-* `mysql_url_docker` - as `mysql_url` but for use in a Docker container
 
 ### Python database access used by the Python REST API
 * `host` - the database host
 * `user` - the database user
 * `password` - the database password
 * `database` - the database connection
+
+## Database
+Information used to configure the Rust database connection
+```toml
+[database]
+
+mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
+
+ms_delay = 300
+retries = 6
+```
+
+* `mysql_url` - this is the url of the database, this is used by the Rust service on the local machine
+* `mysql_url_docker` - as `mysql_url` but for use in a Docker container
+* `ms_delay` - if a datase connection fails, this is the delay before retrying in milliseconds.
+* `retries` - this is the number of times to retry a database connection before declaring the connection broken.
 
 
 ## Collections
