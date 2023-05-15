@@ -19,6 +19,15 @@ https://github.com/brentongunning/rust-sv
 Note that this version of the library has not yet incorporated Daniel Connolly's pull request which enables unlimited block size.
 Therefore if connecting to `mainnet` use the `rust-sv` library from https://bitbucket.stressedsharks.com/projects/SDL/repos/rust-sv/browse.
 
+## To Clone the Project
+First clone the project from Bitbucket, then update the submodules.
+The document signing application has `rust-sv` as a submodule.
+```bash
+git clone ssh://git@bitbucket.stressedsharks.com:8443/sdl/utxo-as-a-service.git
+git submodule init
+git submodule update
+```
+
 ## To Build the Service
 The service is developed in Rust.
 The best way to install Rust is to use `rustup`, see https://www.rust-lang.org/tools/install
@@ -98,19 +107,19 @@ The following directories exist in this project:
 ├── data
 ├── docs
 │   └── diagrams
+├── python
+│   └── src
 ├── rust
 │   └── src
-└── python
-    └── src
-
+└── rust-sv
 ```
 These directories contain the following:
 * `data` - Configuration, data and logs used and created by the service
 * `docs` - Project documentation
 * `docs/diagrams` - PlantUML diagrams and source in support of the documentation
-* `rust/src` - Service source code in Rust
 * `python/src` - Python REST web interface to UaaS
-
+* `rust/src` - Service source code in Rust
+* `rust-sv` - Rust-SV project/submodule
 
 ## Development
 The following diagram shows how the Rust UaaS processes individual `transactions` and `blocks` from peer nodes.
