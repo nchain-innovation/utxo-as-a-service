@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use mysql::Pool;
 
-use sv::messages::{Addr, Block, Headers, Tx};
-use sv::util::Hash256;
+use chain_gang::messages::{Addr, Block, Headers, Tx};
+use chain_gang::util::Hash256;
 
 use crate::config::Config;
 

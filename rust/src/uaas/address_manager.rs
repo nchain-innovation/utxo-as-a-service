@@ -3,7 +3,7 @@ use mysql::*;
 use retry::{delay, retry};
 
 use crate::config::Config;
-use sv::messages::Addr;
+use chain_gang::messages::Addr;
 
 pub struct AddressManager {
     addresses: Vec<String>,

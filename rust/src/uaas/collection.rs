@@ -5,9 +5,9 @@ use mysql::PooledConn;
 use mysql::*;
 use serde::Deserialize;
 
+use chain_gang::messages::{Payload, Tx};
+use chain_gang::util::{Hash256, Serializable};
 use regex::Regex;
-use sv::messages::{Payload, Tx};
-use sv::util::{Hash256, Serializable};
 
 use super::hexslice::HexSlice;
 

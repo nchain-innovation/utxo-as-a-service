@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use sv::peer::Peer;
+use chain_gang::peer::Peer;
 
 use crate::peer_thread::{PeerThread, PeerThreadStatus};
 

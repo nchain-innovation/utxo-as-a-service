@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
-use sv::peer::Peer;
+use chain_gang::peer::Peer;
 
 // Used to track the threads
 #[derive(Debug, PartialEq, Eq)]

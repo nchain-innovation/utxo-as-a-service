@@ -2,7 +2,7 @@ use std::fmt;
 use std::net::IpAddr;
 use std::time;
 
-use sv::messages::{Addr, Block, Headers, Tx};
+use chain_gang::messages::{Addr, Block, Headers, Tx};
 
 use crate::uaas::util::timestamp_as_string;
 

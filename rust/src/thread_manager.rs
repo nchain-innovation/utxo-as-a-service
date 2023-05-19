@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use sv::messages::{BlockLocator, Message};
-use sv::util::Hash256;
+use chain_gang::messages::{BlockLocator, Message};
+use chain_gang::util::Hash256;
 
 use crate::config::Config;
 use crate::peer_connection::PeerConnection;

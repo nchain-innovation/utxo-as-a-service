@@ -1,7 +1,7 @@
+use chain_gang::network::Network;
 use serde::Deserialize;
 use std::env;
 use std::net::IpAddr;
-use sv::network::Network;
 
 use crate::uaas::collection::Collection;
 
@@ -45,9 +45,9 @@ pub struct Config {
 impl Config {
     pub fn get_network(&self) -> Result<Network, &str> {
         match self.service.network.as_str() {
-            "mainnet" => Ok(Network::Mainnet),
-            "testnet" => Ok(Network::Testnet),
-            "stn" => Ok(Network::STN),
+            "mainnet" => Ok(Network::BSV_Mainnet),
+            "testnet" => Ok(Network::BSV_Testnet),
+            "stn" => Ok(Network::BSV_STN),
             _ => Err("unable to decode network"),
         }
     }

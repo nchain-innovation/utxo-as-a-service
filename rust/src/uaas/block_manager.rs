@@ -7,8 +7,8 @@ use std::time::Instant;
 use mysql::prelude::*;
 use mysql::PooledConn;
 
-use sv::messages::{Block, BlockHeader, Payload};
-use sv::util::{Hash256, Serializable};
+use chain_gang::messages::{Block, BlockHeader, Payload};
+use chain_gang::util::{Hash256, Serializable};
 
 use crate::config::Config;
 use crate::uaas::tx_analyser::TxAnalyser;

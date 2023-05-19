@@ -7,11 +7,11 @@ use rand::Rng;
 use std::thread;
 use std::time;
 
-use sv::peer::{Peer, SVPeerFilter};
+use chain_gang::peer::{Peer, SVPeerFilter};
 
-use sv::messages::{Version, NODE_BITCOIN_CASH, PROTOCOL_VERSION};
-use sv::util::rx::Observable;
-use sv::util::secs_since;
+use chain_gang::messages::{Version, NODE_BITCOIN_CASH, PROTOCOL_VERSION};
+use chain_gang::util::rx::Observable;
+use chain_gang::util::secs_since;
 
 use crate::config::Config;
 use crate::event_handler::EventHandler;

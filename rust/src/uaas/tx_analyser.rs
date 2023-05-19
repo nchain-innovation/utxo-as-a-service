@@ -5,8 +5,8 @@ use mysql::prelude::*;
 use mysql::Pool;
 use mysql::PooledConn;
 
-use sv::messages::{Block, Tx, TxOut};
-use sv::util::Hash256;
+use chain_gang::messages::{Block, Tx, TxOut};
+use chain_gang::util::Hash256;
 
 use super::txdb::TxDB;
 use super::utxo::Utxo;

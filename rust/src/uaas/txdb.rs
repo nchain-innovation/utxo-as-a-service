@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use sv::messages::{Block, Payload, Tx};
-use sv::util::{Hash256, Serializable};
+use chain_gang::messages::{Block, Payload, Tx};
+use chain_gang::util::{Hash256, Serializable};
 
 use super::hexslice::HexSlice;
 

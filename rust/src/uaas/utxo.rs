@@ -3,8 +3,8 @@ use std::sync::mpsc;
 
 use std::time::Instant;
 
-use sv::messages::OutPoint;
-use sv::util::Hash256;
+use chain_gang::messages::OutPoint;
+use chain_gang::util::Hash256;
 
 use mysql::prelude::*;
 use mysql::PooledConn;
