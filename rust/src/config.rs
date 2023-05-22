@@ -6,6 +6,13 @@ use std::net::IpAddr;
 use crate::uaas::collection::Collection;
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct Service {
+    pub user_agent: String,
+    pub network: String,
+    pub rust_address: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct NetworkSettings {
     pub ip: Vec<String>,
     pub port: u16,
@@ -27,10 +34,9 @@ pub struct DatabaseConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Service {
-    pub user_agent: String,
-    pub network: String,
-    pub rust_address: String,
+pub struct OrphanConfig {
+    pub detect: bool,
+    pub start_block_timestamp: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -39,6 +45,7 @@ pub struct Config {
     pub mainnet: NetworkSettings,
     pub testnet: NetworkSettings,
     pub database: DatabaseConfig,
+    pub orphan: OrphanConfig,
     pub collection: Vec<Collection>,
 }
 

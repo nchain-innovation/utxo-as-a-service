@@ -1,11 +1,8 @@
 use std::sync::mpsc;
 
-use chain_gang::messages::OutPoint;
-use chain_gang::util::Hash256;
+use chain_gang::{messages::OutPoint, util::Hash256};
 
-use mysql::prelude::*;
-use mysql::PooledConn;
-use mysql::*;
+use mysql::{prelude::*, PooledConn, *};
 
 use crate::config::Config;
 use retry::{delay, retry};
@@ -45,6 +42,18 @@ pub struct BlockHeaderWriteDB {
     pub numtxs: u32,
 }
 
+#[derive(Clone, Default)]
+pub struct OrphanBlockHeaderWriteDB {
+    pub height: u32,
+    pub hash: Hash256,
+    pub version: u32,
+    pub prev_hash: Hash256,
+    pub merkle_root: Hash256,
+    pub timestamp: u32,
+    pub bits: u32,
+    pub nonce: u32,
+}
+
 pub struct MempoolEntryDB {
     pub hash: Hash256,
     pub locktime: u32,
@@ -61,6 +70,8 @@ pub enum DBOperationType {
     MempoolBatchDelete(Vec<Hash256>),
     MempoolWrite(MempoolEntryDB),
     BlockHeaderWrite(BlockHeaderWriteDB),
+    OrphanBlockHeaderWrite(OrphanBlockHeaderWriteDB),
+    BlockHeaderDelete(Hash256),
 }
 
 // This will be run in a separate thread that will be responsible for all the database writes
@@ -207,6 +218,48 @@ impl Database {
         result.unwrap();
     }
 
+    fn block_header_delete(&mut self, hash: &Hash256) {
+        let block_delete = format!("DELETE FROM blocks WHERE hash = '{}';", hash.encode());
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || self.conn.exec_drop(&block_delete, Params::Empty),
+        );
+        result.unwrap();
+    }
+
+    fn orphan_block_header_write(&mut self, block_header: OrphanBlockHeaderWriteDB) {
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || {
+                self.conn
+                .exec_drop(
+                r"INSERT INTO orphans (height, hash, version, prev_hash, merkle_root, timestamp, bits, nonce)
+                VALUES (:height, :hash, :version, :prev_hash, :merkle_root, :timestamp, :bits, :nonce)",
+                    params! {
+                        "height" => block_header.height,
+                        "hash" => block_header.hash.encode(),
+                        "version" => block_header.version,
+                        "prev_hash" => block_header.prev_hash.encode(),
+                        "merkle_root" => block_header.merkle_root.encode(),
+                        "timestamp"  => block_header.timestamp,
+                        "bits"  => block_header.bits,
+                        "nonce"  => block_header.nonce
+                    })
+            },
+        );
+
+        result.unwrap();
+        /*
+
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || self.conn.exec_drop(&blocks_insert, Params::Empty),
+        );
+
+
+        */
+    }
+
     pub fn perform_db_operations(&mut self) {
         while let Ok(op) = self.rx.recv() {
             match op {
@@ -225,7 +278,38 @@ impl Database {
                 DBOperationType::BlockHeaderWrite(block_header) => {
                     self.block_header_write(block_header)
                 }
+                DBOperationType::OrphanBlockHeaderWrite(block_header) => {
+                    self.orphan_block_header_write(block_header)
+                }
+                DBOperationType::BlockHeaderDelete(hash) => self.block_header_delete(&hash),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::{sync::mpsc, thread, time::Instant};
+    //use mysql::Pool;
+
+    #[test]
+    fn test_operation() {
+        let pool = Pool::new("mysql://maas:maas-password@localhost:3306/main_uaas_db")
+            .expect("Problem connecting to database. Check database is connected and database connection configuration is correct.\n");
+        let conn = pool.get_conn().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut database = Database {
+            conn,
+            rx,
+            ms_delay: 300,
+            retries: 3,
+        };
+
+        let block_header: OrphanBlockHeaderWriteDB = OrphanBlockHeaderWriteDB::default();
+
+        database.orphan_block_header_write(block_header);
+
+        //assert_eq!(datetime.timestamp(), 1684477516);
     }
 }

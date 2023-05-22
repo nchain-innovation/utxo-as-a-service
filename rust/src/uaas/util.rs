@@ -1,8 +1,11 @@
-use chrono::prelude::DateTime;
-use chrono::Utc;
+use chrono::*;
+//{format::ParseError, prelude::DateTime, Utc};
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::{fmt, num::ParseIntError};
+use std::{
+    fmt,
+    num::ParseIntError,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 pub fn timestamp_as_string(timestamp: u32) -> String {
     // Convert block timestamp to something readable
@@ -11,6 +14,12 @@ pub fn timestamp_as_string(timestamp: u32) -> String {
     let datetime = DateTime::<Utc>::from(d);
     let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
     timestamp_str
+}
+
+pub fn string_as_timestamp(timestamp: &str) -> Result<u32, ParseError> {
+    let datetime = Utc.datetime_from_str(timestamp, "%Y-%m-%d %H:%M:%S")?;
+    let ts: u32 = datetime.timestamp().try_into().unwrap();
+    Ok(ts)
 }
 
 pub fn timestamp_age_as_sec(timestamp: u32) -> u64 {
@@ -85,3 +94,16 @@ impl fmt::Display for DecodeHexError {
 }
 
 impl std::error::Error for DecodeHexError {}
+
+#[cfg(test)]
+mod test {
+    use crate::chrono::*;
+    #[test]
+    fn test_parse() {
+        let timestamp = "2023-05-19 06:25:16";
+        let datetime = Utc
+            .datetime_from_str(&timestamp, "%Y-%m-%d %H:%M:%S")
+            .unwrap();
+        assert_eq!(datetime.timestamp(), 1684477516);
+    }
+}

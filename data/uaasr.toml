@@ -3,7 +3,7 @@ user_agent = "/Bitcoin SV:1.0.11/"
 # network = "mainnet"
 network = "testnet"
 # For serving Python FAST API
-rust_address = "127.0.0.1:8080"
+rust_address = "127.0.0.1:8081"
 
 
 [mainnet]
@@ -67,18 +67,19 @@ block_file = "../data/main-block.dat"
 save_blocks = false
 
 [testnet]
-# ip = ["176.9.148.163", "167.99.91.85"]
-# ip = [ "176.9.148.163"]
 ip = [ "167.172.61.80"]  # Murphy machine
 
-# ip = [ "93.95.100.153"]
 port = 18333
 
-start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b33d8"
-start_block_height = 1485944
+start_block_hash = "000000000000038a0e326c66dc35d5a044d767d35367cdd5335ce6ba437ab32c"
+# start_block_hash =  "0000000000020e5bae20abdbe771256d27834f22bd2cd1cd50b1de7f6a31a808"
+start_block_height = 1552630
 
 # Note need a larger timeout on testnet
-timeout_period = 240.0
+#timeout_period = 240.0
+# 331 MB block taking over 5 mins to download
+# 600 too small
+timeout_period = 1000.0
 
 # This is the time the service will wait after the last block before requesting another
 block_request_period = 80
@@ -92,7 +93,7 @@ block_request_period = 80
 # Prior to starting the service.
 
 startup_load_from_database = true
-# startup_load_from_database = false
+#startup_load_from_database = false
 
 
 # Python database access
@@ -102,8 +103,8 @@ password = "uaas-password"
 database = "uaas_db"
 
 # Used by Python and Rust
-block_file = "../data/block4.dat"
-save_blocks = true
+block_file = "../data/test-net.dat"
+save_blocks = false
 
 #[[collection]]
 #name = "p2pkh"
@@ -124,6 +125,10 @@ mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_ua
 
 ms_delay = 300
 retries = 6
+
+[orphan]
+detect = true
+start_block_timestamp = "2023-05-19 06:25:16"
 
 
 [[collection]]

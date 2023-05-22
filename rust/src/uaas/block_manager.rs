@@ -1,20 +1,26 @@
-use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::{Seek, SeekFrom};
-use std::sync::mpsc;
-use std::time::Instant;
+use std::{
+    collections::HashMap,
+    fs::OpenOptions,
+    io::{Seek, SeekFrom},
+    sync::mpsc,
+    time::Instant,
+};
 
-use mysql::prelude::*;
-use mysql::PooledConn;
+use mysql::{prelude::*, PooledConn};
 
-use chain_gang::messages::{Block, BlockHeader, Payload};
-use chain_gang::util::{Hash256, Serializable};
+use chain_gang::{
+    messages::{Block, BlockHeader, Payload},
+    util::{Hash256, Serializable},
+};
 
-use crate::config::Config;
-use crate::uaas::tx_analyser::TxAnalyser;
-use crate::uaas::util::{timestamp_age_as_sec, timestamp_as_string};
-
-use super::database::{BlockHeaderWriteDB, DBOperationType};
+use crate::{
+    config::Config,
+    uaas::{
+        database::{BlockHeaderWriteDB, DBOperationType, OrphanBlockHeaderWriteDB},
+        tx_analyser::TxAnalyser,
+        util::{timestamp_age_as_sec, timestamp_as_string},
+    },
+};
 
 // database header structure
 struct DBHeader {
@@ -114,6 +120,24 @@ impl BlockManager {
                 .unwrap();
             self.conn
                 .query_drop(r"CREATE INDEX idx_hash ON blocks (hash);")
+                .unwrap();
+        }
+
+        if !tables.iter().any(|x| x.as_str() == "orphans") {
+            println!("Table orphans not found - creating");
+            self.conn
+                .query_drop(
+                    r"CREATE TABLE orphans (
+                    height int unsigned not null,
+                    hash varchar(64) not null,
+                    version int unsigned not null,
+                    prev_hash varchar(64) not null,
+                    merkle_root varchar(64) not null,
+                    timestamp int unsigned not null,
+                    bits int unsigned not null,
+                    nonce int unsigned not null,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+                )
                 .unwrap();
         }
     }
@@ -226,6 +250,32 @@ impl BlockManager {
 
         self.tx
             .send(DBOperationType::BlockHeaderWrite(block_header))
+            .unwrap();
+    }
+
+    fn delete_blockheader_from_database(&mut self, hash: &Hash256) {
+        // Given the hash delete the associated blockheader from the blocks table
+        self.tx
+            .send(DBOperationType::BlockHeaderDelete(*hash))
+            .unwrap();
+    }
+
+    fn write_orphan_to_database(&mut self, header: &BlockHeader) {
+        // Write the block header to a database
+        // Needs to be called before process block as process block increments the self.height
+        let block_header = OrphanBlockHeaderWriteDB {
+            height: self.height,
+            hash: header.hash(),
+            version: header.version,
+            prev_hash: header.prev_hash,
+            merkle_root: header.merkle_root,
+            timestamp: header.timestamp,
+            bits: header.bits,
+            nonce: header.nonce,
+        };
+
+        self.tx
+            .send(DBOperationType::OrphanBlockHeaderWrite(block_header))
             .unwrap();
     }
 
@@ -354,6 +404,27 @@ impl BlockManager {
         }
     }
 
+    pub fn handle_orphan_block(&mut self) {
+        println!("Orphan block found!");
+        // Drop block queue - this will probably be empty anyway as we are probably on the tip, but just in case
+        if !self.block_queue.is_empty() {
+            println!("Clear block queue!");
+            self.block_queue.clear();
+        }
+        // Drop the last block - from block headers
+        if !self.block_headers.is_empty() {
+            // Remove the block header
+            let last_block = self.block_headers.pop().unwrap();
+            println!("Removing block {}", last_block.hash().encode());
+            self.hash_to_index.remove(&last_block.hash());
+            self.height -= 1;
+
+            // Copy from blockheader from blocks to orphan table
+            self.write_orphan_to_database(&last_block);
+            self.delete_blockheader_from_database(&last_block.hash());
+        }
+    }
+
     pub fn on_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
         // On receiving block
         let start = Instant::now();
@@ -363,7 +434,7 @@ impl BlockManager {
 
         // Check to see if we already have this hash - if so ignore it
         if !self.hash_to_index.contains_key(&hash) {
-            // check to see if block arrived in correct order
+            // Check to see if block arrived in correct order
             if block.header.prev_hash == self.last_hash_processed {
                 let pos = self.write_block_to_file(&block);
                 // write to database
@@ -378,7 +449,6 @@ impl BlockManager {
                 self.process_block_queue(tx_analyser);
             } else {
                 // Store block for later processing - if it is not already present
-
                 let prev_hash = block.header.prev_hash;
                 if !self.block_queue.contains_key(&block.header.prev_hash) {
                     let entry = BlockWithPosition {

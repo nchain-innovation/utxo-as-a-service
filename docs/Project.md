@@ -98,7 +98,11 @@ This section contains project status related notes.
 * Fixed John issue where the logic of reading blocks from file was throwing an assert
 
 ---- 05/05/2023
-Make database delay and retry configurable
+* Make database delay and retry configurable
+
+----  22/05/2023 
+* Use chain-gang instead of rust-sv
+* Detect orphan blocks
 
 ## In Progress
 

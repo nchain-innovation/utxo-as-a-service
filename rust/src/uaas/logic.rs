@@ -1,19 +1,19 @@
-use std::sync::mpsc;
-use std::thread;
-use std::time::Instant;
+use std::{sync::mpsc, thread, time::Instant};
 
 use mysql::Pool;
 
-use chain_gang::messages::{Addr, Block, Headers, Tx};
-use chain_gang::util::Hash256;
+use chain_gang::{
+    messages::{Addr, Block, Headers, Tx},
+    util::Hash256,
+};
 
-use crate::config::Config;
-
-use super::address_manager::AddressManager;
-use super::block_manager::BlockManager;
-use super::connection::Connection;
-use super::database::Database;
-use super::tx_analyser::TxAnalyser;
+use crate::{
+    config::Config,
+    uaas::{
+        address_manager::AddressManager, block_manager::BlockManager, connection::Connection,
+        database::Database, tx_analyser::TxAnalyser, util::string_as_timestamp,
+    },
+};
 
 // Used to keep track of the server state
 #[derive(Debug, PartialEq, Eq)]
@@ -49,6 +49,10 @@ pub struct Logic {
 
     //database: Database,
     thread: Option<thread::JoinHandle<()>>,
+
+    // Orphan detection
+    detecting_orphans: bool,
+    start_block_timestamp: u32,
 }
 
 impl Logic {
@@ -65,6 +69,9 @@ impl Logic {
         // Channel for database writes
         let (tx, rx) = mpsc::channel();
 
+        let start_block_timestamp =
+            string_as_timestamp(&config.orphan.start_block_timestamp).unwrap();
+
         let mut logic = Logic {
             state: ServerStateType::Starting,
             tx_analyser: TxAnalyser::new(config, pool, tx.clone()),
@@ -77,6 +84,9 @@ impl Logic {
             block_request_period: config.get_network_settings().block_request_period,
             //database:
             thread: None,
+            // orphans
+            detecting_orphans: config.orphan.detect,
+            start_block_timestamp,
         };
 
         let db_config = config.clone();
@@ -115,12 +125,28 @@ impl Logic {
         println!("on_headers {:?}", headers);
     }
 
+    // Return true if this is an orphan block
+    fn is_orphan(&mut self, timestamp: u32) -> bool {
+        // Are we detecting orphans and is the block before our first block
+        self.detecting_orphans && (self.start_block_timestamp > timestamp)
+    }
+
     pub fn on_block(&mut self, block: Block) {
         // On rx Block
         self.last_block_rx_time = Some(Instant::now());
 
-        // Call the block manager
-        self.block_manager.on_block(block, &mut self.tx_analyser);
+        if self.is_orphan(block.header.timestamp) {
+            // Ignore this block and remove previous block from block_manager
+            self.block_manager.handle_orphan_block();
+
+            // Force a header request
+            self.need_to_request_blocks = true;
+            self.last_block_rx_time = None;
+            return;
+        } else {
+            // Call the block manager
+            self.block_manager.on_block(block, &mut self.tx_analyser);
+        }
 
         if !self.state.is_ready() {
             // Check to see if we need to request any more blocks

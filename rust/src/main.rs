@@ -6,10 +6,7 @@ extern crate rand;
 extern crate regex;
 extern crate retry;
 
-use std::net::IpAddr;
-use std::panic;
-use std::process;
-use std::thread;
+use std::{net::IpAddr, panic, process, thread};
 
 use actix_web::{web, App, HttpServer};
 
@@ -24,11 +21,13 @@ mod thread_manager;
 mod thread_tracker;
 mod uaas;
 
-use crate::config::get_config;
-use crate::rest_api::{broadcast_tx, AppState};
-use crate::thread_manager::ThreadManager;
-use crate::thread_tracker::ThreadTracker;
-use crate::uaas::logic::Logic;
+use crate::{
+    config::get_config,
+    rest_api::{broadcast_tx, AppState},
+    thread_manager::ThreadManager,
+    thread_tracker::ThreadTracker,
+    uaas::logic::Logic,
+};
 
 #[actix_web::main]
 async fn main() {
@@ -81,6 +80,8 @@ async fn main() {
             .unwrap();
     server.run().await.unwrap();
 
+    ctrlc::set_handler(|| println!("Control C pressed")).unwrap();
+    ctrlc_async::set_handler(|| println!("Control C async pressed")).unwrap();
     // wait for peer threads
     handle.join().unwrap();
 }
