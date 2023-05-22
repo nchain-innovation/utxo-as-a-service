@@ -6,9 +6,12 @@ extern crate rand;
 extern crate regex;
 extern crate retry;
 
-use std::{net::IpAddr, panic, process, thread};
-
 use actix_web::{web, App, HttpServer};
+use signal_hook::{consts::SIGINT, iterator::Signals};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    panic, process, thread, time,
+};
 
 mod config;
 mod event_handler;
@@ -23,6 +26,7 @@ mod uaas;
 
 use crate::{
     config::get_config,
+    peer_event::{PeerEventMessage, PeerEventType},
     rest_api::{broadcast_tx, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
@@ -57,6 +61,7 @@ async fn main() {
     // Used to track peer connection threads
     let mut children = ThreadTracker::new();
     let mut manager = ThreadManager::new();
+    let tx = manager.get_tx();
 
     // Decode config
     let ips: Vec<IpAddr> = config
@@ -68,7 +73,9 @@ async fn main() {
         // Cycle around all the IP addresses
         for ip in ips.into_iter().cycle() {
             manager.create_thread(ip, &mut children, &config);
-            manager.process_messages(&mut children, &mut logic, &webstate);
+            if manager.process_messages(&mut children, &mut logic, &webstate) {
+                break;
+            };
         }
     );
 
@@ -80,8 +87,24 @@ async fn main() {
             .unwrap();
     server.run().await.unwrap();
 
-    ctrlc::set_handler(|| println!("Control C pressed")).unwrap();
-    ctrlc_async::set_handler(|| println!("Control C async pressed")).unwrap();
+    // Handle control C
+    let mut signals = Signals::new([SIGINT]).unwrap();
+    // create a stop message
+
+    thread::spawn(move || {
+        for sig in signals.forever() {
+            if sig == SIGINT {
+                println!("Someone tried to kill us");
+                let stop_msg = PeerEventMessage {
+                    time: time::SystemTime::now(),
+                    peer: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    event: PeerEventType::Stop,
+                };
+                tx.send(stop_msg).unwrap();
+            }
+        }
+    });
+
     // wait for peer threads
     handle.join().unwrap();
 }

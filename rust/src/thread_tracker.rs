@@ -1,9 +1,12 @@
-use std::collections::HashMap;
-use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
 use chain_gang::peer::Peer;
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use crate::peer_thread::{PeerThread, PeerThreadStatus};
 
@@ -57,6 +60,15 @@ impl ThreadTracker {
             }
         }
         None
+    }
+
+    pub fn stop_all(&mut self) {
+        // stop all threads
+        let _ = self
+            .children
+            .iter_mut()
+            .map(|(_ip, thx)| thx.running.store(false, Ordering::Relaxed))
+            .collect::<Vec<_>>();
     }
 
     pub fn stop(&mut self, ip: &IpAddr) {

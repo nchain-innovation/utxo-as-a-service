@@ -1,21 +1,24 @@
-use std::net::IpAddr;
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::{
+    net::IpAddr,
+    sync::{atomic::AtomicBool, mpsc, Arc},
+    thread,
+    time::{Duration, Instant},
+};
 
-use std::thread;
-use std::time::{Duration, Instant};
+use chain_gang::{
+    messages::{BlockLocator, Message},
+    util::Hash256,
+};
 
-use chain_gang::messages::{BlockLocator, Message};
-use chain_gang::util::Hash256;
-
-use crate::config::Config;
-use crate::peer_connection::PeerConnection;
-use crate::peer_event::{PeerEventMessage, PeerEventType};
-use crate::peer_thread::{PeerThread, PeerThreadStatus};
-use crate::rest_api::AppState;
-use crate::thread_tracker::ThreadTracker;
-use crate::uaas::logic::{Logic, ServerStateType};
+use crate::{
+    config::Config,
+    peer_connection::PeerConnection,
+    peer_event::{PeerEventMessage, PeerEventType},
+    peer_thread::{PeerThread, PeerThreadStatus},
+    rest_api::AppState,
+    thread_tracker::ThreadTracker,
+    uaas::logic::{Logic, ServerStateType},
+};
 use actix_web::web;
 
 pub struct ThreadManager {
@@ -30,6 +33,9 @@ impl ThreadManager {
         ThreadManager { rx, tx }
     }
 
+    pub fn get_tx(&self) -> mpsc::Sender<PeerEventMessage> {
+        self.tx.clone()
+    }
     pub fn create_thread(
         &mut self,
         ip: IpAddr,
@@ -95,6 +101,11 @@ impl ThreadManager {
             PeerEventType::Block(block) => logic.on_block(block),
             PeerEventType::Addr(addr) => logic.on_addr(addr),
             PeerEventType::Headers(headers) => logic.on_headers(headers),
+            PeerEventType::Stop => {
+                println!("Stop");
+                thread_tracker.stop_all();
+                return false;
+            }
         }
         true
     }
@@ -104,14 +115,17 @@ impl ThreadManager {
         thread_tracker: &mut ThreadTracker,
         logic: &mut Logic,
         data: &web::Data<AppState>,
-    ) {
+    ) -> bool {
         let recv_duration = Duration::from_millis(500);
         let mut keep_looping = true;
+        let mut should_stop: bool = false;
 
         while keep_looping {
             let r = self.rx.recv_timeout(recv_duration);
 
             if let Ok(received) = r {
+                should_stop = received.event == PeerEventType::Stop;
+
                 // Process the event
                 keep_looping = self.process_event(received.clone(), thread_tracker, logic);
 
@@ -144,5 +158,8 @@ impl ThreadManager {
                 }
             }
         }
+
+        // Return true if should quit
+        should_stop
     }
 }

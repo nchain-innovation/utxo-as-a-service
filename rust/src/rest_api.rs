@@ -4,8 +4,7 @@ use std::sync::Mutex;
 use actix_web::{post, web, Responder, Result};
 use serde::Serialize;
 
-use chain_gang::messages::Tx;
-use chain_gang::util::Serializable;
+use chain_gang::{messages::Tx, util::Serializable};
 
 use crate::uaas::util::decode_hexstr;
 

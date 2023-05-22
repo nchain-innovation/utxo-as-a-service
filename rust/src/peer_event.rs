@@ -15,6 +15,7 @@ pub enum PeerEventType {
     Tx(Tx),
     Block(Block),
     Headers(Headers),
+    Stop, // used to stop system
 }
 
 impl fmt::Display for PeerEventType {
@@ -31,6 +32,7 @@ impl fmt::Display for PeerEventType {
                 timestamp_as_string(block.header.timestamp)
             ),
             PeerEventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
+            PeerEventType::Stop => write!(f, "Stop"),
         }
     }
 }

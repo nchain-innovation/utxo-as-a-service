@@ -1,21 +1,21 @@
-use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::{
+    net::IpAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc,
+    },
+    thread, time,
+};
 
 use rand::Rng;
-use std::thread;
-use std::time;
 
-use chain_gang::peer::{Peer, SVPeerFilter};
+use chain_gang::{
+    messages::{Version, NODE_BITCOIN_CASH, PROTOCOL_VERSION},
+    peer::{Peer, SVPeerFilter},
+    util::{rx::Observable, secs_since},
+};
 
-use chain_gang::messages::{Version, NODE_BITCOIN_CASH, PROTOCOL_VERSION};
-use chain_gang::util::rx::Observable;
-use chain_gang::util::secs_since;
-
-use crate::config::Config;
-use crate::event_handler::EventHandler;
-use crate::peer_event::PeerEventMessage;
+use crate::{config::Config, event_handler::EventHandler, peer_event::PeerEventMessage};
 
 pub struct PeerConnection {
     pub peer: Arc<Peer>,
