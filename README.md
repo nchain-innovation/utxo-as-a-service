@@ -13,17 +13,14 @@ If you need transactions that are not in blocks but are in the mempool you will 
 will capture all transactions that match a particular pattern.
 For more details on setting up a `Collection` see the configuration documentation [here](docs/Configuration.md).
 
-This project uses the following Bitcoin SV Rust library for processing peer to peer (P2P) messages:
-https://github.com/brentongunning/rust-sv
+This project uses the following Chain-Gang Rust library for processing peer to peer (P2P) messages:
+https://bitbucket.stressedsharks.com/projects/SDL/repos/chain-gang/browse
 
-Note that this version of the library has not yet incorporated Daniel Connolly's pull request which enables unlimited block size.
-Therefore if connecting to `mainnet` use the `rust-sv` library from https://bitbucket.stressedsharks.com/projects/SDL/repos/rust-sv/browse.
 
 ## To Clone the Project
 First clone the project from Bitbucket, then update the submodules.
-The document signing application has `rust-sv` as a submodule.
+The document signing application has `chain-gang` as a submodule.
 ```bash
-git clone ssh://git@bitbucket.stressedsharks.com:8443/sdl/utxo-as-a-service.git
 git submodule init
 git submodule update
 ```

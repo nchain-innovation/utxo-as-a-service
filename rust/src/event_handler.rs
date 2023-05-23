@@ -1,14 +1,19 @@
-use std::sync::mpsc;
-use std::time;
+use std::{
+    sync::{Arc, Mutex, mpsc},
+    time
+};
 
-use chain_gang::messages::{Addr, Block, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx};
-use std::sync::{Arc, Mutex};
+use chain_gang::{
+    messages::{
+    Addr, Block, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx},
+    peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage},
+    util::rx::Observer,
+};
 
-use chain_gang::peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage};
-use chain_gang::util::rx::Observer;
-
-use crate::peer_event::{PeerEventMessage, PeerEventType};
-use crate::services::decode_services;
+use crate::{
+    peer_event::{PeerEventMessage, PeerEventType},
+    services::decode_services,
+};
 
 // Constants for inv messages
 const TX: u32 = 1;

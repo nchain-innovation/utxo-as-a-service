@@ -1,8 +1,9 @@
 use std::net::IpAddr;
-
 use chrono::Utc;
-use mysql::prelude::*;
-use mysql::*;
+use mysql::{
+    prelude::*,
+    *,
+};
 use retry::{delay, retry};
 
 use crate::config::Config;

@@ -1,19 +1,26 @@
-use std::cmp;
-use std::sync::mpsc;
+use std::{cmp,
+    sync::mpsc};
 
-use mysql::prelude::*;
-use mysql::Pool;
-use mysql::PooledConn;
+use mysql::{
+    prelude::*,
+    Pool,
+    PooledConn
+};
 
-use chain_gang::messages::{Block, Tx, TxOut};
-use chain_gang::util::Hash256;
+use chain_gang::{ 
+    messages::{Block, Tx, TxOut},
+    util::Hash256,
+};
 
-use super::txdb::TxDB;
-use super::utxo::Utxo;
-use crate::config::Config;
-use crate::uaas::collection::WorkingCollection;
-
-use super::database::DBOperationType;
+use crate::{
+    config::Config,
+    uaas::{
+        collection::WorkingCollection,
+        txdb::TxDB,
+        utxo::Utxo,
+        database::DBOperationType,
+    },
+};
 /*
     in - unlock_script - script sig
     out - lock_script - script public key

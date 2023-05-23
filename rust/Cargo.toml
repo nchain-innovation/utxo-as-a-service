@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 # if dowloading blocks >32 MB use the submodule rust-sv:
-chain-gang = { path = "../../chain-gang" }
+chain-gang = { path = "../chain-gang" }
 
 serde = { version = "1.0", features =["derive"] }
 toml = "0.5.8"
