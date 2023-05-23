@@ -103,6 +103,9 @@ This section contains project status related notes.
 ----  22/05/2023 
 * Use chain-gang instead of rust-sv
 * Detect orphan blocks
+-- 23/05/2023
+* Add chain-gang as a submodule
+* Derive the start_block_timestamp
 
 ## In Progress
 

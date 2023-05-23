@@ -1,11 +1,10 @@
 use std::{
-    sync::{Arc, Mutex, mpsc},
-    time
+    sync::{mpsc, Arc, Mutex},
+    time,
 };
 
 use chain_gang::{
-    messages::{
-    Addr, Block, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx},
+    messages::{Addr, Block, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx},
     peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage},
     util::rx::Observer,
 };

@@ -128,7 +128,6 @@ retries = 6
 
 [orphan]
 detect = true
-start_block_timestamp = "2023-05-19 06:25:16"
 
 
 [[collection]]

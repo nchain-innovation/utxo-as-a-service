@@ -1,25 +1,15 @@
-use std::{cmp,
-    sync::mpsc};
+use std::{cmp, sync::mpsc};
 
-use mysql::{
-    prelude::*,
-    Pool,
-    PooledConn
-};
+use mysql::{prelude::*, Pool, PooledConn};
 
-use chain_gang::{ 
+use chain_gang::{
     messages::{Block, Tx, TxOut},
     util::Hash256,
 };
 
 use crate::{
     config::Config,
-    uaas::{
-        collection::WorkingCollection,
-        txdb::TxDB,
-        utxo::Utxo,
-        database::DBOperationType,
-    },
+    uaas::{collection::WorkingCollection, database::DBOperationType, txdb::TxDB, utxo::Utxo},
 };
 /*
     in - unlock_script - script sig

@@ -425,6 +425,15 @@ impl BlockManager {
         }
     }
 
+    // if there are more than 5 entries return the timestamp of the first
+    pub fn get_start_block_timestamp(&self) -> Option<u32> {
+        if self.block_headers.len() > 5 {
+            self.block_headers.first().map(|bh| bh.timestamp)
+        } else {
+            None
+        }
+    }
+
     pub fn on_block(&mut self, block: Block, tx_analyser: &mut TxAnalyser) {
         // On receiving block
         let start = Instant::now();

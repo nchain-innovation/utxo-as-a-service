@@ -11,7 +11,7 @@ use crate::{
     config::Config,
     uaas::{
         address_manager::AddressManager, block_manager::BlockManager, connection::Connection,
-        database::Database, tx_analyser::TxAnalyser, util::string_as_timestamp,
+        database::Database, tx_analyser::TxAnalyser,
     },
 };
 
@@ -52,7 +52,7 @@ pub struct Logic {
 
     // Orphan detection
     detecting_orphans: bool,
-    start_block_timestamp: u32,
+    start_block_timestamp: Option<u32>,
 }
 
 impl Logic {
@@ -69,9 +69,6 @@ impl Logic {
         // Channel for database writes
         let (tx, rx) = mpsc::channel();
 
-        let start_block_timestamp =
-            string_as_timestamp(&config.orphan.start_block_timestamp).unwrap();
-
         let mut logic = Logic {
             state: ServerStateType::Starting,
             tx_analyser: TxAnalyser::new(config, pool, tx.clone()),
@@ -86,7 +83,7 @@ impl Logic {
             thread: None,
             // orphans
             detecting_orphans: config.orphan.detect,
-            start_block_timestamp,
+            start_block_timestamp: None,
         };
 
         let db_config = config.clone();
@@ -128,7 +125,24 @@ impl Logic {
     // Return true if this is an orphan block
     fn is_orphan(&mut self, timestamp: u32) -> bool {
         // Are we detecting orphans and is the block before our first block
-        self.detecting_orphans && (self.start_block_timestamp > timestamp)
+        if self.detecting_orphans {
+            match self.start_block_timestamp {
+                Some(start_block_timestamp) => start_block_timestamp > timestamp,
+                None => {
+                    // If we dont already have the timestamp, request it
+                    match self.block_manager.get_start_block_timestamp() {
+                        Some(start_block_timestamp) => {
+                            // Record timestamp here
+                            self.start_block_timestamp = Some(start_block_timestamp);
+                            start_block_timestamp > timestamp
+                        }
+                        None => false,
+                    }
+                }
+            }
+        } else {
+            false
+        }
     }
 
     pub fn on_block(&mut self, block: Block) {

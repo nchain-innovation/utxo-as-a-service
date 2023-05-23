@@ -36,7 +36,6 @@ pub struct DatabaseConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct OrphanConfig {
     pub detect: bool,
-    pub start_block_timestamp: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

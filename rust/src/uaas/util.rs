@@ -16,12 +16,6 @@ pub fn timestamp_as_string(timestamp: u32) -> String {
     timestamp_str
 }
 
-pub fn string_as_timestamp(timestamp: &str) -> Result<u32, ParseError> {
-    let datetime = Utc.datetime_from_str(timestamp, "%Y-%m-%d %H:%M:%S")?;
-    let ts: u32 = datetime.timestamp().try_into().unwrap();
-    Ok(ts)
-}
-
 pub fn timestamp_age_as_sec(timestamp: u32) -> u64 {
     // Return the age of the block timestamp (against current time) in seconds
     let block_timestamp: u64 = timestamp.into();
