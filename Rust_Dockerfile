@@ -1,33 +1,21 @@
-FROM ubuntu:20.04 as base
-ENV PYTHONUNBUFFERED 1
-ENV TZ=Europe/London
-ENV DEBIAN_FRONTEND="noninteractive"
+FROM rust:latest as builder
 
-RUN apt-get update && \
-    apt-get install -y \
-    docker.io \
-    python3-pip \
-    vim \
-    curl \
-    build-essential \
-    libssl-dev
-
-RUN apt-get autoclean
-RUN apt-get install -y pkg-config
-
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
-
-ENV PATH="/root/.cargo/bin:${PATH}"
-
+COPY ./data /app/data
 COPY ./rust /app/rust
-WORKDIR /app/rust
-RUN cargo build --release
+COPY ./chain-gang /app/chain-gang
 
-
-FROM base as release
 WORKDIR /app/rust
+RUN cargo install --path . --root /app
+
+FROM debian:bullseye-slim
+RUN apt-get update
+RUN apt-get install -y libssl1.1
+RUN rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/bin/uaas /app/bin/uaas
+COPY --from=builder /app/data /app/data
+WORKDIR /app/bin
 
 # env var to detect we are in a docker instance
 ENV APP_ENV=docker
-CMD [ "./target/release/uaas"]
+CMD [ "/app/bin/uaas"]
