@@ -106,6 +106,10 @@ This section contains project status related notes.
 -- 23/05/2023
 * Add chain-gang as a submodule
 * Derive the start_block_timestamp
+-- 24/05/2023
+* Reduce the Rust server docker image down to 114 MB (From 5 GB)
+* Make orphaning more robust, wait until 500 blocks before enabling,
+  also delete tx and utxo entries associated with this block height.
 
 ## In Progress
 

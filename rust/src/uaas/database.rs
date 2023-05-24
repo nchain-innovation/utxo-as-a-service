@@ -72,6 +72,8 @@ pub enum DBOperationType {
     BlockHeaderWrite(BlockHeaderWriteDB),
     OrphanBlockHeaderWrite(OrphanBlockHeaderWriteDB),
     BlockHeaderDelete(Hash256),
+    TxDelete(u32),
+    UtxoDelete(u32),
 }
 
 // This will be run in a separate thread that will be responsible for all the database writes
@@ -227,6 +229,24 @@ impl Database {
         result.unwrap();
     }
 
+    fn tx_delete_at_height(&mut self, height: u32) {
+        let tx_delete = format!("DELETE FROM tx WHERE height = '{}';", height);
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || self.conn.exec_drop(&tx_delete, Params::Empty),
+        );
+        result.unwrap();
+    }
+
+    fn utxo_delete_at_height(&mut self, height: u32) {
+        let utxo_delete = format!("DELETE FROM utxo WHERE height = '{}';", height);
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || self.conn.exec_drop(&utxo_delete, Params::Empty),
+        );
+        result.unwrap();
+    }
+
     fn orphan_block_header_write(&mut self, block_header: OrphanBlockHeaderWriteDB) {
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
@@ -282,6 +302,8 @@ impl Database {
                     self.orphan_block_header_write(block_header)
                 }
                 DBOperationType::BlockHeaderDelete(hash) => self.block_header_delete(&hash),
+                DBOperationType::TxDelete(height) => self.tx_delete_at_height(height),
+                DBOperationType::UtxoDelete(height) => self.utxo_delete_at_height(height),
             }
         }
     }

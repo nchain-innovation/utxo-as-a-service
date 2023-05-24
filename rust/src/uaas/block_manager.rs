@@ -140,6 +140,9 @@ impl BlockManager {
                 )
                 .unwrap();
         }
+
+        // Disable safe mode... wa ha ha - what could possibly go wrong?
+        self.conn.query_drop("SET sql_safe_updates=0;").unwrap();
     }
 
     fn load_blockheaders_from_database(&mut self) {
@@ -149,7 +152,7 @@ impl BlockManager {
         let headers = self
             .conn
             .query_map(
-                "SELECT * FROM blocks ORDER BY height",
+                "SELECT * FROM blocks ORDER BY height asc",
                 |(
                     height,
                     _hash,
@@ -417,18 +420,33 @@ impl BlockManager {
             let last_block = self.block_headers.pop().unwrap();
             println!("Removing block {}", last_block.hash().encode());
             self.hash_to_index.remove(&last_block.hash());
-            self.height -= 1;
 
             // Copy from blockheader from blocks to orphan table
             self.write_orphan_to_database(&last_block);
             self.delete_blockheader_from_database(&last_block.hash());
+            // Remove tx of this block height
+            self.tx
+                .send(DBOperationType::TxDelete(self.height))
+                .unwrap();
+
+            // Remove utxo of this block height
+            self.tx
+                .send(DBOperationType::UtxoDelete(self.height))
+                .unwrap();
+
+            // Reduce the block height
+            self.height -= 1;
         }
     }
 
-    // if there are more than 5 entries return the timestamp of the first
+    // if there are more than n entries return the timestamp of the first
+    // Used for detecting orphans
     pub fn get_start_block_timestamp(&self) -> Option<u32> {
-        if self.block_headers.len() > 5 {
-            self.block_headers.first().map(|bh| bh.timestamp)
+        if self.block_headers.len() > 500 {
+            // self.block_headers.first().map(|bh| bh.timestamp)
+            // Just in case they are out of order for some reason we could get the smallest timestamp,
+            // as this would be the earliest time
+            self.block_headers.iter().map(|bh| bh.timestamp).min()
         } else {
             None
         }
