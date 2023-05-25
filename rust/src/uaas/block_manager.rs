@@ -69,6 +69,8 @@ pub struct BlockManager {
 
     // Channel to database
     tx: mpsc::Sender<DBOperationType>,
+    // orphan
+    threshold: usize,
 }
 
 impl BlockManager {
@@ -86,6 +88,7 @@ impl BlockManager {
             block_queue: HashMap::new(),
             conn,
             tx,
+            threshold: config.orphan.threshold,
         }
     }
 
@@ -442,7 +445,7 @@ impl BlockManager {
     // if there are more than n entries return the timestamp of the first
     // Used for detecting orphans
     pub fn get_start_block_timestamp(&self) -> Option<u32> {
-        if self.block_headers.len() > 500 {
+        if self.block_headers.len() > self.threshold {
             // Just in case they are out of order for some reason we could get the smallest timestamp,
             // as this would be the earliest time
             self.block_headers.iter().map(|bh| bh.timestamp).min()

@@ -147,18 +147,22 @@ impl Logic {
 
     pub fn on_block(&mut self, block: Block) {
         // On rx Block
-        self.last_block_rx_time = Some(Instant::now());
-
+        
         if self.is_orphan(block.header.timestamp) {
             // Ignore this block and remove previous block from block_manager
-            self.block_manager.handle_orphan_block();
-
+            if self.last_block_rx_time.is_some() {
+                // Only dump blocks after a request
+                self.block_manager.handle_orphan_block();
+                
+            }
             // Force a header request
             self.need_to_request_blocks = true;
             self.last_block_rx_time = None;
             return;
         } else {
             // Call the block manager
+            self.last_block_rx_time = Some(Instant::now());
+
             self.block_manager.on_block(block, &mut self.tx_analyser);
         }
 

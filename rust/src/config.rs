@@ -36,6 +36,7 @@ pub struct DatabaseConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct OrphanConfig {
     pub detect: bool,
+    pub threshold: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]

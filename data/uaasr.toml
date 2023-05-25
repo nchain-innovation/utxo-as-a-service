@@ -128,6 +128,7 @@ retries = 6
 
 [orphan]
 detect = true
+threshold = 100
 
 
 [[collection]]
