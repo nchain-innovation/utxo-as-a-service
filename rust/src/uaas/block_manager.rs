@@ -443,7 +443,6 @@ impl BlockManager {
     // Used for detecting orphans
     pub fn get_start_block_timestamp(&self) -> Option<u32> {
         if self.block_headers.len() > 500 {
-            // self.block_headers.first().map(|bh| bh.timestamp)
             // Just in case they are out of order for some reason we could get the smallest timestamp,
             // as this would be the earliest time
             self.block_headers.iter().map(|bh| bh.timestamp).min()
