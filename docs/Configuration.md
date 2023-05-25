@@ -93,8 +93,10 @@ Settings regarding detecting orphan blocks.
 ```toml
 [orphan]
 detect = true
+threshold = 100
 ```
 * `detect` - when set to `true` the service will look for orphan blocks. The service does not detect orphan blocks. However we have seen that when the hash of an unknown block is used as last known, header when requesting blocks, this results in the peer sending blocks from 2011. Typically prior to the first block the service has been configured to receive. When this happens the service will copy the block header to the `orphan` table and remove the block from the `blocks` table.
+* `threshold` - is the number of blocks before we start looking for orphan blocks
 
 ## Collections
 Collections are used to identify transactions that are of interest. The service can follow multiple Collections.
