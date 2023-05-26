@@ -76,8 +76,13 @@ port = 18333
 # start_block_height = 1552630
 
 # start of all blocks 
-start_block_hash = "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206"
-start_block_height = 1
+#start_block_hash = "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206"
+#start_block_height = 1
+
+# 2015 
+start_block_hash = "000000000038b271bd1fa9f2cb2716a3633709a896b81e01fbbcfcfd766449d2"
+start_block_height = 66753
+
 
 # orphan
 # start_block_height = 0
@@ -132,7 +137,7 @@ ms_delay = 300
 retries = 6
 
 [orphan]
-detect = false
+detect = true
 threshold = 100
 
 [logging]

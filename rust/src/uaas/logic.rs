@@ -215,6 +215,16 @@ impl Logic {
 
     }
     */
+    fn get_last_known_block_hash(&mut self) -> String {
+        // approx 75% of the time
+        let perc_chance = rand::random::<u8>() > 64;
+        if perc_chance {
+            self.block_manager.get_last_known_block_hash()
+        } else {
+            log::info!("orphan time");
+            "000000000003fc68ed563be8e3d8b5e6b211392ac266e4be5a416ec74fbe25aa".to_string()
+        }
+    }
 
     fn request_next_block(&mut self, hash: Option<Hash256>) {
         // remove the received hash from the inventory
@@ -226,24 +236,29 @@ impl Logic {
                 self.block_inventory[0].retain(|block| block.hash != hash);
             }
         }
-        // while there is an empty entry at the front
+        // while there is an empty entry at the front of block_inventory
         while !self.block_inventory.is_empty() && self.block_inventory[0].is_empty() {
             // remove empty list from front
             let _ = self.block_inventory.remove(0);
         }
 
-
         if !self.block_inventory.is_empty() {
             log::info!(
-                "block_inventory.len = {}, [0].len = {}", self.block_inventory.len(), self.block_inventory[0].len()
+                "block_inventory.len = {}, [0].len = {}",
+                self.block_inventory.len(),
+                self.block_inventory[0].len()
             );
         } else {
-            log::info!("self.block_inventory.is_empty() = {}", self.block_inventory.is_empty());
+            log::info!(
+                "self.block_inventory.is_empty() = {}",
+                self.block_inventory.is_empty()
+            );
         }
 
-        // if no inv we need to request more with GetBlocks
+        // if no block_inventory left, we need to request more with GetBlocks
         if self.block_inventory.is_empty() {
-            let hash = self.block_manager.get_last_known_block_hash();
+            // let hash = self.block_manager.get_last_known_block_hash();
+            let hash = self.get_last_known_block_hash();
             log::info!("Requesting more blocks from hash = {}", &hash);
 
             // Build getblocks message - this results in an inv message

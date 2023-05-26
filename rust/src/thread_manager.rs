@@ -129,7 +129,10 @@ impl ThreadManager {
                 // Check to see if logic has a message or more to send
                 logic.message_to_send().iter().for_each(|msg| {
                     if let Some(peer) = thread_tracker.get_connected_peer() {
-                        peer.send(msg).unwrap();
+                        match peer.send(msg) {
+                            Ok(_) => {}
+                            Err(e) => log::warn!("error sending message {:?}", e),
+                        };
                     }
                 });
             }
