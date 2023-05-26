@@ -232,14 +232,13 @@ impl Logic {
             let _ = self.block_inventory.remove(0);
         }
 
-        log::info!("self.block_inventory.is_empty() = {}",self.block_inventory.is_empty());
 
-        log::info!("self.block_inventory.len = {}", self.block_inventory.len());
         if !self.block_inventory.is_empty() {
             log::info!(
-                "self.block_inventory[0].len = {}",
-                self.block_inventory[0].len()
+                "block_inventory.len = {}, [0].len = {}", self.block_inventory.len(), self.block_inventory[0].len()
             );
+        } else {
+            log::info!("self.block_inventory.is_empty() = {}", self.block_inventory.is_empty());
         }
 
         // if no inv we need to request more with GetBlocks
