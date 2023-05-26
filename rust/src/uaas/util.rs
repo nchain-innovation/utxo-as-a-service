@@ -16,6 +16,14 @@ pub fn timestamp_as_string(timestamp: u32) -> String {
     timestamp_str
 }
 
+pub fn delay_as_string(secs: u64) -> String {
+    let seconds = secs % 60;
+    let mins = (secs / 60) % 60;
+    let hours = secs / 3600; //% 24;
+                             //let day = (sec / (3600 * 24));
+    format!("{}:{:0>2}:{:0>2}", hours, mins, seconds)
+}
+
 pub fn timestamp_age_as_sec(timestamp: u32) -> u64 {
     // Return the age of the block timestamp (against current time) in seconds
     let block_timestamp: u64 = timestamp.into();

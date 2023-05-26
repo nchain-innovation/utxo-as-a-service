@@ -34,7 +34,6 @@ start_block_hash = "000000000001f6f089b463c84c6509707db324f6f8e0c05324e856282c8b
 start_block_height = 1485944
 
 timeout_period = 240.0
-block_request_period = 80
 startup_load_from_database = true
 
 # Python database access
@@ -53,8 +52,6 @@ The Network setting section contains the following fields:
 * `start_block_hash` - identifies the first block that the service should work from the blockchain network. This allows the service to operate from a particular block rather that having to download all blocks since thes genesis block
 * `start_block_height` - this is the heigh of the `start_block`. This ensures that the REST API can return the correct block for a given block height
 * `timeout_period` - the time thee service will wait without receiving messages from a peer before declaring the connection `timed out`
-* `block_request_period` - the time the service will wait after the last block before requesting another block
-
 * `startup_load_from_database` - makes the service load the data from the database on startup, this is the normal operation.
 
 If this is set to `false` the service will load from the block file (see later), this is useful if the database structure is changed and we and want to repopulate the data without having to redownload all the blocks.

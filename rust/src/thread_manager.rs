@@ -5,10 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chain_gang::{
-    messages::{BlockLocator, Message},
-    util::Hash256,
-};
+use chain_gang::messages::Message;
 
 use crate::{
     config::Config,
@@ -101,6 +98,8 @@ impl ThreadManager {
             PeerEventType::Block(block) => logic.on_block(block),
             PeerEventType::Addr(addr) => logic.on_addr(addr),
             PeerEventType::Headers(headers) => logic.on_headers(headers),
+            PeerEventType::Inv(inv) => logic.on_inv(inv),
+
             PeerEventType::Stop => {
                 println!("Stop");
                 thread_tracker.stop_all();
@@ -125,22 +124,14 @@ impl ThreadManager {
 
             if let Ok(received) = r {
                 should_stop = received.event == PeerEventType::Stop;
-
                 // Process the event
                 keep_looping = self.process_event(received.clone(), thread_tracker, logic);
-
-                // Check to see if logic has something to send
-                if let Some(value) = logic.message_to_send() {
-                    // Request a block
+                // Check to see if logic has a message or more to send
+                logic.message_to_send().iter().for_each(|msg| {
                     if let Some(peer) = thread_tracker.get_connected_peer() {
-                        // Build message
-                        let mut locator = BlockLocator::default();
-                        let hash = Hash256::decode(&value).unwrap();
-                        locator.block_locator_hashes.push(hash);
-                        let message = Message::GetBlocks(locator);
-                        peer.send(&message).unwrap();
+                        peer.send(msg).unwrap();
                     }
-                }
+                });
             }
 
             // Check to see if any tx to broadcast

@@ -17,7 +17,6 @@ pub struct NetworkSettings {
     pub ip: Vec<String>,
     pub port: u16,
     pub timeout_period: f64,
-    pub block_request_period: u64,
     pub start_block_hash: String,
     pub start_block_height: u32,
     pub startup_load_from_database: bool,

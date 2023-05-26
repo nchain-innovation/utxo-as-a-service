@@ -2,7 +2,7 @@ use std::fmt;
 use std::net::IpAddr;
 use std::time;
 
-use chain_gang::messages::{Addr, Block, Headers, Tx};
+use chain_gang::messages::{Addr, Block, Headers, Inv, Tx};
 
 use crate::uaas::util::timestamp_as_string;
 
@@ -15,7 +15,18 @@ pub enum PeerEventType {
     Tx(Tx),
     Block(Block),
     Headers(Headers),
+    Inv(Inv),
     Stop, // used to stop system
+}
+
+fn obj_type_as_string(o_type: u32) -> String {
+    match o_type {
+        1 => "TX".to_string(),
+        2 => "BLOCK".to_string(),
+        3 => "FILTERED_BLOCK".to_string(),
+        4 => "CMPCT_BLOCK".to_string(),
+        value => format!("unknown obj_type {}", value),
+    }
 }
 
 impl fmt::Display for PeerEventType {
@@ -32,6 +43,12 @@ impl fmt::Display for PeerEventType {
                 timestamp_as_string(block.header.timestamp)
             ),
             PeerEventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
+            PeerEventType::Inv(inv) => write!(
+                f,
+                "Inv={:?} ({})",
+                inv.objects.len(),
+                obj_type_as_string(inv.objects[0].obj_type)
+            ),
             PeerEventType::Stop => write!(f, "Stop"),
         }
     }

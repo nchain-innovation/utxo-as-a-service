@@ -18,7 +18,7 @@ use crate::{
     uaas::{
         database::{BlockHeaderWriteDB, DBOperationType, OrphanBlockHeaderWriteDB},
         tx_analyser::TxAnalyser,
-        util::{timestamp_age_as_sec, timestamp_as_string},
+        util::{delay_as_string, timestamp_age_as_sec, timestamp_as_string},
     },
 };
 
@@ -410,8 +410,8 @@ impl BlockManager {
         }
     }
 
-    pub fn handle_orphan_block(&mut self) {
-        println!("Orphan block found!");
+    pub fn handle_orphan_block(&mut self, tx_analyser: &mut TxAnalyser) {
+        println!("Orphan block found! - handle_orphan_block");
         // Drop block queue - this will probably be empty anyway as we are probably on the tip, but just in case
         if !self.block_queue.is_empty() {
             println!("Clear block queue!");
@@ -428,6 +428,7 @@ impl BlockManager {
             self.write_orphan_to_database(&last_block);
             self.delete_blockheader_from_database(&last_block.hash());
             // Remove tx of this block height
+            tx_analyser.handle_orphan_block(self.height);
             self.tx
                 .send(DBOperationType::TxDelete(self.height))
                 .unwrap();
@@ -507,14 +508,17 @@ impl BlockManager {
     pub fn has_chain_tip(&self) -> bool {
         // Return true if we have the chain tip
         // This is called after we receive a block
-
         if self.block_headers.is_empty() {
             false
         } else {
             let diff = timestamp_age_as_sec(self.block_headers.last().unwrap().timestamp);
             let header = self.block_headers.last().unwrap();
-            println!("last header = {}", header.hash().encode());
-            println!("has_chain_tip - diff = {}", &diff);
+            println!(
+                "last header = {}, time behind tip = {}",
+                header.hash().encode(),
+                delay_as_string(diff)
+            );
+
             // Assume chain tip if the block time is less than 10 mins ago
             // Note that we know all the predecessors are present in the list
             diff < 600

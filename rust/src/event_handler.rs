@@ -4,7 +4,7 @@ use std::{
 };
 
 use chain_gang::{
-    messages::{Addr, Block, FeeFilter, Headers, Inv, InvVect, Message, SendCmpct, Tx},
+    messages::{Addr, Block, FeeFilter, Headers, Inv, Message, SendCmpct, Tx},
     peer::{Peer, PeerConnected, PeerDisconnected, PeerMessage},
     util::rx::Observer,
 };
@@ -13,10 +13,6 @@ use crate::{
     peer_event::{PeerEventMessage, PeerEventType},
     services::decode_services,
 };
-
-// Constants for inv messages
-const TX: u32 = 1;
-const BLOCK: u32 = 2;
 
 // Event handler - processes peer events
 pub struct EventHandler {
@@ -64,7 +60,6 @@ impl EventHandler {
     // Message handlers
     fn on_addr(&self, addr: &Addr, peer: &Arc<Peer>) {
         // On addr message
-        //for address in addr.addrs.iter() {
         let msg = PeerEventMessage {
             time: time::SystemTime::now(),
             peer: peer.ip,
@@ -75,22 +70,12 @@ impl EventHandler {
 
     fn on_inv(&self, inv: &Inv, peer: &Arc<Peer>) {
         // On inv message
-        let mut objects: Vec<InvVect> = Vec::new();
-
-        for i in inv.objects.iter() {
-            match i.obj_type {
-                TX | BLOCK => objects.push(i.clone()),
-                // ignore all others
-                _ => {}
-            }
-        }
-        // Request the txs and blocks in the inv message
-        if !objects.is_empty() {
-            let want = Message::GetData(Inv { objects });
-            if self.get_connected() {
-                peer.send(&want).unwrap();
-            }
-        }
+        let msg = PeerEventMessage {
+            time: time::SystemTime::now(),
+            peer: peer.ip,
+            event: PeerEventType::Inv(inv.clone()),
+        };
+        self.send_msg(msg);
     }
 
     fn on_block(&self, block: &Block, peer: &Arc<Peer>) {

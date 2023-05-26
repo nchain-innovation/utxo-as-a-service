@@ -1,9 +1,9 @@
-use std::{sync::mpsc, thread, time::Instant};
+use std::{sync::mpsc, thread};
 
 use mysql::Pool;
 
 use chain_gang::{
-    messages::{Addr, Block, Headers, Tx},
+    messages::{Addr, Block, BlockLocator, Headers, Inv, InvVect, Message, Tx},
     util::Hash256,
 };
 
@@ -14,6 +14,10 @@ use crate::{
         database::Database, tx_analyser::TxAnalyser,
     },
 };
+
+// Constants for inv messages
+const TX: u32 = 1;
+const BLOCK: u32 = 2;
 
 // Used to keep track of the server state
 #[derive(Debug, PartialEq, Eq)]
@@ -39,13 +43,6 @@ pub struct Logic {
     tx_analyser: TxAnalyser,
     address_manager: AddressManager,
     pub connection: Connection,
-    // Used to keep track of the blocks downloaded, to determine if we need to download any more
-    blocks_downloaded: usize,
-    last_block_rx_time: Option<Instant>,
-    need_to_request_blocks: bool,
-
-    // Used to determine the time between requesting blocks
-    block_request_period: u64,
 
     //database: Database,
     thread: Option<thread::JoinHandle<()>>,
@@ -53,6 +50,10 @@ pub struct Logic {
     // Orphan detection
     detecting_orphans: bool,
     start_block_timestamp: Option<u32>,
+    // For sending message to peer
+    send_message_queue: Vec<Message>,
+    // For record of the block inv messages received
+    block_inventory: Vec<Vec<InvVect>>,
 }
 
 impl Logic {
@@ -75,15 +76,17 @@ impl Logic {
             block_manager: BlockManager::new(config, block_conn, tx),
             address_manager: AddressManager::new(config, addr_conn),
             connection: Connection::new(config, connection_conn),
-            blocks_downloaded: 0,
-            last_block_rx_time: None,
-            need_to_request_blocks: true,
-            block_request_period: config.get_network_settings().block_request_period,
+
             //database:
             thread: None,
             // orphans
             detecting_orphans: config.orphan.detect,
             start_block_timestamp: None,
+
+            // For sending message to peer
+            send_message_queue: Vec::new(),
+            // For record of the block inv messages received
+            block_inventory: Vec::new(),
         };
 
         let db_config = config.clone();
@@ -98,22 +101,17 @@ impl Logic {
     pub fn setup(&mut self) {
         // Do any start up component setup required
         self.address_manager.setup();
-
         self.tx_analyser.setup();
         self.block_manager.setup(&mut self.tx_analyser);
         self.connection.setup();
-        // Reset the request time
-        // self.last_block_rx_time = Some(Instant::now());
     }
 
     pub fn set_state(&mut self, state: ServerStateType) {
         // Handles state changes
-
         println!("set_state({:?})", &state);
         if state == ServerStateType::Connected {
-            // Reset the request time on reconnection
-            self.last_block_rx_time = None;
-            self.need_to_request_blocks = true;
+            // Reset the request time on connection/reconnection
+            self.request_next_block(None);
         }
         self.state = state;
     }
@@ -145,43 +143,6 @@ impl Logic {
         }
     }
 
-    pub fn on_block(&mut self, block: Block) {
-        // On rx Block
-        
-        if self.is_orphan(block.header.timestamp) {
-            // Ignore this block and remove previous block from block_manager
-            if self.last_block_rx_time.is_some() {
-                // Only dump blocks after a request
-                self.block_manager.handle_orphan_block();
-                
-            }
-            // Force a header request
-            self.need_to_request_blocks = true;
-            self.last_block_rx_time = None;
-            return;
-        } else {
-            // Call the block manager
-            self.last_block_rx_time = Some(Instant::now());
-
-            self.block_manager.on_block(block, &mut self.tx_analyser);
-        }
-
-        if !self.state.is_ready() {
-            // Check to see if we need to request any more blocks
-            if self.block_manager.has_chain_tip() {
-                self.set_state(ServerStateType::Ready);
-                self.blocks_downloaded = 0;
-                self.need_to_request_blocks = false;
-            } else {
-                self.blocks_downloaded += 1;
-                if self.blocks_downloaded > 499 {
-                    // need to request more blocks
-                    self.need_to_request_blocks = true;
-                }
-            }
-        }
-    }
-
     pub fn on_tx(&mut self, tx: Tx) {
         // Handle TX message
         // Process straight away - goes to mempool
@@ -201,26 +162,47 @@ impl Logic {
         self.address_manager.on_addr(addr);
     }
 
-    fn sufficient_time_elapsed(&self) -> bool {
-        // Return true if sufficient time has passed since last block rx (if any)
-        match self.last_block_rx_time {
-            // More than x sec since last block
-            Some(t) => t.elapsed().as_secs() > self.block_request_period,
-            None => true,
+    // Return a list of messages to send
+    pub fn message_to_send(&mut self) -> Vec<Message> {
+        let mut msg_q: Vec<Message> = Vec::new();
+        // move any inv messages over to msg_q
+        msg_q.append(&mut self.send_message_queue);
+        msg_q
+    }
+
+    pub fn on_inv(&mut self, inv: Inv) {
+        // Inv message handling logic
+
+        let txs: Vec<InvVect> = inv
+            .objects
+            .clone()
+            .into_iter()
+            .filter(|x| x.obj_type == TX)
+            .collect();
+        // Request all txs
+        if !txs.is_empty() {
+            let want = Message::GetData(Inv { objects: txs });
+            self.send_message_queue.push(want);
+        }
+
+        let blocks: Vec<InvVect> = inv
+            .objects
+            .into_iter()
+            .filter(|x| x.obj_type == BLOCK)
+            .collect();
+
+        let is_empty = self.block_inventory.is_empty();
+        // Add to block_inventory
+        self.block_inventory.push(blocks);
+        // if the list was empty request the first entry
+        if is_empty {
+            self.request_next_block(None);
         }
     }
 
-    fn need_to_request_blocks(&self) -> bool {
-        // Return true if need to request a block
-        if self.state.is_ready() {
-            false
-        } else {
-            self.need_to_request_blocks || self.sufficient_time_elapsed()
-        }
-    }
-
-    pub fn message_to_send(&mut self) -> Option<String> {
-        // Return a message to send tp request blocks, if any
+    /*
+    fn block_hash_to_request(&mut self) -> Option<Message> {
+        // Return a message to send to request inv of blocks, if any
         if !self.state.is_ready() {
             // no debug info once in ready mode
             dbg!(self.blocks_downloaded);
@@ -228,16 +210,112 @@ impl Logic {
         }
         if self.need_to_request_blocks() {
             self.blocks_downloaded = 0;
-            self.need_to_request_blocks = false;
-            // Reset the request time
-            self.last_block_rx_time = Some(Instant::now());
 
             // Get the hash of the last known block
-            let required_hash = self.block_manager.get_last_known_block_hash();
-            println!("Requesting more blocks from hash = {}", &required_hash);
-            Some(required_hash)
+            // testing
+
+            //let perc_chance = rand::random::<u8>() > 64;
+            //let hash =  if perc_chance {
+            //    self.block_manager.get_last_known_block_hash()
+            //} else {
+            //    println!("orphan time");
+            //    "000000000003fc68ed563be8e3d8b5e6b211392ac266e4be5a416ec74fbe25aa".to_string()
+            //};
+
+            let hash = self.block_manager.get_last_known_block_hash();
+            println!("Requesting more blocks from hash = {}", &hash);
+            // Build getblocks message - this results in an inv message
+            let mut locator = BlockLocator::default();
+            let hash = Hash256::decode(&hash).unwrap();
+            locator.block_locator_hashes.push(hash);
+            let message = Message::GetBlocks(locator);
+
+            Some(message)
         } else {
             None
+        }
+    }
+    */
+
+    fn request_next_block(&mut self, hash: Option<Hash256>) {
+        // remove the received hash from the inventory
+        println!("request_next_block {:?}", &hash);
+        if let Some(hash) = hash {
+            // no point looking if there is nothing in the block_inventory
+            if !self.block_inventory.is_empty() {
+                // As each hash arrives remove it from the block_inventory
+                self.block_inventory[0].retain(|block| block.hash != hash);
+                if self.block_inventory[0].is_empty() {
+                    // remove empty list from front
+                    let _ = self.block_inventory.remove(0);
+                }
+            }
+        }
+
+        println!("self.block_inventory.len = {}", self.block_inventory.len());
+        if !self.block_inventory.is_empty() {
+            println!(
+                "self.block_inventory[0].len = {}",
+                self.block_inventory[0].len()
+            );
+        }
+
+        // if no inv we need to request more with GetBlocks
+        if self.block_inventory.is_empty() {
+            let hash = self.block_manager.get_last_known_block_hash();
+            println!("Requesting more blocks from hash = {}", &hash);
+
+            // Build getblocks message - this results in an inv message
+            let mut locator = BlockLocator::default();
+            let hash = Hash256::decode(&hash).unwrap();
+            locator.block_locator_hashes.push(hash);
+            let message = Message::GetBlocks(locator);
+            self.send_message_queue.push(message)
+
+            // else take the first block off the queue
+        } else if let Some(block) = self.block_inventory[0].first() {
+            let object: Vec<InvVect> = vec![block.clone()];
+            // Request the block with GetData
+            println!("requesting GetData {:?}", object[0].hash.encode());
+
+            let want = Message::GetData(Inv { objects: object });
+            self.send_message_queue.push(want);
+        } else {
+            // really shouldn't get here
+            println!("wrong place");
+            self.block_inventory
+                .iter()
+                .enumerate()
+                .for_each(|(i, list)| println!("list {}, len = {}", i, list.len()));
+            panic!("should not get here");
+            // block_inv not empty but nothing in first entry
+        }
+    }
+
+    pub fn on_block(&mut self, block: Block) {
+        // On rx Block
+
+        let block_hash: Option<Hash256> = if self.is_orphan(block.header.timestamp) {
+            // Forget the blocks that we are going to request
+            self.block_inventory.clear();
+
+            // Ignore this block and remove previous block from block_manager
+            self.block_manager
+                .handle_orphan_block(&mut self.tx_analyser);
+            println!("Orphan block found! - ignore!");
+            None
+        } else {
+            let hash = block.header.hash();
+            // Call the block manager
+            self.block_manager.on_block(block, &mut self.tx_analyser);
+            Some(hash)
+        };
+        // Request next block or request inv
+        self.request_next_block(block_hash);
+
+        // Determine if has caught up with chain tip
+        if !self.state.is_ready() && self.block_manager.has_chain_tip() {
+            self.set_state(ServerStateType::Ready);
         }
     }
 }

@@ -81,9 +81,6 @@ start_block_height = 1552630
 # 600 too small
 timeout_period = 1000.0
 
-# This is the time the service will wait after the last block before requesting another
-block_request_period = 80
-
 # The startup_load_from_database option makes the service load the data from the database on startup, or from a file.
 # Normally you would load from the database using the setting:
 #   startup_load_from_database = true
@@ -127,7 +124,7 @@ ms_delay = 300
 retries = 6
 
 [orphan]
-detect = true
+detect = false
 threshold = 100
 
 
