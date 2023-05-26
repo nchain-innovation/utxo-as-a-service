@@ -39,12 +39,19 @@ pub struct OrphanConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct LoggingConfig {
+    pub level: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub service: Service,
     pub mainnet: NetworkSettings,
     pub testnet: NetworkSettings,
     pub database: DatabaseConfig,
     pub orphan: OrphanConfig,
+    pub logging: LoggingConfig,
+
     pub collection: Vec<Collection>,
 }
 
@@ -85,6 +92,18 @@ impl Config {
         match env::var_os("APP_ENV") {
             Some(_) => &self.database.mysql_url_docker,
             None => &self.database.mysql_url,
+        }
+    }
+
+    // Return the log level (as a log::Level type) from the config
+    pub fn get_log_level(&self) -> log::Level {
+        match self.logging.level.as_str() {
+            "error" => log::Level::Error,
+            "warn" | "warning" => log::Level::Warn,
+            "info" | "information" => log::Level::Info,
+            "debug" => log::Level::Debug,
+            "trace" => log::Level::Trace,
+            _ => log::Level::Warn,
         }
     }
 }

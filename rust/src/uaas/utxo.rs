@@ -51,7 +51,7 @@ impl Utxo {
     pub fn create_table(&mut self) {
         // Create Utxo table
         // utxo
-        println!("Table utxo not found - creating");
+        log::info!("Table utxo not found - creating");
         self.conn
             .query_drop(
                 r"CREATE TABLE utxo (
@@ -99,7 +99,7 @@ impl Utxo {
             self.utxo.insert(outpoint, utxo_entry);
         }
 
-        println!(
+        log::info!(
             "UTXO {} Loaded in {} seconds",
             self.utxo.len(),
             start.elapsed().as_millis() as f64 / 1000.0

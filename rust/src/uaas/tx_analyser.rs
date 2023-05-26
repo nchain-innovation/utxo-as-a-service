@@ -81,7 +81,7 @@ impl TxAnalyser {
         for c in &self.collection {
             let name = c.name();
             if !tables.iter().any(|x| x.as_str() == name) {
-                println!("Table collection {} not found - creating", name);
+                log::info!("Table collection {} not found - creating", name);
                 c.create_table(&mut self.conn);
             }
         }
@@ -210,7 +210,7 @@ impl TxAnalyser {
         let outputs: i64 = tx.outputs.iter().map(|vout| vout.satoshis).sum();
         // Determine the difference between the inputs and the outputs
         let fee = inputs - outputs;
-        //println!("fee={} ({} - {})", fee, inputs, outputs);
+        //log::info!("fee={} ({} - {})", fee, inputs, outputs);
         // Don't return a negative fee, it must be at least 0
         cmp::max(0i64, fee)
     }

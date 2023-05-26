@@ -49,6 +49,8 @@ async fn main() {
         None => panic!("Unable to read config"),
     };
 
+    simple_logger::init_with_level(config.get_log_level()).unwrap();
+
     // Get web server address from config
     let server_address = config.service.rust_address.clone();
     // Setup web server data
@@ -94,7 +96,7 @@ async fn main() {
     thread::spawn(move || {
         for sig in signals.forever() {
             if sig == SIGINT {
-                println!("Someone tried to kill us");
+                log::info!("Someone tried to kill us");
                 let stop_msg = PeerEventMessage {
                     time: time::SystemTime::now(),
                     peer: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),

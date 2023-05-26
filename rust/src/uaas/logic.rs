@@ -52,7 +52,7 @@ pub struct Logic {
     start_block_timestamp: Option<u32>,
     // For sending message to peer
     send_message_queue: Vec<Message>,
-    // For record of the block inv messages received
+    // Record the block inv messages received
     block_inventory: Vec<Vec<InvVect>>,
 }
 
@@ -108,7 +108,7 @@ impl Logic {
 
     pub fn set_state(&mut self, state: ServerStateType) {
         // Handles state changes
-        println!("set_state({:?})", &state);
+        log::info!("set_state({:?})", &state);
         if state == ServerStateType::Connected {
             // Reset the request time on connection/reconnection
             self.request_next_block(None);
@@ -117,7 +117,7 @@ impl Logic {
     }
 
     pub fn on_headers(&self, headers: Headers) {
-        println!("on_headers {:?}", headers);
+        log::info!("on_headers {:?}", headers);
     }
 
     // Return true if this is an orphan block
@@ -202,15 +202,6 @@ impl Logic {
 
     /*
     fn block_hash_to_request(&mut self) -> Option<Message> {
-        // Return a message to send to request inv of blocks, if any
-        if !self.state.is_ready() {
-            // no debug info once in ready mode
-            dbg!(self.blocks_downloaded);
-            dbg!(self.need_to_request_blocks);
-        }
-        if self.need_to_request_blocks() {
-            self.blocks_downloaded = 0;
-
             // Get the hash of the last known block
             // testing
 
@@ -218,43 +209,34 @@ impl Logic {
             //let hash =  if perc_chance {
             //    self.block_manager.get_last_known_block_hash()
             //} else {
-            //    println!("orphan time");
+            //    log::info!("orphan time");
             //    "000000000003fc68ed563be8e3d8b5e6b211392ac266e4be5a416ec74fbe25aa".to_string()
             //};
 
-            let hash = self.block_manager.get_last_known_block_hash();
-            println!("Requesting more blocks from hash = {}", &hash);
-            // Build getblocks message - this results in an inv message
-            let mut locator = BlockLocator::default();
-            let hash = Hash256::decode(&hash).unwrap();
-            locator.block_locator_hashes.push(hash);
-            let message = Message::GetBlocks(locator);
-
-            Some(message)
-        } else {
-            None
-        }
     }
     */
 
     fn request_next_block(&mut self, hash: Option<Hash256>) {
         // remove the received hash from the inventory
-        println!("request_next_block {:?}", &hash);
+        log::info!("request_next_block {:?}", &hash);
         if let Some(hash) = hash {
             // no point looking if there is nothing in the block_inventory
             if !self.block_inventory.is_empty() {
                 // As each hash arrives remove it from the block_inventory
                 self.block_inventory[0].retain(|block| block.hash != hash);
-                if self.block_inventory[0].is_empty() {
-                    // remove empty list from front
-                    let _ = self.block_inventory.remove(0);
-                }
             }
         }
+        // while there is an empty entry at the front
+        while !self.block_inventory.is_empty() && self.block_inventory[0].is_empty() {
+            // remove empty list from front
+            let _ = self.block_inventory.remove(0);
+        }
 
-        println!("self.block_inventory.len = {}", self.block_inventory.len());
+        log::info!("self.block_inventory.is_empty() = {}",self.block_inventory.is_empty());
+
+        log::info!("self.block_inventory.len = {}", self.block_inventory.len());
         if !self.block_inventory.is_empty() {
-            println!(
+            log::info!(
                 "self.block_inventory[0].len = {}",
                 self.block_inventory[0].len()
             );
@@ -263,7 +245,7 @@ impl Logic {
         // if no inv we need to request more with GetBlocks
         if self.block_inventory.is_empty() {
             let hash = self.block_manager.get_last_known_block_hash();
-            println!("Requesting more blocks from hash = {}", &hash);
+            log::info!("Requesting more blocks from hash = {}", &hash);
 
             // Build getblocks message - this results in an inv message
             let mut locator = BlockLocator::default();
@@ -276,17 +258,17 @@ impl Logic {
         } else if let Some(block) = self.block_inventory[0].first() {
             let object: Vec<InvVect> = vec![block.clone()];
             // Request the block with GetData
-            println!("requesting GetData {:?}", object[0].hash.encode());
+            log::info!("requesting GetData {:?}", object[0].hash.encode());
 
             let want = Message::GetData(Inv { objects: object });
             self.send_message_queue.push(want);
         } else {
             // really shouldn't get here
-            println!("wrong place");
+            log::info!("wrong place");
             self.block_inventory
                 .iter()
                 .enumerate()
-                .for_each(|(i, list)| println!("list {}, len = {}", i, list.len()));
+                .for_each(|(i, list)| log::info!("list {}, len = {}", i, list.len()));
             panic!("should not get here");
             // block_inv not empty but nothing in first entry
         }
@@ -302,7 +284,7 @@ impl Logic {
             // Ignore this block and remove previous block from block_manager
             self.block_manager
                 .handle_orphan_block(&mut self.tx_analyser);
-            println!("Orphan block found! - ignore!");
+            log::info!("Orphan block found! - ignore!");
             None
         } else {
             let hash = block.header.hash();

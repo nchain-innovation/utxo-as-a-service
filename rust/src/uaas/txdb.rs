@@ -57,7 +57,7 @@ impl TxDB {
 
     pub fn create_tx_table(&mut self) {
         // Create tx table
-        println!("Table tx not found - creating");
+        log::info!("Table tx not found - creating");
         self.conn
             .query_drop(
                 r"CREATE TABLE tx (
@@ -76,7 +76,7 @@ impl TxDB {
     }
 
     pub fn create_mempool_table(&mut self) {
-        println!("Table mempool not found - creating");
+        log::info!("Table mempool not found - creating");
         self.conn
             .query_drop(
                 r"CREATE TABLE mempool (
@@ -109,7 +109,7 @@ impl TxDB {
             let hash = Hash256::decode(&tx.hash).unwrap();
             self.txs.insert(hash, hash);
         }
-        println!(
+        log::info!(
             "{} txs loaded in {} seconds",
             self.txs.len(),
             start.elapsed().as_millis() as f64 / 1000.0
@@ -132,7 +132,7 @@ impl TxDB {
             self.mempool.insert(hash, hash);
         }
 
-        println!(
+        log::info!(
             "{} Mempool tx Loaded in {} seconds",
             self.mempool.len(),
             start.elapsed().as_millis() as f64 / 1000.0

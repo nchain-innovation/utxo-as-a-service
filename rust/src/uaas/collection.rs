@@ -77,7 +77,7 @@ impl WorkingCollection {
             let hash = Hash256::decode(&hash_str).unwrap();
             self.txs.push(hash);
         }
-        println!(
+        log::info!(
             "Collection {} Loaded {} in {} seconds",
             self.name(),
             self.txs.len(),

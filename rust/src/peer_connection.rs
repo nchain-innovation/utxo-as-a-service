@@ -70,13 +70,13 @@ impl PeerConnection {
                 self.event_handler.set_connected(false);
 
                 let asleep_time = start.elapsed().as_millis() as f64;
-                println!("Have been asleep for {} seconds", asleep_time / 1000.0);
+                log::info!("Have been asleep for {} seconds", asleep_time / 1000.0);
                 // If so stop
                 break;
             }
         }
         if self.event_handler.get_elapsed_time() >= timeout_period {
-            println!(
+            log::info!(
                 "timed out at {} seconds",
                 self.event_handler.get_elapsed_time()
             );

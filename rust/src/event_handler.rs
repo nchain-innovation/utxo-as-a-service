@@ -108,8 +108,8 @@ impl EventHandler {
         self.send_msg(msg);
     }
 
-    fn on_feefilter(&self, value: &FeeFilter, peer: &Arc<Peer>) {
-        println!("on_feefilter {:?}", value);
+    fn on_feefilter(&self, _value: &FeeFilter, peer: &Arc<Peer>) {
+        // println!("on_feefilter {:?}", value);
 
         let p = FeeFilter { minfee: 0 };
         let m = Message::FeeFilter(p);
@@ -118,8 +118,8 @@ impl EventHandler {
         }
     }
 
-    fn on_sendcmpct(&self, data: &SendCmpct, peer: &Arc<Peer>) {
-        println!("on_sendcmpct {:?}", data);
+    fn on_sendcmpct(&self, _data: &SendCmpct, peer: &Arc<Peer>) {
+        // println!("on_sendcmpct {:?}", data);
         let p = SendCmpct {
             enable: 0,
             version: 1,

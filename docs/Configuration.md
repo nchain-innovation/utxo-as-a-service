@@ -95,6 +95,23 @@ threshold = 100
 * `detect` - when set to `true` the service will look for orphan blocks. The service does not detect orphan blocks. However we have seen that when the hash of an unknown block is used as last known, header when requesting blocks, this results in the peer sending blocks from 2011. Typically prior to the first block the service has been configured to receive. When this happens the service will copy the block header to the `orphan` table and remove the block from the `blocks` table.
 * `threshold` - is the number of blocks before we start looking for orphan blocks
 
+
+# Logging
+This sets the logging messages level produced by the Rust service.
+```toml
+[logging]
+level = "info"
+```
+* `level` is the logging level.
+
+The logging level can be one of:
+* `"error"` - Designates very serious errors.
+* `"warn"` - Designates hazardous situations.
+* `"info"` - Designates useful information.
+* `"debug"` - Designates useful information.
+* `"trace"` - Designates very low priority, often extremely verbose, information.
+
+
 ## Collections
 Collections are used to identify transactions that are of interest. The service can follow multiple Collections.
 Note that each collection is defined in double square brackets `[[]]`.

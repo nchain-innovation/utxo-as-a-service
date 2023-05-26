@@ -103,7 +103,7 @@ impl BlockManager {
             .unwrap();
 
         if !tables.iter().any(|x| x.as_str() == "blocks") {
-            println!("Table blocks not found - creating");
+            log::info!("Table blocks not found - creating");
             self.conn
                 .query_drop(
                     r"CREATE TABLE blocks (
@@ -127,7 +127,7 @@ impl BlockManager {
         }
 
         if !tables.iter().any(|x| x.as_str() == "orphans") {
-            println!("Table orphans not found - creating");
+            log::info!("Table orphans not found - creating");
             self.conn
                 .query_drop(
                     r"CREATE TABLE orphans (
@@ -201,7 +201,7 @@ impl BlockManager {
             self.block_headers.push(block_header);
             self.height = b.height + 1;
         }
-        println!(
+        log::info!(
             "Loaded {} headers in {} seconds",
             self.block_headers.len(),
             start.elapsed().as_secs()
@@ -212,7 +212,7 @@ impl BlockManager {
         // Block processing functionality
         // This method is shared with reading from file and receiving blocks from network
         let hash = block.header.hash();
-        println!(
+        log::info!(
             "process_block = {} {}",
             &hash.encode(),
             timestamp_as_string(block.header.timestamp)
@@ -311,11 +311,11 @@ impl BlockManager {
 
     fn print_block_queue(&self) {
         if !self.block_queue.is_empty() {
-            println!("self.block_queue.len() = {}", self.block_queue.len());
+            log::info!("self.block_queue.len() = {}", self.block_queue.len());
             if self.block_queue.len() < 5 {
                 // print all block_queue entries
                 for (_k, v) in self.block_queue.iter() {
-                    println!(
+                    log::info!(
                         "q_block = {} {}",
                         v.block.header.hash().encode(),
                         timestamp_as_string(v.block.header.timestamp)
@@ -355,7 +355,7 @@ impl BlockManager {
 
     fn read_blocks_from_file(&mut self, tx_analyser: &mut TxAnalyser) {
         // On loading check blocks are in the correct order and assert if not
-        println!("read blocks");
+        log::info!("read blocks");
         let start = Instant::now();
 
         // Read blocks from a file
@@ -368,11 +368,11 @@ impl BlockManager {
                     position = file.stream_position().unwrap();
                 }
             }
-            Err(e) => println!("Unable to open block file {} - {}", &self.block_file, &e),
+            Err(e) => log::info!("Unable to open block file {} - {}", &self.block_file, &e),
         }
         // Print blocks read
         let elapsed_time = start.elapsed().as_millis() as f64;
-        println!(
+        log::info!(
             "{} blocks read in {} seconds",
             self.height,
             elapsed_time / 1000.0
@@ -411,17 +411,17 @@ impl BlockManager {
     }
 
     pub fn handle_orphan_block(&mut self, tx_analyser: &mut TxAnalyser) {
-        println!("Orphan block found! - handle_orphan_block");
+        log::info!("Orphan block found! - handle_orphan_block");
         // Drop block queue - this will probably be empty anyway as we are probably on the tip, but just in case
         if !self.block_queue.is_empty() {
-            println!("Clear block queue!");
+            log::info!("Clear block queue!");
             self.block_queue.clear();
         }
         // Drop the last block - from block headers
         if !self.block_headers.is_empty() {
             // Remove the block header
             let last_block = self.block_headers.pop().unwrap();
-            println!("Removing block {}", last_block.hash().encode());
+            log::info!("Removing block {}", last_block.hash().encode());
             self.hash_to_index.remove(&last_block.hash());
 
             // Copy from blockheader from blocks to orphan table
@@ -491,7 +491,7 @@ impl BlockManager {
             self.print_block_queue();
         }
         let elapsed_time = start.elapsed().as_millis() as f64;
-        println!("Block processing took {} seconds", elapsed_time / 1000.0);
+        log::info!("Block processing took {} seconds", elapsed_time / 1000.0);
     }
 
     pub fn get_last_known_block_hash(&self) -> String {
@@ -513,7 +513,7 @@ impl BlockManager {
         } else {
             let diff = timestamp_age_as_sec(self.block_headers.last().unwrap().timestamp);
             let header = self.block_headers.last().unwrap();
-            println!(
+            log::info!(
                 "last header = {}, time behind tip = {}",
                 header.hash().encode(),
                 delay_as_string(diff)

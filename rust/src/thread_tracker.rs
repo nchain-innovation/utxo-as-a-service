@@ -28,7 +28,7 @@ impl ThreadTracker {
 
     pub fn print(&self) {
         for (ip, child) in &self.children {
-            println!(
+            log::info!(
                 "ip={}, result={:?}, time={}s",
                 ip,
                 child,

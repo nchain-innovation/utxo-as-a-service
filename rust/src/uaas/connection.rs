@@ -33,7 +33,7 @@ impl Connection {
             .unwrap();
 
         if !tables.iter().any(|x| x.as_str() == "connect") {
-            println!("Table connect not found - creating");
+            log::info!("Table connect not found - creating");
             self.conn
                 .query_drop(
                     "CREATE TABLE connect (date VARCHAR(64), ip VARCHAR(64), event VARCHAR(64));",

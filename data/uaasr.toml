@@ -71,9 +71,17 @@ ip = [ "167.172.61.80"]  # Murphy machine
 
 port = 18333
 
-start_block_hash = "000000000000038a0e326c66dc35d5a044d767d35367cdd5335ce6ba437ab32c"
+# John's demo start
+# start_block_hash = "000000000000038a0e326c66dc35d5a044d767d35367cdd5335ce6ba437ab32c"
+# start_block_height = 1552630
+
+# start of all blocks 
+start_block_hash = "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206"
+start_block_height = 1
+
+# orphan
+# start_block_height = 0
 # start_block_hash =  "0000000000020e5bae20abdbe771256d27834f22bd2cd1cd50b1de7f6a31a808"
-start_block_height = 1552630
 
 # Note need a larger timeout on testnet
 #timeout_period = 240.0
@@ -126,6 +134,9 @@ retries = 6
 [orphan]
 detect = false
 threshold = 100
+
+[logging]
+level = "info"
 
 
 [[collection]]

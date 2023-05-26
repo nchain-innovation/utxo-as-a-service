@@ -69,7 +69,7 @@ impl ThreadManager {
         logic: &mut Logic,
     ) -> bool {
         // Return false if enclosing loop should finish
-        println!("{}", received);
+        log::info!("{}", received);
         match received.event {
             PeerEventType::Connected(_) => {
                 thread_tracker.set_status(&received.peer, PeerThreadStatus::Connected);
@@ -84,12 +84,12 @@ impl ThreadManager {
                 logic.set_state(ServerStateType::Disconnected);
                 logic.connection.on_disconnect(&received.peer);
                 // Wait for thread, sets state to Finished
-                println!("join thread");
+                log::debug!("join thread");
                 thread_tracker.stop(&received.peer);
                 thread_tracker.join_thread(&received.peer);
                 thread_tracker.print();
                 if thread_tracker.all_finished() {
-                    println!("all finished");
+                    log::debug!("all finished");
                     return false;
                 }
             }
@@ -101,7 +101,7 @@ impl ThreadManager {
             PeerEventType::Inv(inv) => logic.on_inv(inv),
 
             PeerEventType::Stop => {
-                println!("Stop");
+                log::info!("Stop");
                 thread_tracker.stop_all();
                 return false;
             }
@@ -139,7 +139,7 @@ impl ThreadManager {
             while let Some(tx) = txs_for_broadcast.pop() {
                 dbg!(&tx);
                 if logic.tx_exists(tx.hash()) {
-                    println!("Tx already exists {}", &tx.hash().encode());
+                    log::info!("Broadcast Tx already exists {}", &tx.hash().encode());
                     continue;
                 }
                 if let Some(peer) = thread_tracker.get_connected_peer() {
