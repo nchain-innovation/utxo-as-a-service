@@ -27,8 +27,6 @@ pub struct TxAnalyser {
     conn: PooledConn,
     // Collections
     collection: Vec<WorkingCollection>,
-    // Channel to database
-    tx: mpsc::Sender<DBOperationType>,
 }
 
 impl TxAnalyser {
@@ -40,10 +38,9 @@ impl TxAnalyser {
 
         let mut txanal = TxAnalyser {
             txdb: TxDB::new(txdb_conn, tx.clone()),
-            utxo: Utxo::new(utxo_conn, tx.clone()),
+            utxo: Utxo::new(utxo_conn, tx),
             conn: tx_conn,
             collection: Vec::new(),
-            tx,
         };
 
         // Load the collections
@@ -240,11 +237,6 @@ impl TxAnalyser {
     }
 
     pub fn handle_orphan_block(&mut self, height: u32) {
-        self.tx.send(DBOperationType::TxDelete(height)).unwrap();
-
-        // Remove utxo of this block height
-        self.tx.send(DBOperationType::UtxoDelete(height)).unwrap();
-
-        // TODO remove transactions
+        self.txdb.handle_orphan_block(height);
     }
 }
