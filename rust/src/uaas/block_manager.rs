@@ -427,16 +427,8 @@ impl BlockManager {
             // Copy from blockheader from blocks to orphan table
             self.write_orphan_to_database(&last_block);
             self.delete_blockheader_from_database(&last_block.hash());
-            // Remove tx of this block height
+            // Remove tx at this block height
             tx_analyser.handle_orphan_block(self.height);
-            self.tx
-                .send(DBOperationType::TxDelete(self.height))
-                .unwrap();
-
-            // Remove utxo of this block height
-            self.tx
-                .send(DBOperationType::UtxoDelete(self.height))
-                .unwrap();
 
             // Reduce the block height
             self.height -= 1;
