@@ -200,29 +200,18 @@ impl Logic {
         }
     }
 
-    /*
-    fn block_hash_to_request(&mut self) -> Option<Message> {
-            // Get the hash of the last known block
-            // testing
-
-            //let perc_chance = rand::random::<u8>() > 64;
-            //let hash =  if perc_chance {
-            //    self.block_manager.get_last_known_block_hash()
-            //} else {
-            //    log::info!("orphan time");
-            //    "000000000003fc68ed563be8e3d8b5e6b211392ac266e4be5a416ec74fbe25aa".to_string()
-            //};
-
-    }
-    */
     fn get_last_known_block_hash(&mut self) -> String {
-        // approx 75% of the time
-        let perc_chance = rand::random::<u8>() > 64;
-        if perc_chance {
-            self.block_manager.get_last_known_block_hash()
+        if cfg!(feature = "rnd_orphans") { 
+            // approx 75% of the time
+            let perc_chance = rand::random::<u8>() > 64;
+            if perc_chance {
+                self.block_manager.get_last_known_block_hash()
+            } else {
+                log::info!("orphan time");
+                "000000000003fc68ed563be8e3d8b5e6b211392ac266e4be5a416ec74fbe25aa".to_string()
+            }
         } else {
-            log::info!("orphan time");
-            "000000000003fc68ed563be8e3d8b5e6b211392ac266e4be5a416ec74fbe25aa".to_string()
+            self.block_manager.get_last_known_block_hash()
         }
     }
 
@@ -242,6 +231,7 @@ impl Logic {
             let _ = self.block_inventory.remove(0);
         }
 
+        // Display block_inventory
         if !self.block_inventory.is_empty() {
             log::info!(
                 "block_inventory.len = {}, [0].len = {}",
@@ -273,7 +263,6 @@ impl Logic {
             let object: Vec<InvVect> = vec![block.clone()];
             // Request the block with GetData
             log::info!("requesting GetData {:?}", object[0].hash.encode());
-
             let want = Message::GetData(Inv { objects: object });
             self.send_message_queue.push(want);
         } else {
@@ -290,11 +279,9 @@ impl Logic {
 
     pub fn on_block(&mut self, block: Block) {
         // On rx Block
-
         let block_hash: Option<Hash256> = if self.is_orphan(block.header.timestamp) {
             // Forget the blocks that we are going to request
             self.block_inventory.clear();
-
             // Ignore this block and remove previous block from block_manager
             self.block_manager
                 .handle_orphan_block(&mut self.tx_analyser);
@@ -306,7 +293,7 @@ impl Logic {
             self.block_manager.on_block(block, &mut self.tx_analyser);
             Some(hash)
         };
-        // Request next block or request inv
+        // Request next block or if hash is None request inv 
         self.request_next_block(block_hash);
 
         // Determine if has caught up with chain tip

@@ -25,6 +25,13 @@ For Rust hints:
 cd rust
 cargo clippy
 ```
+## Orphan testing
+The rust service has `rnd_orphans` a feature flag which introduces random orphans into the download stream.
+To test try the following
+```
+cargo run --features "rnd_orphans"
+```
+
 
 # Python Development
 To lint the source code use the following command line script from the project root directory:
