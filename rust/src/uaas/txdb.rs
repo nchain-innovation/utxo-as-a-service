@@ -20,6 +20,7 @@ pub struct MempoolEntryReadDB {
 // Used for loading tx from tx table
 struct TxEntryDB {
     hash: String,
+    height: u32,
 }
 
 // TxDB - wraps interface to tx and mempool database tables
@@ -28,7 +29,7 @@ pub struct TxDB {
     // Database connection
     conn: PooledConn,
     // All transactions
-    pub txs: HashMap<Hash256, Hash256>,
+    pub txs: HashMap<Hash256, u32>,
 
     // mempool - transactions that are not in blocks
     pub mempool: HashMap<Hash256, Hash256>,
@@ -100,14 +101,15 @@ impl TxDB {
 
         let txs: Vec<TxEntryDB> = self
             .conn
-            .query_map("SELECT hash FROM tx ORDER BY height", |hash| TxEntryDB {
-                hash,
-            })
+            .query_map(
+                "SELECT hash, height FROM tx ORDER BY height",
+                |(hash, height)| TxEntryDB { hash, height },
+            )
             .unwrap();
 
         for tx in txs {
             let hash = Hash256::decode(&tx.hash).unwrap();
-            self.txs.insert(hash, hash);
+            self.txs.insert(hash, tx.height);
         }
         log::info!(
             "{} txs loaded in {} seconds",
@@ -168,9 +170,9 @@ impl TxDB {
             // Write to database later
             self.tx_entries.push(tx_entry);
 
-            if self.txs.insert(hash, hash).is_some() {
+            if self.txs.insert(hash, height.try_into().unwrap()).is_some() {
                 // We must have already processed this tx in a block
-                dbg!(&hash);
+                log::warn!("Should not get here, as it indicates that we have processed the same tx twice in a block. {:?}", &hash);
                 panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
             }
         }
@@ -224,5 +226,16 @@ impl TxDB {
     pub fn tx_exists(&self, hash: Hash256) -> bool {
         // Return true if txid is in txs or mempool
         self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
+    }
+
+    pub fn handle_orphan_block(&mut self, height: u32) {
+        // Remove transactions of this block heigh
+        self.tx.send(DBOperationType::TxDelete(height)).unwrap();
+
+        // Remove utxo of this block height
+        self.tx.send(DBOperationType::UtxoDelete(height)).unwrap();
+
+        // Remove transactions at this height
+        self.txs.retain(|_hash, tx_height| *tx_height != height);
     }
 }
