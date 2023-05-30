@@ -17,7 +17,7 @@ use super::database::{DBOperationType, UtxoEntryDB};
 pub struct UtxoEntry {
     satoshis: i64,
     // lock_script: Script, - have seen some very large script lengths here - removed for now
-    _height: i32, // use NOT_IN_BLOCK -1 to indicate that tx is not in block
+    height: i32, // use NOT_IN_BLOCK -1 to indicate that tx is not in block
 }
 
 // provides access to utxo state and wraps interface to utxo table
@@ -93,7 +93,7 @@ impl Utxo {
             };
             let utxo_entry = UtxoEntry {
                 satoshis: tx.satoshis,
-                _height: tx.height,
+                height: tx.height,
             };
             // add to list
             self.utxo.insert(outpoint, utxo_entry);
@@ -116,7 +116,7 @@ impl Utxo {
         let new_entry = UtxoEntry {
             satoshis,
             // lock_script: vout.lock_script.clone(),
-            _height: height,
+            height: height,
         };
         // add to utxo list
         self.utxo.insert(outpoint.clone(), new_entry);
@@ -159,5 +159,16 @@ impl Utxo {
             .send(DBOperationType::UtxoBatchDelete(self.utxo_deletes.clone()))
             .unwrap();
         self.utxo_deletes.clear();
+    }
+
+
+    pub fn handle_orphan_block(&mut self, height: u32) {
+     
+        // Remove utxo of this block height
+        self.tx.send(DBOperationType::UtxoDelete(height)).unwrap();
+
+        let height_as_i32: i32 = height.try_into().unwrap();
+        // Remove transactions at this height
+        self.utxo.retain(|_outpoint, entry| entry.height != height_as_i32);
     }
 }

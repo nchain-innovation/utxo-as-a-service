@@ -229,11 +229,8 @@ impl TxDB {
     }
 
     pub fn handle_orphan_block(&mut self, height: u32) {
-        // Remove transactions of this block heigh
+        // Remove transactions of this block height
         self.tx.send(DBOperationType::TxDelete(height)).unwrap();
-
-        // Remove utxo of this block height
-        self.tx.send(DBOperationType::UtxoDelete(height)).unwrap();
 
         // Remove transactions at this height
         self.txs.retain(|_hash, tx_height| *tx_height != height);

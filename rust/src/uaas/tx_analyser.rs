@@ -238,5 +238,6 @@ impl TxAnalyser {
 
     pub fn handle_orphan_block(&mut self, height: u32) {
         self.txdb.handle_orphan_block(height);
+        self.utxo.handle_orphan_block(height);
     }
 }
