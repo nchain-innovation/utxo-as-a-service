@@ -173,7 +173,7 @@ impl TxDB {
             if self.txs.insert(hash, height.try_into().unwrap()).is_some() {
                 // We must have already processed this tx in a block
                 log::warn!("Should not get here, as it indicates that we have processed the same tx twice in a block. {:?}", &hash);
-                panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
+                //panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
             }
         }
     }
