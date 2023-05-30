@@ -201,7 +201,7 @@ impl Logic {
     }
 
     fn get_last_known_block_hash(&mut self) -> String {
-        if cfg!(feature = "rnd_orphans") { 
+        if cfg!(feature = "rnd_orphans") {
             // approx 75% of the time
             let perc_chance = rand::random::<u8>() > 64;
             if perc_chance {
@@ -293,7 +293,7 @@ impl Logic {
             self.block_manager.on_block(block, &mut self.tx_analyser);
             Some(hash)
         };
-        // Request next block or if hash is None request inv 
+        // Request next block or if hash is None request inv
         self.request_next_block(block_hash);
 
         // Determine if has caught up with chain tip
