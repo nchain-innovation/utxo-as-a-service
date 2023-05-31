@@ -216,7 +216,7 @@ impl Logic {
     }
 
     fn request_next_block(&mut self, hash: Option<Hash256>) {
-        // remove the received hash from the inventory
+        // Remove the received hash from the inventory
         log::info!("request_next_block {:?}", &hash);
         if let Some(hash) = hash {
             // no point looking if there is nothing in the block_inventory

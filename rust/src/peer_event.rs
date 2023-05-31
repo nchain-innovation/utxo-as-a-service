@@ -2,7 +2,10 @@ use std::fmt;
 use std::net::IpAddr;
 use std::time;
 
-use chain_gang::messages::{Addr, Block, Headers, Inv, Tx};
+use chain_gang::{
+    messages::{Addr, Block, Headers, Inv, Tx},
+    util::Hash256,
+};
 
 use crate::uaas::util::timestamp_as_string;
 
@@ -43,12 +46,26 @@ impl fmt::Display for PeerEventType {
                 timestamp_as_string(block.header.timestamp)
             ),
             PeerEventType::Headers(headers) => write!(f, "Headers={:?}", headers.headers.len()),
-            PeerEventType::Inv(inv) => write!(
-                f,
-                "Inv={:?} ({})",
-                inv.objects.len(),
-                obj_type_as_string(inv.objects[0].obj_type)
-            ),
+            PeerEventType::Inv(inv) => 
+                match inv.objects.len() {
+                    1 => {
+                        let hash = Hash256::encode(&inv.objects[0].hash);
+                        write!(
+                            f,
+                            "Inv={:?} ({}) {}",
+                            inv.objects.len(),
+                            obj_type_as_string(inv.objects[0].obj_type),
+                            hash
+                        )
+                    },
+                    _ => write!(
+                            f,
+                            "Inv={:?} ({})",
+                            inv.objects.len(),
+                            obj_type_as_string(inv.objects[0].obj_type)
+                        ),
+                }
+            
             PeerEventType::Stop => write!(f, "Stop"),
         }
     }

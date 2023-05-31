@@ -80,9 +80,12 @@ port = 18333
 #start_block_height = 1
 
 # 2015 
-start_block_hash = "000000000038b271bd1fa9f2cb2716a3633709a896b81e01fbbcfcfd766449d2"
-start_block_height = 66753
+# start_block_hash = "000000000038b271bd1fa9f2cb2716a3633709a896b81e01fbbcfcfd766449d2"
+# start_block_height = 66753
 
+# 2023-05-27
+start_block_hash = "00000000000001c8e4ecb7cc7fa7d2532bc1257e014e17119e506db1a8990f42"
+start_block_height = 1554000
 
 # orphan
 # start_block_height = 0
@@ -107,10 +110,19 @@ startup_load_from_database = true
 
 
 # Python database access
+# host = "host.docker.internal"
+# user = "uaas"
+# password = "uaas-password"
+# database = "uaas_db"
+
+
+# Python database access
 host = "host.docker.internal"
-user = "uaas"
-password = "uaas-password"
-database = "uaas_db"
+user = "maas"
+password = "maas-password"
+database = "main_uaas_db"
+
+
 
 # Used by Python and Rust
 block_file = "../data/test-net.dat"
@@ -143,11 +155,15 @@ threshold = 100
 [logging]
 level = "info"
 
-
 [[collection]]
 name = "johns"
 track_descendants = false
 locking_script_pattern = "7576a914[0-9a-f]{40}88ac$"
+
+[[collection]]
+name = "dsa"
+track_descendants = false
+locking_script_pattern = "DSAv\\d"
 
 [web_interface]
 address = '127.0.0.1:5010'
