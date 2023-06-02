@@ -312,7 +312,7 @@ impl Database {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{sync::mpsc, thread, time::Instant};
+    use std::sync::mpsc;
     //use mysql::Pool;
 
     #[test]
@@ -320,7 +320,7 @@ mod test {
         let pool = Pool::new("mysql://maas:maas-password@localhost:3306/main_uaas_db")
             .expect("Problem connecting to database. Check database is connected and database connection configuration is correct.\n");
         let conn = pool.get_conn().unwrap();
-        let (tx, rx) = mpsc::channel();
+        let (_tx, rx) = mpsc::channel();
         let mut database = Database {
             conn,
             rx,
