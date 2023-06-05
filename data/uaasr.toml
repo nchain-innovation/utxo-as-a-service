@@ -95,6 +95,7 @@ start_block_height = 1554000
 #timeout_period = 240.0
 # 331 MB block taking over 5 mins to download
 # 600 too small
+# 1000s => 16 mins
 timeout_period = 1000.0
 
 # The startup_load_from_database option makes the service load the data from the database on startup, or from a file.
@@ -163,7 +164,9 @@ locking_script_pattern = "7576a914[0-9a-f]{40}88ac$"
 [[collection]]
 name = "dsa"
 track_descendants = false
-locking_script_pattern = "DSAv\\d"
+locking_script_pattern = "006a[0-9a-f]{2}53417631[0-9a-f]*" 
+# OP_0 OP_RETURN len DSAv1...
+
 
 [web_interface]
 address = '127.0.0.1:5010'

@@ -38,5 +38,20 @@ class Collection:
                 "failed": f"Unknown collection {cname}",
             }
 
+    def get_collection_contents(self, cname: str) -> Dict[str, Any]:
+        """ Return the collection contents associated with this collection name """
+        if cname in self.names:
+            result = database.query(f"SELECT * FROM {cname};")
+            if len(result) > 0:
+                return {"result": result}
+            else:
+                return {
+                    "failed": "Failed to access collection",
+                }
+        else:
+            return {
+                "failed": f"Unknown collection {cname}",
+            }
+
 
 collection = Collection()

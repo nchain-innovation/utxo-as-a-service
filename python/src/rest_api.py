@@ -159,6 +159,12 @@ def get_collections() -> Dict[str, Any]:
     return collection.get_collections()
 
 
+@app.get("/collection/contents", tags=["Collection"])
+def get_collection_contents(cname: str) -> Dict[str, Any]:
+    """ Return the collection contents associated with this collection name """
+    return collection.get_collection_contents(cname)
+
+
 @app.get("/collection/tx/raw", tags=["Collection"])
 def get_raw_tx_from_collection(cname: str, hash: str) -> Dict[str, Any]:
     """ Return the raw tx from the named collection"""
