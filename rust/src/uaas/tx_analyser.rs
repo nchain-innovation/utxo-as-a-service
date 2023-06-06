@@ -45,7 +45,7 @@ impl TxAnalyser {
 
         // Load the collections
         for collection in &config.collection {
-            let wc = WorkingCollection::new(collection.clone());
+            let wc = WorkingCollection::new(collection.clone(), config.clone());
             txanal.collection.push(wc);
         }
         txanal

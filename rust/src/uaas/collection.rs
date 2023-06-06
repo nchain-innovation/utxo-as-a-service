@@ -1,15 +1,15 @@
 use std::time::Instant;
 
-use mysql::prelude::*;
-use mysql::PooledConn;
-use mysql::*;
+use mysql::{prelude::*, PooledConn, *};
 use serde::Deserialize;
 
-use chain_gang::messages::{Payload, Tx};
-use chain_gang::util::{Hash256, Serializable};
+use crate::{config::Config, uaas::hexslice::HexSlice};
+use chain_gang::{
+    messages::{Payload, Tx},
+    util::{Hash256, Serializable},
+};
 use regex::Regex;
-
-use super::hexslice::HexSlice;
+use retry::{delay, retry};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Collection {
@@ -23,10 +23,14 @@ pub struct WorkingCollection {
     collection: Collection,
     txs: Vec<Hash256>,
     locking_script_regex: Option<Regex>,
+    // self.ms_delay).take(self.retries),
+    // Retry database connections
+    ms_delay: u64,
+    retries: usize,
 }
 
 impl WorkingCollection {
-    pub fn new(collection: Collection) -> Self {
+    pub fn new(collection: Collection, config: Config) -> Self {
         let locking_script_regex = collection
             .locking_script_pattern
             .as_ref()
@@ -36,6 +40,8 @@ impl WorkingCollection {
             collection,
             txs: Vec::new(),
             locking_script_regex,
+            ms_delay: config.database.ms_delay,
+            retries: config.database.retries,
         }
     }
 
@@ -97,6 +103,13 @@ impl WorkingCollection {
             self.collection.name, &hash, tx_hex,
         );
         conn.exec_drop(&collection_insert, Params::Empty).unwrap();
+
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || conn.exec_drop(&collection_insert, Params::Empty),
+        );
+
+        result.unwrap();
     }
 
     pub fn match_any_locking_script(&self, tx: &Tx) -> bool {
