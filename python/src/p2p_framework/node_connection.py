@@ -100,9 +100,9 @@ class NodeConnection(asyncore.dispatcher):
                 assert vt.addrFrom is not None
                 vt.addrFrom.ip = "0.0.0.0"
                 vt.addrFrom.port = 0
-                if(strSubVer):
+                if (strSubVer):
                     vt.strSubVer = strSubVer
-                if(nullAssocID):
+                if (nullAssocID):
                     vt.assocID = None
                 self.send_message(vt, True)
                 self.assocID = vt.assocID

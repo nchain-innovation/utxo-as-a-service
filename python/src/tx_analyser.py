@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from database import database
 from blockfile import blockfile
 from merkle import create_merkle_branch
+from p2p_framework.object import CTransaction
 
 
 class TxAnalyser:
@@ -60,21 +61,9 @@ class TxAnalyser:
         except IndexError:
             return None
 
-    def get_tx_entry(self, hash: str) -> Dict[str, Any]:
-        """ Return the transaction entry identified by hash
-
-            Return the tx as a dictionary
-            Indicate if the tx outpoints have been spent or not
-
+    def decode_tx(self, hash: str, tx: CTransaction) -> Dict[str, Any]:
+        """ Given a transaction decode it to a dictionary
         """
-        # Get tx
-        offset = self._read_block_offset(hash)
-        if offset is None:
-            return {
-                "tx": f"Transaction {hash} not found in block"
-            }
-        block = blockfile.load_at_offset(offset)
-        tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
         tx_as_dict = tx.to_dict()
 
         # Get utxo
@@ -97,6 +86,23 @@ class TxAnalyser:
                 "height": height_and_blockindex[0],
                 "pos": height_and_blockindex[1],
             }
+
+    def get_tx_entry(self, hash: str) -> Dict[str, Any]:
+        """ Return the transaction entry identified by hash
+
+            Return the tx as a dictionary
+            Indicate if the tx outpoints have been spent or not
+
+        """
+        # Get tx
+        offset = self._read_block_offset(hash)
+        if offset is None:
+            return {
+                "tx": f"Transaction {hash} not found in block"
+            }
+        block = blockfile.load_at_offset(offset)
+        tx = list(filter(lambda x: x.hash == hash, block.vtx))[0]
+        return self.decode_tx(hash, tx)
 
     def get_tx_raw_entry(self, hash: str) -> Dict[str, Any]:
         """ return the serialised form of the transaction """

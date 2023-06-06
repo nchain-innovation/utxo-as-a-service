@@ -1,6 +1,10 @@
 from typing import Dict, Any, MutableMapping, List
 
+from io import BytesIO
+from p2p_framework.object import CTransaction
+
 from database import database
+from tx_analyser import tx_analyser
 
 
 class Collection:
@@ -37,6 +41,21 @@ class Collection:
             return {
                 "failed": f"Unknown collection {cname}",
             }
+
+    def get_parsed_tx_from_collection(self, cname: str, hash: str) -> Dict[str, Any]:
+        result = self.get_raw_tx_from_collection(cname, hash)
+        if "failed" in result:
+            return result
+        else:
+            # tx_hexstr -> CTransaction
+            bytes = bytearray.fromhex(result["result"])
+            transaction = CTransaction()
+            transaction.deserialize(BytesIO(bytes))
+            transaction.rehash()
+            # Decode tx
+            decode = tx_analyser.decode_tx(hash, transaction)
+            print("decode = ", decode)
+            return decode
 
     def get_collection_contents(self, cname: str) -> Dict[str, Any]:
         """ Return the collection contents associated with this collection name """

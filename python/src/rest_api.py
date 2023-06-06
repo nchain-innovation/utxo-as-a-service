@@ -169,3 +169,11 @@ def get_collection_contents(cname: str) -> Dict[str, Any]:
 def get_raw_tx_from_collection(cname: str, hash: str) -> Dict[str, Any]:
     """ Return the raw tx from the named collection"""
     return collection.get_raw_tx_from_collection(cname, hash)
+
+
+@app.get("/collection/tx/parsed", tags=["Collection"])
+def get_parsed_tx_from_collection(cname: str, hash: str) -> Dict[str, Any]:
+    """ Return the tx from the named collection
+        Note that this also indicates if the transaction outpoints have been spent or not
+    """
+    return collection.get_parsed_tx_from_collection(cname, hash)

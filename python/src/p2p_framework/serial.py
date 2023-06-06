@@ -50,7 +50,7 @@ def ser_varint(v: int) -> bytes:
     length = 0
     while True:
         r += struct.pack("<B", (v & 0x7F) | (0x80 if length > 0 else 0x00))
-        if(v <= 0x7F):
+        if (v <= 0x7F):
             return r[::-1]  # Need as little-endian
         v = (v >> 7) - 1
         length += 1
@@ -61,7 +61,7 @@ def deser_varint(f: BytesIO) -> int:
     while True:
         n = struct.unpack("<B", f.read(1))[0]
         ntot = (n << 7) | (n & 0x7F)
-        if((n & 0x80) == 0):
+        if ((n & 0x80) == 0):
             return ntot
 
 
@@ -200,7 +200,7 @@ def serialise_uuid_associd(assocId) -> bytes:
     """ Serialise a UUID association ID as a stream of bytes for sending over the network
     """
     assocIdBytes = bytes()
-    if(assocId):
+    if (assocId):
         assocIdPlusType = b"".join((
             struct.pack("<B", 0),
             assocId.bytes

@@ -15,7 +15,7 @@ class MerkleProofNode():
     def deserialize(self, f):
         self.nodeType = struct.unpack("<B", f.read(1))[0]
         # Currently only type 0 is supported (it means node is always uint256)
-        assert(self.nodeType == 0)
+        assert (self.nodeType == 0)
         self.node = deser_uint256(f)
 
     def serialize(self):
@@ -43,7 +43,7 @@ class DSMerkleProof():
             self.txIndex = json_notification["index"]
             self.tx = FromHex(CTransaction(), json_notification["txOrId"])
             # Only merkleRoot target type is currently supported
-            assert(json_notification["targetType"] == "merkleRoot")
+            assert (json_notification["targetType"] == "merkleRoot")
             self.merkleRoot = uint256_from_bytes(hex_str_to_bytes(json_notification["target"])[::-1])
             self.proof = []
             for node in json_notification["nodes"]:
@@ -52,7 +52,7 @@ class DSMerkleProof():
     def deserialize(self, f):
         flags = struct.unpack("<B", f.read(1))[0]
         # Should always be 5
-        assert(flags == 5)
+        assert (flags == 5)
         self.txIndex = deser_compact_size(f)
         # Length of transaction bytes is deserialized as required by the specification, but we don't actually need it to deserialize the transaction
         deser_compact_size(f)
