@@ -267,17 +267,7 @@ impl Database {
                     })
             },
         );
-
         result.unwrap();
-        /*
-
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || self.conn.exec_drop(&blocks_insert, Params::Empty),
-        );
-
-
-        */
     }
 
     pub fn perform_db_operations(&mut self) {

@@ -102,11 +102,12 @@ impl WorkingCollection {
             "INSERT INTO {} VALUES ('{}', '{}');",
             self.collection.name, &hash, tx_hex,
         );
-        conn.exec_drop(&collection_insert, Params::Empty).unwrap();
 
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || conn.exec_drop(&collection_insert, Params::Empty),
+            || {
+                conn.exec_drop(&collection_insert, Params::Empty)
+            },
         );
 
         result.unwrap();
