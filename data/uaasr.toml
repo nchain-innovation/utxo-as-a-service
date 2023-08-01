@@ -9,52 +9,17 @@ rust_address = "127.0.0.1:8081"
 [mainnet]
 # ip = ["18.157.234.254",
 ip = ["65.108.14.253"]  # The murphy machine
-# ip = ["3.96.15.234"]
-# ip = ["18.192.253.59"]
-# "13.86.34.113"]
-# ip = ["18.157.234.254"]
-#ip = ["162.55.95.167"]
-# ip = ["65.21.201.45" ]
-
-# ip = ["62.210.211.20"] # version 1.0.6  - did not connect
-# ip = ["65.21.201.45"]
-# ip = ["18.157.234.254"]
-# ip = ["3.67.20.166"] - dropped us
-# ip = ["52.28.166.147"] - dropped us
-# ip = ["23.92.74.110"] # - dropped after requesting block
 port = 8333
 #start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
 #start_block_height = 739859
 start_block_hash = "00000000000000000545267003727771023c9822756f187cbee83a5329ffecd8" # current tip
 start_block_height = 776082
 
-# Just before 2GB block
-# Block processing took 214.147 seconds
-#start_block_hash = "0000000000000000042436555faa41fa943bb873c4ea864fa30347f84658770f"
-#start_block_height = 739881
-
-# Just before 3.8GB block - the largest block
-#start_block_hash = "000000000000000000e3f481c2903c272301f215b8efbd06e56a8565e1b6df37"
-#start_block_height = 725510
-
-# Just before -2 3.8GB block - the largest block
-# start_block_hash = "000000000000000002875eb589e0ccebad07400949ec536cc3ef616149044671"
-# start_block_height = 725508
-
-# Just a few before the largest block - john's setup
-# start_block_hash = "000000000000000009c61bf9d25689bd960e6f478a65326852add3dad17bbfef"
-# start_block_height = 725500
-
-# One before the largest block
-#start_block_hash = "000000000000000000e3f481c2903c272301f215b8efbd06e56a8565e1b6df37"
-#start_block_height = 725510
-
 timeout_period = 2048.0
 block_request_period = 280
 
 startup_load_from_database = true
 # startup_load_from_database = false
-
 
 # Python database access
 host = "host.docker.internal"
@@ -71,25 +36,9 @@ ip = [ "167.172.61.80"]  # Murphy machine
 
 port = 18333
 
-# John's demo start
-# start_block_hash = "000000000000038a0e326c66dc35d5a044d767d35367cdd5335ce6ba437ab32c"
-# start_block_height = 1552630
-
-# start of all blocks 
-#start_block_hash = "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206"
-#start_block_height = 1
-
-# 2015 
-# start_block_hash = "000000000038b271bd1fa9f2cb2716a3633709a896b81e01fbbcfcfd766449d2"
-# start_block_height = 66753
-
-# 2023-05-27
-start_block_hash = "00000000000001c8e4ecb7cc7fa7d2532bc1257e014e17119e506db1a8990f42"
-start_block_height = 1554000
-
-# orphan
-# start_block_height = 0
-# start_block_hash =  "0000000000020e5bae20abdbe771256d27834f22bd2cd1cd50b1de7f6a31a808"
+# 2023-07-23 23:52:44
+start_block_hash = "000000000000057fff6b3ddd2f51e3749ed27a8fea819bcfdceb8d89a1789da7"
+start_block_height = 1563559
 
 # Note need a larger timeout on testnet
 #timeout_period = 240.0
@@ -111,23 +60,22 @@ startup_load_from_database = true
 
 
 # Python database access
-# host = "host.docker.internal"
-# user = "uaas"
-# password = "uaas-password"
-# database = "uaas_db"
+host = "host.docker.internal"
+user = "uaas"
+password = "uaas-password"
+database = "uaas_db"
 
 
 # Python database access
-host = "host.docker.internal"
-user = "maas"
-password = "maas-password"
-database = "main_uaas_db"
-
-
+#host = "host.docker.internal"
+#user = "maas"
+#password = "maas-password"
+#database = "main_uaas_db"
 
 # Used by Python and Rust
 block_file = "../data/test-net.dat"
 save_blocks = false
+
 
 #[[collection]]
 #name = "p2pkh"
@@ -140,11 +88,11 @@ save_blocks = false
 #locking_script_pattern = "006a[0-9a-f]*"
 
 [database]
-#mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-#mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
+mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
 
-mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
-mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
+# mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
+# mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
 
 ms_delay = 300
 retries = 6
@@ -168,8 +116,26 @@ locking_script_pattern = "006a[0-9a-f]{2}53417631[0-9a-f]*"
 # OP_0 OP_RETURN len DSAv1...
 
 
+
+[[collection]]
+name = "CoCv1"
+track_descendants = false
+# 006a19436f4376312c737472696e67207468656f72792c3132333435
+#CoCv1 - 43 6f 43 76 31
+locking_script_pattern = "006a[0-9a-f]{2}436f437631[0-9a-f]*"
+
+[[collection]]
+name = "Fin"
+track_descendants = false
+# Track txs that fund CoCv1
+locking_script_pattern = "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac"
+
+
+
+
 [web_interface]
 address = '127.0.0.1:5010'
 log_level = 'info'
 reload = false
-rust_url = "http://host.docker.internal:8080"
+rust_url = "http://host.docker.internal:8081"
+#rust_url = "http://127.0.0.1:8081"
