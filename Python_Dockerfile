@@ -16,6 +16,8 @@ RUN pip3 install -r requirements.txt
 
 FROM base as release
 WORKDIR /app/python
+RUN mkdir -p /app/python
+COPY ./python/src /app/python
 
 # env var to detect we are in a docker instance
 ENV APP_ENV=docker
