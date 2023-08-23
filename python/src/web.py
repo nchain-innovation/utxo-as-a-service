@@ -22,11 +22,12 @@ def run_webserver(config: MutableMapping[str, Any]):
         print("Running in Docker")
         # Allow all access in docker
         # (required as otherwise the localmachine can not access the webserver)
-        host = "0.0.0.0"
+        # set host in the toml file to: 0.0.0.0
     else:
         print("Running in native OS")
         # Only allow access from localmachine
-        host = '127.0.0.1'
+        # set host in the toml file to 127.0.0.1
+    print(f"host is set to: {host}")
 
     # Run as HTTP
     uvicorn.run(
