@@ -21,9 +21,28 @@ https://bitbucket.stressedsharks.com/projects/SDL/repos/chain-gang/browse
 First clone the project from Bitbucket, then update the submodules.
 The document signing application has `chain-gang` as a submodule.
 ```bash
-git submodule init
-git submodule update
+git clone <this project>
+git submodule update --init --recursive
 ```
+
+## Run UaaS in Docker Compose
+The docker compose starts the componets that make up the UaaS system in one command.
+First build the images using the `build.sh` command.
+```bash
+$ ./build.sh
+```
+Then start the system 
+```bash
+$ docker-compose up -d
+```
+To stop the system 
+```bash
+$ docker-compose down
+```
+
+
+
+
 
 ## To Build the Service
 The service is developed in Rust.
@@ -34,6 +53,8 @@ To build:
 cd rust
 cargo build
 ```
+
+
 
 ## To Run the Service
 Note that this project requires the `MySQL` database running to run.

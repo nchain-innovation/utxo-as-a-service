@@ -9,5 +9,6 @@ __pycache__
 
 # Generated data
 data/*.dat
+data/mysql
 
 out.txt

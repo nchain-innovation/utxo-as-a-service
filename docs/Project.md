@@ -110,8 +110,14 @@ This section contains project status related notes.
 * Reduce the Rust server docker image down to 114 MB (From 5 GB)
 * Make orphaning more robust, wait until 500 blocks before enabling,
   also delete tx and utxo entries associated with this block height.
+-- 1/09/2023
+* Reduce the Python image from 979 MB to 419 MB.
+* Add a docker compose image to the project and update the documentation
 
 ## In Progress
+* Make particular events flush the database caches
+    * broadcast tx
+    * Ready state, transition...
 
 * Merkle Proofs
 
