@@ -188,6 +188,10 @@ impl TxAnalyser {
         }
 
         // Do db writes here
+        self.flush_database_cache();
+    }
+
+    pub fn flush_database_cache(&mut self) {
         self.utxo.update_db();
         self.txdb.batch_delete_from_mempool();
         self.txdb.batch_write_tx_to_table();

@@ -105,9 +105,7 @@ impl WorkingCollection {
 
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                conn.exec_drop(&collection_insert, Params::Empty)
-            },
+            || conn.exec_drop(&collection_insert, Params::Empty),
         );
 
         result.unwrap();

@@ -41,9 +41,6 @@ $ docker-compose down
 ```
 
 
-
-
-
 ## To Build the Service
 The service is developed in Rust.
 The best way to install Rust is to use `rustup`, see https://www.rust-lang.org/tools/install
@@ -53,8 +50,6 @@ To build:
 cd rust
 cargo build
 ```
-
-
 
 ## To Run the Service
 Note that this project requires the `MySQL` database running to run.

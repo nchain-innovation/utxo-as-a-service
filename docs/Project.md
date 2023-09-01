@@ -113,11 +113,9 @@ This section contains project status related notes.
 -- 1/09/2023
 * Reduce the Python image from 979 MB to 419 MB.
 * Add a docker compose image to the project and update the documentation
+* Add logic to flush database cache on broadcast tx
 
 ## In Progress
-* Make particular events flush the database caches
-    * broadcast tx
-    * Ready state, transition...
 
 * Merkle Proofs
 

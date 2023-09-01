@@ -153,6 +153,13 @@ impl Logic {
         }
     }
 
+    pub fn flush_database_cache(&mut self) {
+        if self.state.is_ready() {
+            // if we are in ready state write utxo out
+            self.tx_analyser.flush_database_cache()
+        }
+    }
+
     pub fn tx_exists(&self, hash: Hash256) -> bool {
         self.tx_analyser.tx_exists(hash)
     }

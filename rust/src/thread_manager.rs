@@ -149,6 +149,7 @@ impl ThreadManager {
                     let message = Message::Tx(tx.clone());
                     peer.send(&message).unwrap();
                     logic.on_tx(tx);
+                    logic.flush_database_cache();
                 }
             }
         }
