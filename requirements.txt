@@ -1,6 +1,5 @@
 toml 
 docker
-docker-compose
 coincurve
 bitsv
 flake8

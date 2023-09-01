@@ -2,7 +2,6 @@
 
 from typing import MutableMapping, Any
 import uvicorn
-import os
 
 from database import database
 from blockfile import blockfile
@@ -17,16 +16,6 @@ def run_webserver(config: MutableMapping[str, Any]):
     """
     address = config["address"]
     (host, port) = address.split(":")
-
-    if os.environ.get("APP_ENV") == "docker":
-        print("Running in Docker")
-        # Allow all access in docker
-        # (required as otherwise the localmachine can not access the webserver)
-        # set host in the toml file to: 0.0.0.0
-    else:
-        print("Running in native OS")
-        # Only allow access from localmachine
-        # set host in the toml file to 127.0.0.1
     print(f"host is set to: {host}")
 
     # Run as HTTP

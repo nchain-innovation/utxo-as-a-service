@@ -100,7 +100,6 @@ def broadcast_tx_raw(tx: str) -> Dict[str, Any]:
     if tx_analyser.tx_exist(hash):
         print(f"failure: Transaction {hash} already exists.")
         return {"failure": f" Transaction {hash} already exists."}
-    
     try:
         result = requests.post(rust_url + "/tx/raw", data=tx)
     except requests.exceptions.ConnectionError as e:
@@ -115,6 +114,7 @@ def broadcast_tx_raw(tx: str) -> Dict[str, Any]:
             return result.json()
         else:
             return {"failure": result.text}
+
 
 @app.get("/tx/mempool", tags=["Tx"])
 def get_mempool() -> Dict[str, Any]:

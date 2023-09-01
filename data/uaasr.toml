@@ -134,7 +134,9 @@ locking_script_pattern = "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac"
 
 
 [web_interface]
-address = '127.0.0.1:5010'
+# 0.0.0.0 if running in docker, 127.0.0.1 if outside docker
+address = '0.0.0.0:5010'
+
 log_level = 'info'
 reload = false
 rust_url = "http://host.docker.internal:8081"
