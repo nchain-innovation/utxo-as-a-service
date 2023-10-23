@@ -117,6 +117,7 @@ For more details about the configuration file see [here](docs/Configuration.md).
 ## Directories
 The following directories exist in this project:
 ```
+├── chain-gang
 ├── data
 ├── docs
 │   └── diagrams
@@ -127,12 +128,12 @@ The following directories exist in this project:
 └── rust-sv
 ```
 These directories contain the following:
+* `chain-gang` - Rust chain-gang project/submodule
 * `data` - Configuration, data and logs used and created by the service
 * `docs` - Project documentation
 * `docs/diagrams` - PlantUML diagrams and source in support of the documentation
 * `python/src` - Python REST web interface to UaaS
 * `rust/src` - Service source code in Rust
-* `rust-sv` - Rust-SV project/submodule
 
 ## Development
 The following diagram shows how the Rust UaaS processes individual `transactions` and `blocks` from peer nodes.
