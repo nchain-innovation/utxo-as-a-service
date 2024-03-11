@@ -131,6 +131,14 @@ track_descendants = false
 locking_script_pattern = "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac"
 
 
+[[collection]]
+name = "1sat"
+track_descendants = true
+
+# len OP_0 OP_IF  len o  r  d  OP_1 len a  p  p  l  i  c  a  t  i  o  n  /  b  s  v  -  2  0  OP_0                                                                OP_ENDIF
+# 62  00   63     03  6f 72 64 51   12  61 70 70 6c 69 63 61 74 69 6f 6e 2f 62 73 76 2d 32 30 00  45 7b2270223a226273762d3230222c226f70223a226465706c6f792b6d696e74222c2273796d223a226d757266222c22616d74223a2231303030222c22646563223a2230227d 68
+locking_script_pattern = "0063036f726451126170706c69636174696f6e2f6273762d323000[0-9a-f]*" 
+
 
 
 [web_interface]
