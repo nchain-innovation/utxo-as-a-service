@@ -529,6 +529,7 @@ dependencies = [
  "ripemd160",
  "rust-base58",
  "secp256k1",
+ "serde",
  "snowflake",
 ]
 
