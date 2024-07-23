@@ -1,0 +1,3 @@
+[submodule "chain-gang"]
+	path = chain-gang
+	url = git@github.com:nchain-innovation/chain-gang.git

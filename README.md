@@ -14,7 +14,7 @@ will capture all transactions that match a particular pattern.
 For more details on setting up a `Collection` see the configuration documentation [here](docs/Configuration.md).
 
 This project uses the following Chain-Gang Rust library for processing peer to peer (P2P) messages:
-https://bitbucket.stressedsharks.com/projects/SDL/repos/chain-gang/browse
+https://github.com/nchain-innovation/chain-gang
 
 
 ## To Clone the Project
