@@ -17,13 +17,6 @@ This project uses the following Chain-Gang Rust library for processing peer to p
 https://github.com/nchain-innovation/chain-gang
 
 
-## To Clone the Project
-First clone the project from Bitbucket, then update the submodules.
-The document signing application has `chain-gang` as a submodule.
-```bash
-git clone <this project>
-git submodule update --init --recursive
-```
 
 ## Run UaaS in Docker Compose
 The docker compose starts the componets that make up the UaaS system in one command.
@@ -117,7 +110,6 @@ For more details about the configuration file see [here](docs/Configuration.md).
 ## Directories
 The following directories exist in this project:
 ```
-├── chain-gang
 ├── data
 ├── docs
 │   └── diagrams
@@ -128,7 +120,6 @@ The following directories exist in this project:
 └── rust-sv
 ```
 These directories contain the following:
-* `chain-gang` - Rust chain-gang project/submodule
 * `data` - Configuration, data and logs used and created by the service
 * `docs` - Project documentation
 * `docs/diagrams` - PlantUML diagrams and source in support of the documentation

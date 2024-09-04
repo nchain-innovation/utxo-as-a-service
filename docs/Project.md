@@ -115,6 +115,10 @@ This section contains project status related notes.
 * Add a docker compose image to the project and update the documentation
 * Add logic to flush database cache on broadcast tx
 
+-- 04/09/2024
+* Remove chain-gang as a submodule
+
+
 ## In Progress
 
 * Merkle Proofs
