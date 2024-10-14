@@ -12,3 +12,4 @@ data/*.dat
 data/mysql
 
 out.txt
+rust/Cargo.lock
