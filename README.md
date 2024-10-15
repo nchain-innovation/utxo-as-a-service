@@ -148,3 +148,23 @@ The only constraint is that the blocks must be processed in order. This is achie
 Project development details can be found [here](docs/Development.md).
 
 Project status notes can be found [here](docs/Project.md).
+
+## Building and Publishing Docker Images
+
+This project includes two Docker images: ```uaas-web``` and ```uaas-service```. These images are essential components of UTXO as a Service (UAAS). By publishing them to Docker Hub, they become accessible for use by other projects and applications within the ecosystem.
+
+Both images can be built and published to Docker Hub using a single script.
+
+To build and publish the images, run the following command:
+```
+./multi-build.sh
+```
+
+**Requirements**
+
+- **Docker Buildx:** The script requires Docker's Buildx extension to be set as the active builder. Ensure Buildx is properly installed and selected as the current Docker engine. For help, see [Docker Buildx](https://docs.docker.com/build/builders/)  
+
+- **Publishing Permissions:** Only members of the ```rndprototyping``` team within the ```nChain``` Docker Hub organisation are authorised to publish images with the appropriate tags. Ensure you are logged in with the necessary permissions before running the script, else this will fail.
+
+
+
