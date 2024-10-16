@@ -1,7 +1,7 @@
 use std::io::Cursor;
 use std::sync::Mutex;
 
-use actix_web::{post, web, Responder, Result};
+use actix_web::{get, http::header::ContentType, post, web, HttpResponse, Responder, Result};
 use serde::Serialize;
 
 use chain_gang::{messages::Tx, util::Serializable};
@@ -18,6 +18,16 @@ pub struct AppState {
 struct BroadcastTxResponse {
     status: String,
     detail: String,
+}
+
+#[get("/version")]
+async fn version(_data: web::Data<AppState>) -> impl Responder {
+    log::info!("version");
+    let version = env!("CARGO_PKG_VERSION");
+    let status = format!("{{\"version\": \"{}\"}}", version);
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body(status)
 }
 
 // to test

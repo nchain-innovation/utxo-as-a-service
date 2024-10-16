@@ -27,7 +27,7 @@ mod uaas;
 use crate::{
     config::get_config,
     peer_event::{PeerEventMessage, PeerEventType},
-    rest_api::{broadcast_tx, AppState},
+    rest_api::{broadcast_tx, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
     uaas::logic::Logic,
@@ -82,11 +82,15 @@ async fn main() {
     );
 
     // Start webserver
-    let server =
-        HttpServer::new(move || App::new().app_data(web_state.clone()).service(broadcast_tx))
-            .workers(1)
-            .bind(server_address)
-            .unwrap();
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(web_state.clone())
+            .service(broadcast_tx)
+            .service(version)
+    })
+    .workers(1)
+    .bind(server_address)
+    .unwrap();
     server.run().await.unwrap();
 
     // Handle control C
