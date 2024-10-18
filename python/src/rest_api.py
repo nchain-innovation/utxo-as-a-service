@@ -152,6 +152,18 @@ def get_block_at_hash(hash: str) -> Dict[str, Any]:
     return block_manager.get_block_at_hash(hash)
 
 
+@app.get("/block/last", tags=["Block"])
+def get_last_block() -> Dict[str, Any]:
+    """ Return the last block seen by the service"""
+    return block_manager.get_last_block()
+
+
+@app.get("/block/last/hex", tags=["Block"])
+def get_last_block_hex() -> Dict[str, Any]:
+    """ Return the last block seen by the service as hex"""
+    return block_manager.get_last_block_as_hex()
+
+
 @app.get("/collection", tags=["Collection"])
 def get_collections() -> Dict[str, Any]:
     """ Return the collections associated with this service"""
