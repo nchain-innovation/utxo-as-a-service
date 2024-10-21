@@ -9,7 +9,12 @@ use chain_gang::{
 
 use crate::{
     config::Config,
-    uaas::{collection::WorkingCollection, database::DBOperationType, txdb::TxDB, utxo::Utxo},
+    uaas::{
+        collection::{CollectionDatabase, WorkingCollection},
+        database::DBOperationType,
+        txdb::TxDB,
+        utxo::Utxo,
+    },
 };
 /*
     in - unlock_script - script sig
@@ -27,6 +32,7 @@ pub struct TxAnalyser {
     conn: PooledConn,
     // Collections
     collection: Vec<WorkingCollection>,
+    collection_db: CollectionDatabase,
 }
 
 impl TxAnalyser {
@@ -35,17 +41,19 @@ impl TxAnalyser {
         let tx_conn = pool.get_conn().unwrap();
         let utxo_conn = pool.get_conn().unwrap();
         let txdb_conn = pool.get_conn().unwrap();
+        let collection_conn = pool.get_conn().unwrap();
 
         let mut txanal = TxAnalyser {
             txdb: TxDB::new(txdb_conn, tx.clone()),
             utxo: Utxo::new(utxo_conn, tx),
             conn: tx_conn,
             collection: Vec::new(),
+            collection_db: CollectionDatabase::new(collection_conn, config),
         };
 
         // Load the collections
         for collection in &config.collection {
-            let wc = WorkingCollection::new(collection.clone(), config.clone());
+            let wc = WorkingCollection::new(collection.clone());
             txanal.collection.push(wc);
         }
         txanal
@@ -74,13 +82,9 @@ impl TxAnalyser {
             self.utxo.create_table();
         }
 
-        // Collection tables
-        for c in &self.collection {
-            let name = c.name();
-            if !tables.iter().any(|x| x.as_str() == name) {
-                log::info!("Table collection {} not found - creating", name);
-                c.create_table(&mut self.conn);
-            }
+        // Collection table
+        if !tables.iter().any(|x| x.as_str() == "collection") {
+            self.collection_db.create_table(&mut self.conn);
         }
     }
 
@@ -90,7 +94,7 @@ impl TxAnalyser {
         self.txdb.load_tx();
         self.utxo.load_utxo();
         for c in self.collection.iter_mut() {
-            c.load_txs(&mut self.conn);
+            c.txs = self.collection_db.load_txs(c.name());
         }
     }
 
@@ -149,7 +153,7 @@ impl TxAnalyser {
             if c.track_descendants() && c.is_decendant(tx) {
                 // Save tx hash and write to database
                 c.push(tx.hash());
-                c.write_to_database(tx, &mut self.conn);
+                self.collection_db.write_tx_to_database(c.name(), tx);
                 continue;
             }
 
@@ -157,7 +161,7 @@ impl TxAnalyser {
             if c.match_any_locking_script(tx) {
                 // Save tx hash and write to database
                 c.push(tx.hash());
-                c.write_to_database(tx, &mut self.conn);
+                self.collection_db.write_tx_to_database(c.name(), tx);
             }
         }
     }

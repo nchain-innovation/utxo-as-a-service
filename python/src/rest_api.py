@@ -9,7 +9,7 @@ from p2p_framework.object import CTransaction
 from util import load_config, ConfigType
 from tx_analyser import tx_analyser
 from block_manager import block_manager
-from collection import collection
+from collection import collection, hexstr_to_tx
 from logic import logic
 
 tags_metadata = [
@@ -168,20 +168,50 @@ def get_collections() -> Dict[str, Any]:
 
 
 @app.get("/collection/contents", tags=["Collection"])
-def get_collection_contents(cname: str) -> Dict[str, Any]:
-    """ Return the collection contents associated with this collection name """
-    return collection.get_collection_contents(cname)
+def get_collection_contents(cname: str, response: Response) -> Dict[str, Any]:
+    """ Return the collection hashes associated with this collection name
+    """
+    if collection.is_valid_collection(cname):
+        result = collection.get_collection_contents(cname)
+        if len(result) > 0:
+            result = [r[0] for r in result]
+            return {"result": result}
+        else:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {
+                "failed": "Failed to access collection",
+            }
+    else:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        return {
+            "failed": f"Unknown collection {cname}",
+        }
 
 
 @app.get("/collection/tx/raw", tags=["Collection"])
-def get_raw_tx_from_collection(cname: str, hash: str) -> Dict[str, Any]:
+def get_raw_tx_from_collection(hash: str, response: Response) -> Dict[str, Any]:
     """ Return the raw tx from the named collection"""
-    return collection.get_raw_tx_from_collection(cname, hash)
+    result = collection.get_raw_tx(hash)
+    if len(result) > 0:
+        return {"result": result[0][0]}
+    else:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        return {
+            "failed": f"Unknown txid {hash}",
+        }
 
 
 @app.get("/collection/tx/parsed", tags=["Collection"])
-def get_parsed_tx_from_collection(cname: str, hash: str) -> Dict[str, Any]:
-    """ Return the tx from the named collection
+def get_parsed_tx_from_collection(hash: str, response: Response) -> Dict[str, Any]:
+    """ Return the tx from the  collection
         Note that this also indicates if the transaction outpoints have been spent or not
     """
-    return collection.get_parsed_tx_from_collection(cname, hash)
+    result = collection.get_raw_tx(hash)
+    if len(result) > 0:
+        hexstr = result[0][0]
+        return hexstr_to_tx(hash, hexstr)
+    else:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        return {
+            "failed": f"Unknown txid {hash}",
+        }
