@@ -79,9 +79,9 @@ def get_merkle_proof(hash: str) -> Dict[str, Any]:
     return tx_analyser.get_tx_merkle_proof(hash)
 
 
-@app.post("/tx/raw", tags=["Tx"])
-def broadcast_tx_raw(tx: str) -> Dict[str, Any]:
-    """ Broadcast the provided transaction to the network"""
+@app.post("/tx/hex", tags=["Tx"])
+def broadcast_tx_hex(tx: str) -> Dict[str, Any]:
+    """ Broadcast the provided hex string transaction to the network"""
     # tx -> hash
     bytes = bytearray.fromhex(tx)
     transaction = CTransaction()
@@ -188,9 +188,9 @@ def get_collection_contents(cname: str, response: Response) -> Dict[str, Any]:
         }
 
 
-@app.get("/collection/tx/raw", tags=["Collection"])
+@app.get("/collection/tx/hex", tags=["Collection"])
 def get_raw_tx_from_collection(hash: str, response: Response) -> Dict[str, Any]:
-    """ Return the raw tx from the named collection"""
+    """ Return the tx hex str from the named collection"""
     result = collection.get_raw_tx(hash)
     if len(result) > 0:
         return {"result": result[0][0]}
