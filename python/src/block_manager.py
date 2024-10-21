@@ -123,11 +123,11 @@ class BlockManager:
                 "block": f"block hash {hash} not found",
             }
 
-    def get_last_block(self) -> Dict[str, Any]:
+    def get_last_block(self) -> None | Dict[str, Any]:
         # Return the last block
         return self._read_last_block()
 
-    def get_last_block_as_hex(self) -> Dict[str, Any]:
+    def get_last_block_as_hex(self) -> None | Dict[str, Any]:
         # Return the last block
         return self._read_last_block_as_hex()
 

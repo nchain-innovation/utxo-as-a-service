@@ -7,7 +7,6 @@ from io import BytesIO
 from p2p_framework.object import CTransaction
 
 from util import load_config, ConfigType
-from address_manager import address_manager
 from tx_analyser import tx_analyser
 from block_manager import block_manager
 from collection import collection
@@ -55,12 +54,6 @@ def root() -> Dict[str, str]:
 def get_status() -> Dict[str, Any]:
     """ Return the current service status """
     return logic.get_status()
-
-
-@app.get("/addr", tags=["Addresses"])
-def get_addr() -> Dict[str, Any]:
-    """ Return the peer addresses seen by the service"""
-    return address_manager.get_peers()
 
 
 if config[config["service"]["network"]]["save_blocks"]:
@@ -114,12 +107,6 @@ def broadcast_tx_raw(tx: str) -> Dict[str, Any]:
             return result.json()
         else:
             return {"failure": result.text}
-
-
-@app.get("/tx/mempool", tags=["Tx"])
-def get_mempool() -> Dict[str, Any]:
-    """ Return the mempool seen by the service"""
-    return tx_analyser.get_mempool()
 
 
 @app.get("/tx/utxo", tags=["Tx"])
