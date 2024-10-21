@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Any, Dict
 import requests
@@ -140,15 +140,25 @@ def get_block_at_hash(hash: str) -> Dict[str, Any]:
 
 
 @app.get("/block/last", tags=["Block"])
-def get_last_block() -> Dict[str, Any]:
+def get_last_block(response: Response) -> Dict[str, Any]:
     """ Return the last block seen by the service"""
-    return block_manager.get_last_block()
+    result = block_manager.get_last_block()
+    if result is None:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {}
+    else:
+        return result
 
 
 @app.get("/block/last/hex", tags=["Block"])
-def get_last_block_hex() -> Dict[str, Any]:
+def get_last_block_hex(response: Response) -> Dict[str, Any]:
     """ Return the last block seen by the service as hex"""
-    return block_manager.get_last_block_as_hex()
+    result = block_manager.get_last_block_as_hex()
+    if result is None:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {}
+    else:
+        return result
 
 
 @app.get("/collection", tags=["Collection"])
