@@ -119,14 +119,18 @@ class TxAnalyser:
         }
 
     def tx_exist(self, hash: str) -> bool:
-        # Return true if txid is in txs or mempool
+        # Return true if txid is in txs or mempool or collection
         # self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
         txs = database.query(f"SELECT * FROM tx WHERE hash = '{hash}';")
         if len(txs) > 0:
             return True
-        else:
-            mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
-            return len(mempool) > 0
+        mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
+        if len(mempool) > 0:
+            return True
+        collection = database.query(f"SELECT * FROM collection WHERE hash = '{hash}';")
+        if len(collection) > 0:
+            return True
+        return False
 
     def get_tx_merkle_proof(self, hash: str) -> Dict[str, Any]:
         # Given the txid return the merkle branch proof for a confirmed transaction
