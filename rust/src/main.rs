@@ -14,6 +14,7 @@ use std::{
 };
 
 mod config;
+mod dynamic_config;
 mod event_handler;
 mod peer_connection;
 mod peer_event;

@@ -53,8 +53,10 @@ impl TxAnalyser {
 
         // Load the collections
         for collection in &config.collection {
-            let wc = WorkingCollection::new(collection.clone());
-            txanal.collection.push(wc);
+            match WorkingCollection::new(collection.clone()) {
+                Ok(wc) => txanal.collection.push(wc),
+                Err(e) => println!("Error parsing collection {:?}", e),
+            }
         }
         txanal
     }

@@ -2,17 +2,31 @@ use std::time::Instant;
 
 use mysql::{prelude::*, PooledConn, *};
 
-use serde::Deserialize;
-
 use crate::{config::Config, uaas::hexslice::HexSlice};
+use anyhow::{anyhow, Result};
 use chain_gang::{
+    address::{addr_decode, AddressType},
     messages::{Payload, Tx},
+    network::Network,
+    transaction::p2pkh,
     util::{Hash256, Serializable},
 };
 use regex::Regex;
 use retry::{delay, retry};
+use serde::{Deserialize, Serialize};
+
+
+
+/// Given an address return a locking script in hexstr format
+fn address_to_lock_script(address: &str) -> Result<String> {
+    let (hash160, address_type) = addr_decode(address, Network::BSV_Testnet)?;
+    assert!(address_type == AddressType::P2PKH);
+    let script = p2pkh::create_lock_script(&hash160);
+    Ok(hex::encode(script.0))
+}
 
 /// Database interface used by all collections
+///
 ///
 #[derive(Debug)]
 pub struct CollectionDatabase {
@@ -82,33 +96,45 @@ impl CollectionDatabase {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct Collection {
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CollectionConfig {
     pub name: String,
     pub track_descendants: bool,
+    pub address: Option<String>,
     pub locking_script_pattern: Option<String>,
 }
 
 pub struct WorkingCollection {
     // this is a collection that also maintains a list of tx hashes that it has used
-    collection: Collection,
+    collection: CollectionConfig,
     pub txs: Vec<Hash256>,
-    locking_script_regex: Option<Regex>,
-    // self.ms_delay).take(self.retries),
+    // No point to the Collection if there is no locking_script_regex
+    locking_script_regex: Regex,
 }
 
 impl WorkingCollection {
-    pub fn new(collection: Collection) -> Self {
-        let locking_script_regex = collection
-            .locking_script_pattern
-            .as_ref()
-            .map(|pattern| Regex::new(pattern).unwrap());
-
-        WorkingCollection {
-            collection,
-            txs: Vec::new(),
-            locking_script_regex,
+    pub fn new(collection: CollectionConfig) -> Result<Self> {
+        if let Some(ref addr) = collection.address {
+            // address -> regex locking script
+            let pattern = address_to_lock_script(&addr)?;
+            let locking_script_regex = Regex::new(&pattern)?;
+            return Ok(WorkingCollection {
+                collection: collection.clone(),
+                txs: Vec::new(),
+                locking_script_regex,
+            });
         }
+
+        if let Some(ref pattern) = collection.locking_script_pattern {
+            let locking_script_regex = Regex::new(&pattern)?;
+
+            return Ok(WorkingCollection {
+                collection: collection.clone(),
+                txs: Vec::new(),
+                locking_script_regex,
+            });
+        }
+        Err(anyhow!("Incorrect Collection configuration {:?}", &collection))
     }
 
     pub fn name(&self) -> &str {
@@ -125,14 +151,12 @@ impl WorkingCollection {
     }
 
     pub fn match_any_locking_script(&self, tx: &Tx) -> bool {
-        if let Some(regex) = &self.locking_script_regex {
-            for vout in &tx.outputs {
-                // Convert the script into hexstring
-                let script_hex = format!("{}", HexSlice::new(&vout.lock_script.0));
-                // Pattern match here
-                if regex.is_match(&script_hex) {
-                    return true;
-                }
+        for vout in &tx.outputs {
+            // Convert the script into hexstring
+            let script_hex = format!("{}", HexSlice::new(&vout.lock_script.0));
+            // Pattern match here
+            if self.locking_script_regex.is_match(&script_hex) {
+                return true;
             }
         }
         false

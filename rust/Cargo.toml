@@ -22,6 +22,7 @@ actix-web = "4.8.0"
 signal-hook = "0.3.17"
 log = { version = "0.4.21", features = ["max_level_trace", "release_max_level_warn"] }
 simple_logger = "4.3.3"
+anyhow = "1.0.90"
 
 [features]
 # Introduce random orphans into the download stream

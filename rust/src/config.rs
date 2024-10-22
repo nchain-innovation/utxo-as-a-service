@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::env;
 use std::net::IpAddr;
 
-use crate::uaas::collection::Collection;
+use crate::uaas::collection::CollectionConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Service {
@@ -43,6 +43,11 @@ pub struct LoggingConfig {
     pub level: String,
 }
 
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct DynamicConfigConfig {
+    pub filename: String,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub service: Service,
@@ -51,8 +56,9 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub orphan: OrphanConfig,
     pub logging: LoggingConfig,
+    pub dynamic_config: DynamicConfigConfig,
 
-    pub collection: Vec<Collection>,
+    pub collection: Vec<CollectionConfig>,
 }
 
 impl Config {
