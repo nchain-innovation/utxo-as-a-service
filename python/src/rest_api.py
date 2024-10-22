@@ -1,5 +1,6 @@
 from fastapi import FastAPI, status, Response
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Any, Dict
 import requests
 from io import BytesIO
@@ -79,11 +80,15 @@ def get_merkle_proof(hash: str) -> Dict[str, Any]:
     return tx_analyser.get_tx_merkle_proof(hash)
 
 
+class Tx(BaseModel):
+    tx: str
+
+
 @app.post("/tx/hex", tags=["Tx"])
-def broadcast_tx_hex(tx: str) -> Dict[str, Any]:
+def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
     """ Broadcast the provided hex string transaction to the network"""
     # tx -> hash
-    bytes = bytearray.fromhex(tx)
+    bytes = bytearray.fromhex(tx.tx)
     transaction = CTransaction()
     transaction.deserialize(BytesIO(bytes))
     transaction.rehash()
@@ -91,14 +96,17 @@ def broadcast_tx_hex(tx: str) -> Dict[str, Any]:
     assert isinstance(hash, str)
     # CTransaction
     if tx_analyser.tx_exist(hash):
-        print(f"failure: Transaction {hash} already exists.")
+        print(f" Transaction {hash} already exists.")
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {"failure": f" Transaction {hash} already exists."}
     try:
-        result = requests.post(rust_url + "/tx/raw", data=tx)
+        result = requests.post(rust_url + "/tx/raw", data=tx.tx)
     except requests.exceptions.ConnectionError as e:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         print(f"failure = {str(e)}")
         return {"failure": "Unable to connect with Rust service"}
     except requests.exceptions.RequestException as e:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {"failure": str(e)}
     else:
         print(result.status_code)
@@ -106,6 +114,7 @@ def broadcast_tx_hex(tx: str) -> Dict[str, Any]:
         if result.status_code == 200:
             return result.json()
         else:
+            response.status_code = result.status_code
             return {"failure": result.text}
 
 
@@ -182,7 +191,7 @@ def get_collection_contents(cname: str, response: Response) -> Dict[str, Any]:
                 "failed": "Failed to access collection",
             }
     else:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {
             "failed": f"Unknown collection {cname}",
         }
@@ -195,7 +204,7 @@ def get_raw_tx_from_collection(hash: str, response: Response) -> Dict[str, Any]:
     if len(result) > 0:
         return {"result": result[0][0]}
     else:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {
             "failed": f"Unknown txid {hash}",
         }
@@ -211,7 +220,7 @@ def get_parsed_tx_from_collection(hash: str, response: Response) -> Dict[str, An
         hexstr = result[0][0]
         return hexstr_to_tx(hash, hexstr)
     else:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {
             "failed": f"Unknown txid {hash}",
         }
