@@ -144,24 +144,14 @@ impl TxAnalyser {
         for c in self.collection.iter_mut() {
             // Check to see if we have already processed it if so quit
             if c.already_have_tx(tx.hash()) {
-                continue;
+                return;
             }
 
-            // Check inputs
-            // TODO: any_script_sig_matches_pattern
-
-            if c.track_descendants() && c.is_decendant(tx) {
+            if (c.track_descendants() && c.is_decendant(tx)) || c.match_any_locking_script(tx) {
                 // Save tx hash and write to database
                 c.push(tx.hash());
                 self.collection_db.write_tx_to_database(c.name(), tx);
-                continue;
-            }
-
-            // Check outputs
-            if c.match_any_locking_script(tx) {
-                // Save tx hash and write to database
-                c.push(tx.hash());
-                self.collection_db.write_tx_to_database(c.name(), tx);
+                return;
             }
         }
     }
@@ -186,7 +176,7 @@ impl TxAnalyser {
 
         self.txdb.process_block(block, height);
 
-        // now process them...
+        // now process Txs...
         for (blockindex, tx) in block.txns.iter().enumerate() {
             self.process_block_tx(tx, height, blockindex);
         }
