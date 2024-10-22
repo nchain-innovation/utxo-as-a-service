@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use mysql::{prelude::*, PooledConn, *};
 
-use crate::{config::Config, uaas::hexslice::HexSlice};
+use crate::{config::{Config, CollectionConfig}, uaas::hexslice::HexSlice};
 use anyhow::{anyhow, Result};
 use chain_gang::{
     address::{addr_decode, AddressType},
@@ -13,7 +13,6 @@ use chain_gang::{
 };
 use regex::Regex;
 use retry::{delay, retry};
-use serde::{Deserialize, Serialize};
 
 
 
@@ -96,13 +95,6 @@ impl CollectionDatabase {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CollectionConfig {
-    pub name: String,
-    pub track_descendants: bool,
-    pub address: Option<String>,
-    pub locking_script_pattern: Option<String>,
-}
 
 pub struct WorkingCollection {
     // this is a collection that also maintains a list of tx hashes that it has used
@@ -116,7 +108,7 @@ impl WorkingCollection {
     pub fn new(collection: CollectionConfig) -> Result<Self> {
         if let Some(ref addr) = collection.address {
             // address -> regex locking script
-            let pattern = address_to_lock_script(&addr)?;
+            let pattern = address_to_lock_script(addr)?;
             let locking_script_regex = Regex::new(&pattern)?;
             return Ok(WorkingCollection {
                 collection: collection.clone(),
@@ -126,7 +118,7 @@ impl WorkingCollection {
         }
 
         if let Some(ref pattern) = collection.locking_script_pattern {
-            let locking_script_regex = Regex::new(&pattern)?;
+            let locking_script_regex = Regex::new(pattern)?;
 
             return Ok(WorkingCollection {
                 collection: collection.clone(),

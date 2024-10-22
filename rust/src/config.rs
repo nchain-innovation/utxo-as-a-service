@@ -1,9 +1,7 @@
 use chain_gang::network::Network;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::IpAddr;
-
-use crate::uaas::collection::CollectionConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Service {
@@ -42,6 +40,15 @@ pub struct OrphanConfig {
 pub struct LoggingConfig {
     pub level: String,
 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CollectionConfig {
+    pub name: String,
+    pub track_descendants: bool,
+    pub address: Option<String>,
+    pub locking_script_pattern: Option<String>,
+}
+
 
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct DynamicConfigConfig {

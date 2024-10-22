@@ -1,4 +1,4 @@
-use crate::{config::Config, uaas::collection::CollectionConfig};
+use crate::config::{Config, CollectionConfig};
 
 // Represents the service's dynamically configurable elements
 pub struct DynamicConfig {
