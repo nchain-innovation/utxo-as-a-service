@@ -10,7 +10,9 @@ use actix_web::{web, App, HttpServer};
 use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::{
     net::{IpAddr, Ipv4Addr},
-    panic, process, thread, time,
+    panic, process,
+    sync::mpsc,
+    thread, time,
 };
 
 mod config;
@@ -28,7 +30,7 @@ mod uaas;
 use crate::{
     config::get_config,
     peer_event::{PeerEventMessage, PeerEventType},
-    rest_api::{broadcast_tx, version, AppState},
+    rest_api::{add_monitor, broadcast_tx, delete_monitor, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
     uaas::logic::Logic,
@@ -55,15 +57,20 @@ async fn main() {
     // Get web server address from config
     let server_address = config.service.rust_address.clone();
     // Setup web server data
-    let web_state = web::Data::new(AppState::default());
-    let webstate = web_state.clone();
+    let (tx_rest, rx_rest) = mpsc::channel();
+
+    let app_state = AppState {
+        msg_from_rest_api: tx_rest,
+    };
+    let web_state = web::Data::new(app_state);
+
     // Setup logic
     let mut logic = Logic::new(&config);
     logic.setup();
 
     // Used to track peer connection threads
     let mut children = ThreadTracker::new();
-    let mut manager = ThreadManager::new();
+    let mut manager = ThreadManager::new(rx_rest);
     let tx = manager.get_tx();
 
     // Decode config
@@ -76,7 +83,7 @@ async fn main() {
         // Cycle around all the IP addresses
         for ip in ips.into_iter().cycle() {
             manager.create_thread(ip, &mut children, &config);
-            if manager.process_messages(&mut children, &mut logic, &webstate) {
+            if manager.process_messages(&mut children, &mut logic) {
                 break;
             };
         }
@@ -88,6 +95,8 @@ async fn main() {
             .app_data(web_state.clone())
             .service(broadcast_tx)
             .service(version)
+            .service(add_monitor)
+            .service(delete_monitor)
     })
     .workers(1)
     .bind(server_address)

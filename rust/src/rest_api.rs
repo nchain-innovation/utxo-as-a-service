@@ -1,17 +1,29 @@
 use std::io::Cursor;
-use std::sync::Mutex;
+use std::sync::mpsc;
 
-use actix_web::{get, http::header::ContentType, post, web, HttpResponse, Responder, Result};
+use actix_web::{
+    delete, get, http::header::ContentType, post, web, HttpResponse, Responder, Result,
+};
 use serde::Serialize;
 
 use chain_gang::{messages::Tx, util::Serializable};
 
+use crate::config::CollectionConfig;
 use crate::uaas::util::decode_hexstr;
 
+// RestEventMessage - used for sending messages from REST API to main event processing loop
+
+#[derive(PartialEq, Clone, Eq)]
+pub enum RestEventMessage {
+    TxForBroadcast(Tx),
+    AddMonitor(CollectionConfig),
+    DeleteMonitor(String),
+}
+
 // web interface state
-#[derive(Default)]
 pub struct AppState {
-    pub txs_for_broadcast: Mutex<Vec<Tx>>,
+    //pub txs_for_broadcast: Mutex<Vec<Tx>>,
+    pub msg_from_rest_api: mpsc::Sender<RestEventMessage>,
 }
 
 #[derive(Serialize)]
@@ -60,9 +72,10 @@ async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl 
 
     let hash = tx.hash().encode();
 
-    // Queue Tx to send - append to txs_for_broadcast
-    let mut txs_for_broadcast = data.txs_for_broadcast.lock().unwrap();
-    txs_for_broadcast.push(tx);
+    // Send Tx for broadcast
+    data.msg_from_rest_api
+        .send(RestEventMessage::TxForBroadcast(tx))
+        .unwrap();
 
     // Return hash as hex_str, if successful
     let response = BroadcastTxResponse {
@@ -71,4 +84,28 @@ async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl 
     };
 
     Ok(web::Json(response))
+}
+
+#[post("/collection/monitor")]
+async fn add_monitor(
+    monitor: web::Json<CollectionConfig>,
+    data: web::Data<AppState>,
+) -> Result<impl Responder> {
+    let cc = monitor.into_inner();
+    dbg!(&cc);
+
+    data.msg_from_rest_api
+        .send(RestEventMessage::AddMonitor(cc))
+        .unwrap();
+
+    Ok(HttpResponse::Ok())
+}
+
+#[delete("/collection/monitor")]
+async fn delete_monitor(monitor_name: String, data: web::Data<AppState>) -> Result<impl Responder> {
+    data.msg_from_rest_api
+        .send(RestEventMessage::DeleteMonitor(monitor_name))
+        .unwrap();
+
+    Ok(HttpResponse::Ok())
 }

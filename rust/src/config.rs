@@ -41,14 +41,13 @@ pub struct LoggingConfig {
     pub level: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct CollectionConfig {
     pub name: String,
     pub track_descendants: bool,
     pub address: Option<String>,
     pub locking_script_pattern: Option<String>,
 }
-
 
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct DynamicConfigConfig {

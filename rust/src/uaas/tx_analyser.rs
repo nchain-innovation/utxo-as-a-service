@@ -8,7 +8,8 @@ use chain_gang::{
 };
 
 use crate::{
-    config::Config,
+    config::{CollectionConfig, Config},
+    dynamic_config::DynamicConfig,
     uaas::{
         collection::{CollectionDatabase, WorkingCollection},
         database::DBOperationType,
@@ -33,6 +34,7 @@ pub struct TxAnalyser {
     // Collections
     collection: Vec<WorkingCollection>,
     collection_db: CollectionDatabase,
+    dynamic_config: DynamicConfig,
 }
 
 impl TxAnalyser {
@@ -43,22 +45,31 @@ impl TxAnalyser {
         let txdb_conn = pool.get_conn().unwrap();
         let collection_conn = pool.get_conn().unwrap();
 
-        let mut txanal = TxAnalyser {
-            txdb: TxDB::new(txdb_conn, tx.clone()),
-            utxo: Utxo::new(utxo_conn, tx),
-            conn: tx_conn,
-            collection: Vec::new(),
-            collection_db: CollectionDatabase::new(collection_conn, config),
-        };
+        let dynamic_config = DynamicConfig::new(config);
+        let mut collection: Vec<WorkingCollection> = Vec::new();
 
         // Load the collections
-        for collection in &config.collection {
-            match WorkingCollection::new(collection.clone()) {
-                Ok(wc) => txanal.collection.push(wc),
+        for c in &config.collection {
+            match WorkingCollection::new(c.clone()) {
+                Ok(wc) => collection.push(wc),
                 Err(e) => println!("Error parsing collection {:?}", e),
             }
         }
-        txanal
+        // load the dynamic collection
+        for c in &dynamic_config.collection {
+            match WorkingCollection::new(c.clone()) {
+                Ok(wc) => collection.push(wc),
+                Err(e) => println!("Error parsing collection {:?}", e),
+            }
+        }
+        TxAnalyser {
+            txdb: TxDB::new(txdb_conn, tx.clone()),
+            utxo: Utxo::new(utxo_conn, tx),
+            conn: tx_conn,
+            collection,
+            collection_db: CollectionDatabase::new(collection_conn, config),
+            dynamic_config: dynamic_config.clone(),
+        }
     }
 
     fn create_tables(&mut self) {
@@ -239,5 +250,50 @@ impl TxAnalyser {
     pub fn handle_orphan_block(&mut self, height: u32) {
         self.txdb.handle_orphan_block(height);
         self.utxo.handle_orphan_block(height);
+    }
+
+    fn is_name_in_collection(&self, name: &str) -> bool {
+        self.collection.iter().any(|c| c.collection.name == name)
+    }
+
+    fn is_name_in_dynamic_collection(&self, name: &str) -> bool {
+        self.dynamic_config
+            .collection
+            .iter()
+            .any(|c| c.name == name)
+    }
+
+    pub fn add_monitor(&mut self, monitor: CollectionConfig) {
+        // Check name is not in collection
+        if !self.is_name_in_collection(&monitor.name) {
+            // add to collection
+            match WorkingCollection::new(monitor.clone()) {
+                Ok(wc) => {
+                    self.collection.push(wc);
+                    // add to dynamic config
+                    self.dynamic_config.add(&monitor);
+                }
+                Err(e) => println!("Error parsing collection {:?}", e),
+            }
+        }
+    }
+
+    pub fn delete_monitor(&mut self, monitor_name: &str) {
+        // Check is in collection & dynamic config
+        if self.is_name_in_dynamic_collection(monitor_name) {
+            // delete from to collection
+            match self
+                .collection
+                .iter()
+                .position(|c| c.collection.name == monitor_name)
+            {
+                Some(index) => {
+                    self.collection.remove(index);
+                }
+                None => println!("Error indexing collection {}", monitor_name),
+            }
+            // delete from dynamic config
+            self.dynamic_config.delete(monitor_name);
+        }
     }
 }

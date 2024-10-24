@@ -7,10 +7,10 @@ from io import BytesIO
 
 from p2p_framework.object import CTransaction
 
-from util import load_config, ConfigType
+from config import load_config, ConfigType
 from tx_analyser import tx_analyser
 from block_manager import block_manager
-from collection import collection, hexstr_to_tx
+from collection import collection, hexstr_to_tx, Monitor
 from logic import logic
 
 tags_metadata = [
@@ -224,3 +224,66 @@ def get_parsed_tx_from_collection(hash: str, response: Response) -> Dict[str, An
         return {
             "failed": f"Unknown txid {hash}",
         }
+
+
+@app.post("/collection/monitor", tags=["Collection"])
+def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
+    """ This endpoint can accept an address monitor or locking script monitor
+    """
+    if monitor.address is None and monitor.locking_script_pattern is None:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {
+            "failed": f"Invalid monitor {monitor}",
+        }
+    if collection.is_valid_collection(monitor.name):
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {
+            "failed": f"Monitor name '{monitor.name}' already exists ",
+        }
+    if monitor.address is None and monitor.locking_script_pattern is None:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {
+            "failed": f"Monitor is invalid '{monitor}'",
+        }
+    data = monitor.model_dump(mode='json')
+    print("data=", data)
+    try:
+        result = requests.post(rust_url + "/collection/monitor", json=data)
+    except requests.exceptions.ConnectionError as e:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        print(f"failure = {str(e)}")
+        return {"failure": "Unable to connect with Rust service"}
+    except requests.exceptions.RequestException as e:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"failure": str(e)}
+    else:
+        if result.status_code == 200:
+            collection.add_monitor(monitor)
+            return {}
+        else:
+            response.status_code = result.status_code
+            if result.text == "":
+                return {"failure": "Unable to connect to backend"}
+            else:
+                return {"failure": result.text}
+
+
+@app.delete("/collection/monitor", tags=["Collection"])
+def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
+    """ This endpoint can delete an monitor with the provided address
+    """
+    if not collection.is_valid_collection(monitor_name):
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {
+            "failed": f"Monitor name does not exist {monitor_name}",
+        }
+
+    if not collection.is_valid_dynamic_collection(monitor_name):
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {
+            "failed": f"Monitor name is not a valid dynmatic monitor {monitor_name}",
+        }
+
+    # call uaas backend
+    collection.delete_monitor(monitor_name)
+    return {}

@@ -4,7 +4,7 @@ import sys
 sys.path.append('..')
 
 from database import database
-from util import load_config, ConfigType
+from config import load_config, ConfigType
 
 
 def get_max_height(table_name: str) -> int:

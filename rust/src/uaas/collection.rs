@@ -2,7 +2,10 @@ use std::time::Instant;
 
 use mysql::{prelude::*, PooledConn, *};
 
-use crate::{config::{Config, CollectionConfig}, uaas::hexslice::HexSlice};
+use crate::{
+    config::{CollectionConfig, Config},
+    uaas::hexslice::HexSlice,
+};
 use anyhow::{anyhow, Result};
 use chain_gang::{
     address::{addr_decode, AddressType},
@@ -13,8 +16,6 @@ use chain_gang::{
 };
 use regex::Regex;
 use retry::{delay, retry};
-
-
 
 /// Given an address return a locking script in hexstr format
 fn address_to_lock_script(address: &str) -> Result<String> {
@@ -95,10 +96,9 @@ impl CollectionDatabase {
     }
 }
 
-
 pub struct WorkingCollection {
     // this is a collection that also maintains a list of tx hashes that it has used
-    collection: CollectionConfig,
+    pub collection: CollectionConfig,
     pub txs: Vec<Hash256>,
     // No point to the Collection if there is no locking_script_regex
     locking_script_regex: Regex,
@@ -126,7 +126,10 @@ impl WorkingCollection {
                 locking_script_regex,
             });
         }
-        Err(anyhow!("Incorrect Collection configuration {:?}", &collection))
+        Err(anyhow!(
+            "Incorrect Collection configuration {:?}",
+            &collection
+        ))
     }
 
     pub fn name(&self) -> &str {

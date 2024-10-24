@@ -1,6 +1,7 @@
-use crate::config::{Config, CollectionConfig};
+use crate::config::{CollectionConfig, Config};
 
 // Represents the service's dynamically configurable elements
+#[derive(Debug, Clone)]
 pub struct DynamicConfig {
     filename: String,
     pub collection: Vec<CollectionConfig>,
@@ -40,7 +41,7 @@ impl DynamicConfig {
         self.save();
     }
 
-    pub fn remove(&mut self, name: &str) {
+    pub fn delete(&mut self, name: &str) {
         if let Some(index) = self.collection.iter().position(|c| c.name == name) {
             self.collection.remove(index);
             self.save();

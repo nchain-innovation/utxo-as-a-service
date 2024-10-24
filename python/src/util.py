@@ -1,27 +1,10 @@
-import toml
 import logging
 from io import BytesIO
-from typing import Any, MutableMapping, List, Dict
+from typing import List, Dict
 
 from p2p_framework.object import CBlock
 
 LOGGER = logging.getLogger(__name__)
-
-
-ConfigType = MutableMapping[str, Any]
-
-
-def load_config(filename: str) -> ConfigType:
-    """ Load config from provided toml file
-    """
-    try:
-        with open(filename, "r") as f:
-            config = toml.load(f)
-        return config
-    except FileNotFoundError as e:
-        print(f"load_config - File not found error {e}")
-        LOGGER.warning(f"load_config - File not found error {e}")
-        return {}
 
 
 # Blocks

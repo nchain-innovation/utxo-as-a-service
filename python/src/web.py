@@ -7,7 +7,7 @@ from database import database
 from blockfile import blockfile
 from logic import logic
 
-from util import load_config
+from config import load_config
 from collection import collection
 
 

@@ -40,7 +40,7 @@ impl ServerStateType {
 pub struct Logic {
     state: ServerStateType,
     block_manager: BlockManager,
-    tx_analyser: TxAnalyser,
+    pub tx_analyser: TxAnalyser,
     address_manager: AddressManager,
     pub connection: Connection,
 

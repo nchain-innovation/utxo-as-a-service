@@ -149,3 +149,7 @@ log_level = 'info'
 reload = false
 rust_url = "http://host.docker.internal:8081"
 # rust_url = "http://127.0.0.1:8081"
+
+
+[dynamic_config]
+filename = "../data/dynamic.toml"

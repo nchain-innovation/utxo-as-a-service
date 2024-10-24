@@ -7,7 +7,7 @@ sys.path.append('..')
 
 from blockfile import load_block_at_offset
 from database import database
-from util import load_config
+from config import load_config
 from p2p_framework.object import CBlock
 
 
