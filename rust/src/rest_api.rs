@@ -22,7 +22,6 @@ pub enum RestEventMessage {
 
 // web interface state
 pub struct AppState {
-    //pub txs_for_broadcast: Mutex<Vec<Tx>>,
     pub msg_from_rest_api: mpsc::Sender<RestEventMessage>,
 }
 
@@ -92,7 +91,6 @@ async fn add_monitor(
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
     let cc = monitor.into_inner();
-    dbg!(&cc);
 
     data.msg_from_rest_api
         .send(RestEventMessage::AddMonitor(cc))

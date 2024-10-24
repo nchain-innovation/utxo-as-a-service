@@ -275,15 +275,32 @@ def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
     if not collection.is_valid_collection(monitor_name):
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {
-            "failed": f"Monitor name does not exist {monitor_name}",
+            "failed": f"Monitor name does not exist '{monitor_name}'",
         }
 
     if not collection.is_valid_dynamic_collection(monitor_name):
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {
-            "failed": f"Monitor name is not a valid dynmatic monitor {monitor_name}",
+            "failed": f"Monitor name is not a valid dynmatic monitor '{monitor_name}'",
         }
 
     # call uaas backend
-    collection.delete_monitor(monitor_name)
-    return {}
+    try:
+        result = requests.delete(rust_url + f"/collection/monitor?monitor_name={monitor_name}")
+    except requests.exceptions.ConnectionError as e:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        print(f"failure = {str(e)}")
+        return {"failure": "Unable to connect with Rust service"}
+    except requests.exceptions.RequestException as e:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"failure": str(e)}
+    else:
+        if result.status_code == 200:
+            collection.delete_monitor(monitor_name)
+            return {}
+        else:
+            response.status_code = result.status_code
+            if result.text == "":
+                return {"failure": "Unable to connect to backend"}
+            else:
+                return {"failure": result.text}

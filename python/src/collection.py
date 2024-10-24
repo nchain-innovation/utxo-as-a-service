@@ -42,7 +42,7 @@ def load_dynamic_config(config: ConfigType) -> List[str]:
         return []
     else:
         # Read in name fields
-        return list(map(lambda x: x['name'], config['monitor']))
+        return list(map(lambda x: x['name'], config['collection']))
 
 
 class Collection:
