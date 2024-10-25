@@ -13,7 +13,7 @@ use crate::uaas::util::decode_hexstr;
 
 // RestEventMessage - used for sending messages from REST API to main event processing loop
 
-#[derive(PartialEq, Clone, Eq)]
+#[derive(PartialEq, Clone, Eq, Debug)]
 pub enum RestEventMessage {
     TxForBroadcast(Tx),
     AddMonitor(CollectionConfig),
@@ -90,6 +90,8 @@ async fn add_monitor(
     monitor: web::Json<CollectionConfig>,
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
+    log::info!("add_monitor");
+
     let cc = monitor.into_inner();
 
     data.msg_from_rest_api
@@ -99,10 +101,12 @@ async fn add_monitor(
     Ok(HttpResponse::Ok())
 }
 
-#[delete("/collection/monitor")]
-async fn delete_monitor(monitor_name: String, data: web::Data<AppState>) -> Result<impl Responder> {
+#[delete("/collection/monitor/{monitor_name}")]
+async fn delete_monitor(monitor_name: web::Path<String>, data: web::Data<AppState>) -> Result<impl Responder> {
+    log::info!("delete_monitor '{}'", &monitor_name);
+
     data.msg_from_rest_api
-        .send(RestEventMessage::DeleteMonitor(monitor_name))
+        .send(RestEventMessage::DeleteMonitor(monitor_name.to_string()))
         .unwrap();
 
     Ok(HttpResponse::Ok())

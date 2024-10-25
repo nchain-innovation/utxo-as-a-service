@@ -2,7 +2,7 @@ use std::{
     net::IpAddr,
     sync::{atomic::AtomicBool, mpsc, Arc},
     thread,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use chain_gang::messages::Message;
@@ -118,14 +118,11 @@ impl ThreadManager {
         thread_tracker: &mut ThreadTracker,
         logic: &mut Logic,
     ) -> bool {
-        let recv_duration_long = Duration::from_millis(125);
         let mut keep_looping = true;
         let mut should_stop: bool = false;
 
         while keep_looping {
-            let r = self.rx_peer.recv_timeout(recv_duration_long);
-
-            if let Ok(received) = r {
+            if let Ok(received) = self.rx_peer.try_recv() {
                 should_stop = received.event == PeerEventType::Stop;
                 // Process the event
                 keep_looping = self.process_event(received.clone(), thread_tracker, logic);
@@ -139,7 +136,9 @@ impl ThreadManager {
                     }
                 });
             }
-            while let Ok(event) = self.rx_rest.try_recv() {
+            if let Ok(event) = self.rx_rest.try_recv() {
+                log::info!("{:?}", &event);
+
                 match event {
                     RestEventMessage::TxForBroadcast(tx) => {
                         if logic.tx_exists(tx.hash()) {

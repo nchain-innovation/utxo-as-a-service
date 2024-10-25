@@ -286,7 +286,7 @@ def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
 
     # call uaas backend
     try:
-        result = requests.delete(rust_url + f"/collection/monitor?monitor_name={monitor_name}")
+        result = requests.delete(rust_url + f"/collection/monitor/{monitor_name}")
     except requests.exceptions.ConnectionError as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         print(f"failure = {str(e)}")

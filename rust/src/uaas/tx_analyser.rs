@@ -264,6 +264,7 @@ impl TxAnalyser {
     }
 
     pub fn add_monitor(&mut self, monitor: CollectionConfig) {
+        log::info!("add_monitor {:?}", &monitor);
         // Check name is not in collection
         if !self.is_name_in_collection(&monitor.name) {
             // add to collection
@@ -279,9 +280,10 @@ impl TxAnalyser {
     }
 
     pub fn delete_monitor(&mut self, monitor_name: &str) {
+        log::info!("delete_monitor {}", monitor_name);
         // Check is in collection & dynamic config
         if self.is_name_in_dynamic_collection(monitor_name) {
-            // delete from to collection
+            // Delete from to collection
             match self
                 .collection
                 .iter()
@@ -292,7 +294,7 @@ impl TxAnalyser {
                 }
                 None => println!("Error indexing collection {}", monitor_name),
             }
-            // delete from dynamic config
+            // Delete from dynamic config
             self.dynamic_config.delete(monitor_name);
         }
     }

@@ -37,8 +37,13 @@ ip = [ "167.172.61.80"]  # Murphy machine
 port = 18333
 
 # 2023-07-23 23:52:44
-start_block_hash = "000000000000057fff6b3ddd2f51e3749ed27a8fea819bcfdceb8d89a1789da7"
-start_block_height = 1563559
+# start_block_hash = "000000000000057fff6b3ddd2f51e3749ed27a8fea819bcfdceb8d89a1789da7"
+# start_block_height = 1563559
+
+# 2024-10-25 07:12:14
+
+start_block_hash = "0000000000002035e634d492fff01d273c8c0afd9ad42aff68672276903c5314"
+start_block_height = 1643523
 
 # Note need a larger timeout on testnet
 #timeout_period = 240.0

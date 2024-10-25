@@ -110,7 +110,7 @@ async fn main() {
     thread::spawn(move || {
         for sig in signals.forever() {
             if sig == SIGINT {
-                log::info!("Someone tried to kill us... (please wait I am still processing)");
+                log::info!("Someone tried to kill us... (Please wait I am still processing)");
                 let stop_msg = PeerEventMessage {
                     time: time::SystemTime::now(),
                     peer: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
