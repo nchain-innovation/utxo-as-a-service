@@ -102,7 +102,10 @@ async fn add_monitor(
 }
 
 #[delete("/collection/monitor/{monitor_name}")]
-async fn delete_monitor(monitor_name: web::Path<String>, data: web::Data<AppState>) -> Result<impl Responder> {
+async fn delete_monitor(
+    monitor_name: web::Path<String>,
+    data: web::Data<AppState>,
+) -> Result<impl Responder> {
     log::info!("delete_monitor '{}'", &monitor_name);
 
     data.msg_from_rest_api

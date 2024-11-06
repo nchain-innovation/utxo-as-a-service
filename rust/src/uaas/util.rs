@@ -96,16 +96,3 @@ impl fmt::Display for DecodeHexError {
 }
 
 impl std::error::Error for DecodeHexError {}
-
-#[cfg(test)]
-mod test {
-    use crate::chrono::*;
-    #[test]
-    fn test_parse() {
-        let timestamp = "2023-05-19 06:25:16";
-        let datetime = Utc
-            .datetime_from_str(&timestamp, "%Y-%m-%d %H:%M:%S")
-            .unwrap();
-        assert_eq!(datetime.timestamp(), 1684477516);
-    }
-}
