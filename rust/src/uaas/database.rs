@@ -14,6 +14,7 @@ pub struct UtxoEntryDB {
     pub pos: u32,
     pub satoshis: i64,
     pub height: i32,
+    pub pubkeyhash: String,
 }
 
 // Used to store txs to write (in blocks)
@@ -116,11 +117,11 @@ impl Database {
                 self.conn
             .exec_batch(
                 //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-                "REPLACE INTO utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
+                "REPLACE INTO utxo (hash, pos, satoshis, height, pubkeyhash) VALUES (:hash, :pos, :satoshis, :height, :pubkeyhash);",
                 utxo_entries
                     .iter()
                     .map(|x| params! {
-                        "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height}),
+                        "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height, "pubkeyhash" => x.pubkeyhash.as_str()}),
                 )
             },
         );

@@ -4,6 +4,7 @@ use mysql::{prelude::*, Pool, PooledConn};
 
 use chain_gang::{
     messages::{Block, Tx, TxOut},
+    script::Script,
     util::Hash256,
 };
 
@@ -23,6 +24,18 @@ use crate::{
 */
 
 const NOT_IN_BLOCK: i32 = -1; // use -1 to indicate that this tx is not in block
+
+// Given a locking script return the hash of the public key, as hex str
+// Assuming "p2pkh", locking_script_pattern = "76a914[0-9a-f]{40}88ac"
+fn script_to_pubkeyhash(locking_script: &Script) -> String {
+    if locking_script.0.len() == 25 {
+        let hexstr = hex::encode(&locking_script.0);
+        if hexstr[0..6] == *"76a914" && hexstr[46..] == *"88ac" {
+            return hexstr[6..46].to_string();
+        }
+    }
+    "unknown".to_string()
+}
 
 pub struct TxAnalyser {
     // Database interface
@@ -134,11 +147,13 @@ impl TxAnalyser {
         // process the tx outputs and place them in the utxo
 
         let hash = tx.hash();
-
         // Process outputs - add to utxo
         for (index, vout) in tx.outputs.iter().enumerate() {
             if self.is_spendable(vout) {
-                self.utxo.add(hash, index, vout.satoshis, height);
+                // Get public key hash from locking script
+                let pubkeyhash = script_to_pubkeyhash(&vout.lock_script);
+                self.utxo
+                    .add(hash, index, vout.satoshis, height, &pubkeyhash);
             }
         }
     }
@@ -297,5 +312,24 @@ impl TxAnalyser {
             // Delete from dynamic config
             self.dynamic_config.delete(monitor_name);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_script_to_pubkeyhash() {
+        //fn script_to_pubkeyhash(locking_script: &Script) -> String {
+        //"asm": "OP_DUP OP_HASH160 7c78584493557fac782023a4ad591b64545929d9 OP_EQUALVERIFY OP_CHECKSIG",
+
+        let encoded_script =
+            hex::decode("76a9147c78584493557fac782023a4ad591b64545929d988ac").unwrap();
+        let locking_script = Script(encoded_script);
+        let result = script_to_pubkeyhash(&locking_script);
+        println!("{}", &result);
+
+        assert_eq!(&result, "7c78584493557fac782023a4ad591b64545929d9");
     }
 }

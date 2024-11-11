@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 import time
 from database import database
 from p2p_framework.object import CBlockHeader
+import datetime
 
 
 class BlockManager:
@@ -130,6 +131,17 @@ class BlockManager:
     def get_last_block_as_hex(self) -> None | Dict[str, Any]:
         # Return the last block
         return self._read_last_block_as_hex()
+
+    def get_block_height(self) -> int:
+        result = database.query("SELECT max(height) FROM blocks;")
+        return result[0][0]
+
+    def get_last_block_time(self) -> str:
+        result = database.query("SELECT timestamp FROM blocks ORDER BY height desc LIMIT 1;")
+        for x in result:
+            retval = x
+        timestamp = datetime.datetime.fromtimestamp(retval[0])
+        return timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
 
 block_manager = BlockManager()

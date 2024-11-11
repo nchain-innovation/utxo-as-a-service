@@ -1,6 +1,7 @@
-from typing import Any, MutableMapping, List
+from typing import Any, List
 
 from mysql.connector import connect
+from config import ConfigType
 
 
 class Database:
@@ -10,7 +11,7 @@ class Database:
         self.password: str
         self.database: str
 
-    def set_config(self, config: MutableMapping[str, Any]):
+    def set_config(self, config: ConfigType):
         network = config['service']['network']
         self.host = config[network]["host"]
         self.user = config[network]["user"]

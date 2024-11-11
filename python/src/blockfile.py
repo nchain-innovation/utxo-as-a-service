@@ -1,6 +1,6 @@
 from io import BytesIO
-from typing import Any, MutableMapping
 from p2p_framework.object import CBlock
+from config import ConfigType
 
 
 # Blockheaders
@@ -28,7 +28,7 @@ class BlockFile:
     def __init__(self):
         self.block_file: str
 
-    def set_config(self, config: MutableMapping[str, Any]):
+    def set_config(self, config: ConfigType):
         network = config['service']['network']
         self.block_file = config[network]["block_file"]
 

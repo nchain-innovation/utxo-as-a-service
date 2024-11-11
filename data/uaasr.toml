@@ -31,6 +31,8 @@ database = "main_uaas_db"
 block_file = "../data/main-block.dat"
 save_blocks = false
 
+
+
 [testnet]
 ip = [ "167.172.61.80"]  # Murphy machine
 
@@ -108,6 +110,11 @@ threshold = 100
 
 [logging]
 level = "info"
+
+[utxo]
+complete = 6
+# The number of blocks required to complete a blockchain transaction
+
 
 [[collection]]
 name = "johns"

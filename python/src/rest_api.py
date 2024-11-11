@@ -6,6 +6,7 @@ import requests
 from io import BytesIO
 
 from p2p_framework.object import CTransaction
+from tx_engine import address_to_public_key_hash
 
 from config import load_config, ConfigType
 from tx_analyser import tx_analyser
@@ -55,6 +56,8 @@ def root() -> Dict[str, str]:
 def get_status() -> Dict[str, Any]:
     """ Return the current service status """
     return logic.get_status()
+
+# Tx
 
 
 if config[config["service"]["network"]]["save_blocks"]:
@@ -118,17 +121,48 @@ def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
             return {"failure": result.text}
 
 
-@app.get("/tx/utxo", tags=["Tx"])
-def get_utxo(hash: str) -> Dict[str, Any]:
+# UTXO
+
+@app.get("/utxo/get", tags=["UTXO"])
+def get_utxo(address: str, response: Response) -> Dict[str, Any]:
+    """ Return the UTXO associated with a particular address"""
+    # address -> pubkeyhash
+    try:
+        pubkeyhash = address_to_public_key_hash(address).hex()
+    except RuntimeError as e:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {"failure": f"Unable to decode address {address}.\n{e}."}
+    else:
+        return tx_analyser.get_utxo(pubkeyhash)
+
+
+@app.get("/utxo/balance", tags=["UTXO"])
+def get_balance(address: str, response: Response) -> Dict[str, Any]:
+    """ Return the balance associated with a particular address"""
+    # address -> pubkeyhash
+    try:
+        pubkeyhash = address_to_public_key_hash(address).hex()
+    except RuntimeError as e:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {"failure": f"Unable to decode address {address}.\n{e}."}
+    else:
+        height = block_manager.get_block_height()
+        return tx_analyser.get_balance(pubkeyhash, height)
+
+
+@app.get("/utxo/tx", tags=["UTXO"])
+def get_utxo_tx(hash: str) -> Dict[str, Any]:
     """ Return the utxo entry identified by hash"""
     return tx_analyser.get_utxo_entry(hash)
 
 
-@app.get("/tx/utxo_by_outpoint", tags=["Tx"])
+@app.get("/tx/utxo_by_outpoint", tags=["UTXO"])
 def get_utxo_by_outpoint(hash: str, pos: int) -> Dict[str, Any]:
     """ Return the utxo entry identified by hash and pos"""
     return tx_analyser.get_utxo_by_outpoint(hash, pos)
 
+
+# Block
 
 @app.get("/block/latest", tags=["Block"])
 def get_latest_blocks() -> Dict[str, Any]:
