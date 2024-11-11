@@ -63,8 +63,10 @@ class TxAnalyser:
         start = time.time()
 
         retval = [{
-            "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2],
-            "height": x[3]
+            "height": x[3],
+            "tx_pos": x[1],
+            "tx_hash": f"{x[0]}",
+            "value": x[2],
         } for x in result]
 
         elapsed_time = time.time() - start
