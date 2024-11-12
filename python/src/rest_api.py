@@ -70,10 +70,40 @@ if config[config["service"]["network"]]["save_blocks"]:
         return tx_analyser.get_tx_entry(hash)
 
     # Can only get this info if we have saved the blocks
-    @app.get("/tx/raw", tags=["Tx"])
-    def get_tx_raw(hash: str) -> Dict[str, Any]:
+    @app.get("/tx/hex", tags=["Tx"])
+    def get_tx_hex(hash: str) -> Dict[str, Any]:
         """ Return the tx raw entry identified by hash"""
         return tx_analyser.get_tx_raw_entry(hash)
+
+else:
+    """ Note that if we are not saving Tx we can only get txs from the collections
+    """
+    @app.get("/tx", tags=["Tx"])
+    def get_parsed_tx_from_collection(hash: str, response: Response) -> Dict[str, Any]:
+        """ Return the tx from the  collection
+            Note that this also indicates if the transaction outpoints have been spent or not
+        """
+        result = collection.get_tx_as_hex(hash)
+        if len(result) > 0:
+            hexstr = result[0][0]
+            return hexstr_to_tx(hash, hexstr)
+        else:
+            response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            return {
+                "failed": f"Unknown txid {hash}",
+            }
+
+    @app.get("/tx/hex", tags=["Tx"])
+    def get_tx_from_collection_as_hex(hash: str, response: Response) -> Dict[str, Any]:
+        """ Return the tx hex str from the collection"""
+        result = collection.get_tx_as_hex(hash)
+        if len(result) > 0:
+            return {"result": result[0][0]}
+        else:
+            response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            return {
+                "failed": f"Unknown txid {hash}",
+            }
 
 
 @app.get("/tx/proof", tags=["Tx"])
@@ -150,41 +180,29 @@ def get_balance(address: str, response: Response) -> Dict[str, Any]:
         return tx_analyser.get_balance(pubkeyhash, height)
 
 
-@app.get("/utxo/tx", tags=["UTXO"])
-def get_utxo_tx(hash: str) -> Dict[str, Any]:
-    """ Return the utxo entry identified by hash"""
-    return tx_analyser.get_utxo_entry(hash)
+# Block Header
 
-
-@app.get("/tx/utxo_by_outpoint", tags=["UTXO"])
-def get_utxo_by_outpoint(hash: str, pos: int) -> Dict[str, Any]:
-    """ Return the utxo entry identified by hash and pos"""
-    return tx_analyser.get_utxo_by_outpoint(hash, pos)
-
-
-# Block
-
-@app.get("/block/latest", tags=["Block"])
-def get_latest_blocks() -> Dict[str, Any]:
-    """ Return the latest blocks seen by the service"""
+@app.get("/block/latest", tags=["Block Header"])
+def get_latest_block_headers() -> Dict[str, Any]:
+    """ Return the latest block headers seen by the service"""
     return block_manager.get_latest_blocks()
 
 
-@app.get("/block/height", tags=["Block"])
-def get_block_at_height(height: int) -> Dict[str, Any]:
-    """ Return the block at the given height"""
+@app.get("/block/height", tags=["Block Header"])
+def get_block_header_at_height(height: int) -> Dict[str, Any]:
+    """ Return the block header at the given height"""
     return block_manager.get_block_at_height(height)
 
 
-@app.get("/block/hash", tags=["Block"])
-def get_block_at_hash(hash: str) -> Dict[str, Any]:
-    """ Return the block at the given hash"""
+@app.get("/block/hash", tags=["Block Header"])
+def get_block_header_at_hash(hash: str) -> Dict[str, Any]:
+    """ Return the block header at the given hash"""
     return block_manager.get_block_at_hash(hash)
 
 
-@app.get("/block/last", tags=["Block"])
-def get_last_block(response: Response) -> Dict[str, Any]:
-    """ Return the last block seen by the service"""
+@app.get("/block/last", tags=["Block Header"])
+def get_last_block_header(response: Response) -> Dict[str, Any]:
+    """ Return the last block header seen by the service"""
     result = block_manager.get_last_block()
     if result is None:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -193,8 +211,8 @@ def get_last_block(response: Response) -> Dict[str, Any]:
         return result
 
 
-@app.get("/block/last/hex", tags=["Block"])
-def get_last_block_hex(response: Response) -> Dict[str, Any]:
+@app.get("/block/last/hex", tags=["Block Header"])
+def get_last_block_header_as_hex(response: Response) -> Dict[str, Any]:
     """ Return the last block seen by the service as hex"""
     result = block_manager.get_last_block_as_hex()
     if result is None:
@@ -208,56 +226,6 @@ def get_last_block_hex(response: Response) -> Dict[str, Any]:
 def get_collections() -> Dict[str, Any]:
     """ Return the collections associated with this service"""
     return collection.get_collections()
-
-
-@app.get("/collection/contents", tags=["Collection"])
-def get_collection_contents(cname: str, response: Response) -> Dict[str, Any]:
-    """ Return the collection hashes associated with this collection name
-    """
-    if collection.is_valid_collection(cname):
-        result = collection.get_collection_contents(cname)
-        if len(result) > 0:
-            result = [r[0] for r in result]
-            return {"result": result}
-        else:
-            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return {
-                "failed": "Failed to access collection",
-            }
-    else:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-        return {
-            "failed": f"Unknown collection {cname}",
-        }
-
-
-@app.get("/collection/tx/hex", tags=["Collection"])
-def get_raw_tx_from_collection(hash: str, response: Response) -> Dict[str, Any]:
-    """ Return the tx hex str from the named collection"""
-    result = collection.get_raw_tx(hash)
-    if len(result) > 0:
-        return {"result": result[0][0]}
-    else:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-        return {
-            "failed": f"Unknown txid {hash}",
-        }
-
-
-@app.get("/collection/tx/parsed", tags=["Collection"])
-def get_parsed_tx_from_collection(hash: str, response: Response) -> Dict[str, Any]:
-    """ Return the tx from the  collection
-        Note that this also indicates if the transaction outpoints have been spent or not
-    """
-    result = collection.get_raw_tx(hash)
-    if len(result) > 0:
-        hexstr = result[0][0]
-        return hexstr_to_tx(hash, hexstr)
-    else:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-        return {
-            "failed": f"Unknown txid {hash}",
-        }
 
 
 @app.post("/collection/monitor", tags=["Collection"])

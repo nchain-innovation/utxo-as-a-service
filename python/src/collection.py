@@ -64,7 +64,7 @@ class Collection:
             "collections": all_names,
         }
 
-    def get_raw_tx(self, hash: str) -> List[Any]:
+    def get_tx_as_hex(self, hash: str) -> List[Any]:
         # Read tx from database
         return database.query(f"SELECT tx FROM collection WHERE hash = '{hash}';")
 

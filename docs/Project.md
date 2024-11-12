@@ -124,6 +124,7 @@ This section contains project status related notes.
     * speed up searching - add index on pubkeyhash
 * get_balance endpoint
     * self.complete = config['utxo']['complete'] 
+* remove unused endpoints
 
 ## In Progress
 
@@ -136,6 +137,9 @@ This section contains project status related notes.
 
 
 ## TODO
+
+* If searching tx fails check the collections
+
 * Speed up mysql database, see what can be done in config
 * Add configuration item to enble/disable blockfiles
 

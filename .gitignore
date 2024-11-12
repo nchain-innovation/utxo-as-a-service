@@ -10,6 +10,7 @@ __pycache__
 # Generated data
 data/*.dat
 data/mysql
+data/dynamic.toml
 data/dynamic*.toml
 
 out.txt
