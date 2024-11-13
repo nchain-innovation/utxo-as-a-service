@@ -1,10 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
-extern crate chrono;
-extern crate hex;
-extern crate rand;
-extern crate regex;
-extern crate retry;
+
 
 use actix_web::{web, App, HttpServer};
 use signal_hook::{consts::SIGINT, iterator::Signals};
