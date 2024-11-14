@@ -82,8 +82,8 @@ class TxAnalyser:
         result = database.query(f"SELECT satoshis, height FROM utxo WHERE pubkeyhash = '{pubkeyhash}';")
         confirmed_height = blockheight - self.complete
 
-        confirmed = sum([x[0] for x in result if x[1] <= confirmed_height])
-        unconfirmed = sum([x[0] for x in result if x[1] > confirmed_height])
+        confirmed = sum([x[0] for x in result if x[1] >= 0 and x[1] <= confirmed_height])
+        unconfirmed = sum([x[0] for x in result if x[1] < 0 or x[1] > confirmed_height])
         return {
             "confirmed": confirmed,
             "unconfirmed": unconfirmed,
