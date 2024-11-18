@@ -1,21 +1,29 @@
 import datetime
+import time
 from typing import List, Dict, Any, Optional
 
 from database import database
 from blockfile import blockfile
 from merkle import create_merkle_branch
 from p2p_framework.object import CTransaction
+from config import ConfigType
 
 
 class TxAnalyser:
+    def __init__(self):
+        self.complete = 6
+
+    def set_config(self, config: ConfigType):
+        self.complete = config['utxo']['complete']
 
     def _read_mempool(self) -> List[Dict[str, Any]]:
-        # Read mempool from database
+        # Read mempool from databaseß
         result = database.query("SELECT * FROM mempool")
         retval = [{
             "hash": f"{x[0]}", "locktime": x[1], "fee": x[2],
             "time": datetime.datetime.fromtimestamp(x[3]).strftime('%Y-%m-%d %H:%M:%S')
         } for x in result]
+
         return retval
 
     def get_mempool(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -43,6 +51,43 @@ class TxAnalyser:
         # Read utxo from database
         result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}' AND pos = {pos};")
         return {"result": len(result) > 0}
+
+    def get_utxo(self, pubkeyhash: str) -> Dict[str, Any]:
+        # Return the UTXO associated with a particular pubkeyhash
+        start = time.time()
+
+        result = database.query(f"SELECT hash, pos, satoshis, height FROM utxo WHERE pubkeyhash = '{pubkeyhash}';")
+        elapsed_time = time.time() - start
+        print(f"Time to query {elapsed_time}")
+
+        start = time.time()
+
+        retval = [{
+            "height": x[3],
+            "tx_pos": x[1],
+            "tx_hash": f"{x[0]}",
+            "value": x[2],
+        } for x in result]
+
+        elapsed_time = time.time() - start
+        print(f"Time to process {elapsed_time}")
+
+        print(f"retval.len() = {len(retval)}")
+        return {
+            "utxo": retval,
+        }
+
+    def get_balance(self, pubkeyhash: str, blockheight: int) -> Dict[str, Any]:
+        # Return the UTXO balance with a particular pubkeyhash
+        result = database.query(f"SELECT satoshis, height FROM utxo WHERE pubkeyhash = '{pubkeyhash}';")
+        confirmed_height = blockheight - self.complete
+
+        confirmed = sum([x[0] for x in result if x[1] >= 0 and x[1] <= confirmed_height])
+        unconfirmed = sum([x[0] for x in result if x[1] < 0 or x[1] > confirmed_height])
+        return {
+            "confirmed": confirmed,
+            "unconfirmed": unconfirmed,
+        }
 
     def _read_block_offset(self, hash: str) -> Optional[int]:
         # Read block offset based on tx hash from database
@@ -119,14 +164,18 @@ class TxAnalyser:
         }
 
     def tx_exist(self, hash: str) -> bool:
-        # Return true if txid is in txs or mempool
+        # Return true if txid is in txs or mempool or collection
         # self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
         txs = database.query(f"SELECT * FROM tx WHERE hash = '{hash}';")
         if len(txs) > 0:
             return True
-        else:
-            mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
-            return len(mempool) > 0
+        mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
+        if len(mempool) > 0:
+            return True
+        collection = database.query(f"SELECT * FROM collection WHERE hash = '{hash}';")
+        if len(collection) > 0:
+            return True
+        return False
 
     def get_tx_merkle_proof(self, hash: str) -> Dict[str, Any]:
         # Given the txid return the merkle branch proof for a confirmed transaction

@@ -1,6 +1,8 @@
 from typing import List, Dict, Any, Optional
 import time
 from database import database
+from p2p_framework.object import CBlockHeader
+import datetime
 
 
 class BlockManager:
@@ -23,6 +25,26 @@ class BlockManager:
             "number of tx": x[10],
         }
         return block
+
+    def _a_result_to_hex_blockheader(self, x) -> Dict[str, Any]:
+        json_notification = {
+            "version": x[2],
+            "hashPrevBlock": x[3],
+            "hashMerkleRoot": x[4],
+            "time": x[5],
+            "bits": x[6],
+            "nonce": x[7],
+        }
+        blockheader = CBlockHeader(header=None, json_notification=json_notification)
+        b = blockheader.serialize()
+        return {"block": b.hex()}
+
+    def _results_to_hex_blockheader(self, results) -> Optional[Dict[str, Any]]:
+        if results != []:
+            x = results[0]
+            return self._a_result_to_hex_blockheader(x)
+        else:
+            return None
 
     def _read_latest_blocks(self) -> List[Dict[str, Any]]:
         # Read blocks from database
@@ -64,8 +86,16 @@ class BlockManager:
         return self._results_to_block(retval)
 
     def _read_tx_at_height(self, height) -> List[str]:
-        result = database.query(f"SELECT hash  FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+        result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
         return [x[0] for x in result]
+
+    def _read_last_block(self) -> None | Dict[str, Any]:
+        retval = database.query("SELECT * FROM blocks WHERE height = (SELECT MAX(height) FROM blocks);")
+        return self._results_to_block(retval)
+
+    def _read_last_block_as_hex(self) -> None | Dict[str, Any]:
+        retval = database.query("SELECT * FROM blocks WHERE height = (SELECT MAX(height) FROM blocks);")
+        return self._results_to_hex_blockheader(retval)
 
     def get_block_at_height(self, height: int) -> Dict[str, Any]:
         # Return the block at the given height
@@ -93,6 +123,25 @@ class BlockManager:
             return {
                 "block": f"block hash {hash} not found",
             }
+
+    def get_last_block(self) -> None | Dict[str, Any]:
+        # Return the last block
+        return self._read_last_block()
+
+    def get_last_block_as_hex(self) -> None | Dict[str, Any]:
+        # Return the last block
+        return self._read_last_block_as_hex()
+
+    def get_block_height(self) -> int:
+        result = database.query("SELECT max(height) FROM blocks;")
+        return result[0][0]
+
+    def get_last_block_time(self) -> str:
+        result = database.query("SELECT timestamp FROM blocks ORDER BY height desc LIMIT 1;")
+        for x in result:
+            retval = x
+        timestamp = datetime.datetime.fromtimestamp(retval[0])
+        return timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
 
 block_manager = BlockManager()

@@ -31,6 +31,22 @@ class PeerEventMessage {
 
 PeerEventMessage o-- PeerEventType
 
+class REST_API {
+    msg_from_rest_api: mpsc::Sender<RestEventMessage>
+    broadcast_tx()
+    add_monitor()
+    delete_monitor()
+}
+
+enum RestEventMessage {
+    TxForBroadcast(Tx),
+    AddMonitor(CollectionConfig),
+    DeleteMonitor(String),
+}
+
+REST_API ..> RestEventMessage: Sends
+
+RestEventMessage ..> ThreadManager: Receives
 
 class PeerThread {
     {field} thread: Option<thread::JoinHandle<()>>
@@ -59,8 +75,10 @@ PeerThread o-- PeerThreadStatus: has_a
 
 
 class ThreadManager {
-    rx: mpsc::Receiver<PeerEventMessage>
-    tx: mpsc::Sender<PeerEventMessage>
+    rx_peer: mpsc::Receiver<PeerEventMessage>
+    tx_peer: mpsc::Sender<PeerEventMessage>
+    rx_rest: mpsc::Receiver<RestEventMessage>,
+
 
     new() -> Self
     create_thread(&mut self, ip, thread_tracker, config)
@@ -88,11 +106,9 @@ class PeerConnection {
 
 ThreadManager --> PeerConnection : starts_a
 
-EventHandler --> PeerEventMessage: sends
+EventHandler ..> PeerEventMessage: Sends
 PeerConnection o-- EventHandler: has_a
-PeerEventMessage --> ThreadManager: receives
-
-
+PeerEventMessage ..> ThreadManager: Receives
 
 
 enum ServerStateType {

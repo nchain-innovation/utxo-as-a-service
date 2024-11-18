@@ -18,6 +18,8 @@ pub struct UtxoEntry {
     satoshis: i64,
     // lock_script: Script, - have seen some very large script lengths here - removed for now
     height: i32, // use NOT_IN_BLOCK -1 to indicate that tx is not in block
+    #[allow(dead_code)] // pubkeyhash
+    pubkeyhash: String,
 }
 
 // provides access to utxo state and wraps interface to utxo table
@@ -59,12 +61,13 @@ impl Utxo {
                 pos int unsigned not null,
                 satoshis bigint unsigned not null,
                 height int not null,
+                pubkeyhash varchar(64),
                 CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
             )
             .unwrap();
 
         self.conn
-            .query_drop(r"CREATE INDEX idx_key ON utxo (hash, pos);")
+            .query_drop(r"CREATE INDEX speed_key ON utxo (pubkeyhash);")
             .unwrap();
     }
 
@@ -74,31 +77,36 @@ impl Utxo {
 
         let txs: Vec<UtxoEntryDB> = self
             .conn
-            .query_map("SELECT * FROM utxo", |(hash, pos, satoshis, height)| {
-                UtxoEntryDB {
+            .query_map(
+                "SELECT * FROM utxo",
+                |(hash, pos, satoshis, height, pubkeyhash)| UtxoEntryDB {
                     hash,
                     pos,
                     satoshis,
                     height,
-                }
-            })
+                    pubkeyhash,
+                },
+            )
             .unwrap();
 
-        for tx in txs {
-            let hash = Hash256::decode(&tx.hash).unwrap();
+        // Load entries into utxo struct
+        for entry in txs {
+            let hash = Hash256::decode(&entry.hash).unwrap();
 
             let outpoint = OutPoint {
                 hash,
-                index: tx.pos,
+                index: entry.pos,
             };
             let utxo_entry = UtxoEntry {
-                satoshis: tx.satoshis,
-                height: tx.height,
+                satoshis: entry.satoshis,
+                height: entry.height,
+                pubkeyhash: entry.pubkeyhash,
             };
             // add to list
             self.utxo.insert(outpoint, utxo_entry);
         }
 
+        // How long did it take
         log::info!(
             "UTXO {} Loaded in {} seconds",
             self.utxo.len(),
@@ -106,7 +114,14 @@ impl Utxo {
         );
     }
 
-    pub fn add(&mut self, hash: Hash256, index: usize, satoshis: i64, height: i32) {
+    pub fn add(
+        &mut self,
+        hash: Hash256,
+        index: usize,
+        satoshis: i64,
+        height: i32,
+        pubkeyhash: &str,
+    ) {
         // add a utxo outpoint, prepare a record to be written to database
         let outpoint = OutPoint {
             hash,
@@ -117,6 +132,7 @@ impl Utxo {
             satoshis,
             // lock_script: vout.lock_script.clone(),
             height,
+            pubkeyhash: pubkeyhash.to_string(),
         };
         // add to utxo list
         self.utxo.insert(outpoint.clone(), new_entry);
@@ -127,6 +143,7 @@ impl Utxo {
             pos: index.try_into().unwrap(),
             satoshis,
             height,
+            pubkeyhash: pubkeyhash.to_string(),
         };
         self.utxo_entries.insert(outpoint, utxo_entry);
     }

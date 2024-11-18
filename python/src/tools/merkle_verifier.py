@@ -8,7 +8,7 @@ import sys
 sys.path.append('..')
 
 from p2p_framework.hash import hash256
-from util import load_config, ConfigType
+from config import load_config, ConfigType
 from merkle import node_to_str, str_to_node
 
 

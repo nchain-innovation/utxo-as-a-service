@@ -2,7 +2,7 @@ use std::{
     net::IpAddr,
     sync::{atomic::AtomicBool, mpsc, Arc},
     thread,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use chain_gang::messages::Message;
@@ -12,26 +12,30 @@ use crate::{
     peer_connection::PeerConnection,
     peer_event::{PeerEventMessage, PeerEventType},
     peer_thread::{PeerThread, PeerThreadStatus},
-    rest_api::AppState,
+    rest_api::RestEventMessage,
     thread_tracker::ThreadTracker,
     uaas::logic::{Logic, ServerStateType},
 };
-use actix_web::web;
 
 pub struct ThreadManager {
-    rx: mpsc::Receiver<PeerEventMessage>,
-    tx: mpsc::Sender<PeerEventMessage>,
+    rx_peer: mpsc::Receiver<PeerEventMessage>,
+    tx_peer: mpsc::Sender<PeerEventMessage>,
+    rx_rest: mpsc::Receiver<RestEventMessage>,
 }
 
 impl ThreadManager {
-    pub fn new() -> Self {
+    pub fn new(rx_rest: mpsc::Receiver<RestEventMessage>) -> Self {
         // Used to send messages from PeerConnection(s) to ThreadManager
-        let (tx, rx) = mpsc::channel();
-        ThreadManager { rx, tx }
+        let (tx_peer, rx_peer) = mpsc::channel();
+        ThreadManager {
+            rx_peer,
+            tx_peer,
+            rx_rest,
+        }
     }
 
     pub fn get_tx(&self) -> mpsc::Sender<PeerEventMessage> {
-        self.tx.clone()
+        self.tx_peer.clone()
     }
     pub fn create_thread(
         &mut self,
@@ -40,7 +44,7 @@ impl ThreadManager {
         config: &Config,
     ) {
         let local_config = config.clone();
-        let local_tx = self.tx.clone();
+        let local_tx = self.tx_peer.clone();
 
         let local_running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
         let peer_running = local_running.clone();
@@ -113,16 +117,12 @@ impl ThreadManager {
         &mut self,
         thread_tracker: &mut ThreadTracker,
         logic: &mut Logic,
-        data: &web::Data<AppState>,
     ) -> bool {
-        let recv_duration = Duration::from_millis(500);
         let mut keep_looping = true;
         let mut should_stop: bool = false;
 
         while keep_looping {
-            let r = self.rx.recv_timeout(recv_duration);
-
-            if let Ok(received) = r {
+            if let Ok(received) = self.rx_peer.try_recv() {
                 should_stop = received.event == PeerEventType::Stop;
                 // Process the event
                 keep_looping = self.process_event(received.clone(), thread_tracker, logic);
@@ -136,20 +136,26 @@ impl ThreadManager {
                     }
                 });
             }
+            if let Ok(event) = self.rx_rest.try_recv() {
+                log::info!("{:?}", &event);
 
-            // Check to see if any tx to broadcast
-            let mut txs_for_broadcast = data.txs_for_broadcast.lock().unwrap();
-            while let Some(tx) = txs_for_broadcast.pop() {
-                dbg!(&tx);
-                if logic.tx_exists(tx.hash()) {
-                    log::info!("Broadcast Tx already exists {}", &tx.hash().encode());
-                    continue;
-                }
-                if let Some(peer) = thread_tracker.get_connected_peer() {
-                    let message = Message::Tx(tx.clone());
-                    peer.send(&message).unwrap();
-                    logic.on_tx(tx);
-                    logic.flush_database_cache();
+                match event {
+                    RestEventMessage::TxForBroadcast(tx) => {
+                        if logic.tx_exists(tx.hash()) {
+                            log::info!("Broadcast Tx already exists {}", &tx.hash().encode());
+                            continue;
+                        }
+                        if let Some(peer) = thread_tracker.get_connected_peer() {
+                            let message = Message::Tx(tx.clone());
+                            peer.send(&message).unwrap();
+                            logic.on_tx(tx);
+                            logic.flush_database_cache();
+                        }
+                    }
+                    RestEventMessage::AddMonitor(monitor) => logic.tx_analyser.add_monitor(monitor),
+                    RestEventMessage::DeleteMonitor(monitor_name) => {
+                        logic.tx_analyser.delete_monitor(&monitor_name)
+                    }
                 }
             }
         }

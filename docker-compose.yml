@@ -1,4 +1,3 @@
-version: '3.8'
 
 networks:
   uaas_network:
@@ -9,7 +8,7 @@ services:
   # Database
   database:
     container_name: database
-    image: mysql
+    image: mysql:8.0.37-bookworm
     cap_add:
       - SYS_NICE
     restart: always

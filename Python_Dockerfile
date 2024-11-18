@@ -1,5 +1,5 @@
-FROM python:3.11-slim-bookworm as base
-ENV PYTHONUNBUFFERED 1
+FROM python:3.12-slim-bookworm AS base
+ENV PYTHONUNBUFFERED=1
 ENV TZ=Europe/London
 ENV DEBIAN_FRONTEND="noninteractive"
 
@@ -7,7 +7,7 @@ WORKDIR /app
 COPY ./requirements.txt requirements.txt
 RUN pip3 install -r requirements.txt
 
-FROM base as release
+FROM base AS release
 WORKDIR /app/python
 RUN mkdir -p /app/python
 COPY ./python/src /app/python

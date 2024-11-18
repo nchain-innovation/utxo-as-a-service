@@ -118,6 +118,13 @@ This section contains project status related notes.
 -- 04/09/2024
 * Remove chain-gang as a submodule
 
+-- 11/11/2024
+* Add tx_engine
+* get_utxo endpoint
+    * speed up searching - add index on pubkeyhash
+* get_balance endpoint
+    * self.complete = config['utxo']['complete'] 
+* remove unused endpoints
 
 ## In Progress
 
@@ -130,6 +137,9 @@ This section contains project status related notes.
 
 
 ## TODO
+
+* If searching tx fails check the collections
+
 * Speed up mysql database, see what can be done in config
 * Add configuration item to enble/disable blockfiles
 

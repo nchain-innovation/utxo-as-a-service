@@ -40,7 +40,7 @@ impl ServerStateType {
 pub struct Logic {
     state: ServerStateType,
     block_manager: BlockManager,
-    tx_analyser: TxAnalyser,
+    pub tx_analyser: TxAnalyser,
     address_manager: AddressManager,
     pub connection: Connection,
 
@@ -254,7 +254,6 @@ impl Logic {
 
         // if no block_inventory left, we need to request more with GetBlocks
         if self.block_inventory.is_empty() {
-            // let hash = self.block_manager.get_last_known_block_hash();
             let hash = self.get_last_known_block_hash();
             log::info!("Requesting more blocks from hash = {}", &hash);
 

@@ -1,17 +1,16 @@
 #!/usr/bin/python3
-
-from typing import MutableMapping, Any
 import uvicorn
 
 from database import database
 from blockfile import blockfile
+from tx_analyser import tx_analyser
 from logic import logic
 
-from util import load_config
+from config import load_config, ConfigType
 from collection import collection
 
 
-def run_webserver(config: MutableMapping[str, Any]):
+def run_webserver(config: ConfigType):
     """ Given the config run the webserver
     """
     address = config["address"]
@@ -35,6 +34,7 @@ def main():
     config = load_config("../data/uaasr.toml")
     database.set_config(config)
     blockfile.set_config(config)
+    tx_analyser.set_config(config)
     logic.set_config(config)
     collection.set_config(config)
     run_webserver(config["web_interface"])

@@ -1,19 +1,18 @@
 #[macro_use]
 extern crate lazy_static;
-extern crate chrono;
-extern crate hex;
-extern crate rand;
-extern crate regex;
-extern crate retry;
+
 
 use actix_web::{web, App, HttpServer};
 use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::{
     net::{IpAddr, Ipv4Addr},
-    panic, process, thread, time,
+    panic, process,
+    sync::mpsc,
+    thread, time,
 };
 
 mod config;
+mod dynamic_config;
 mod event_handler;
 mod peer_connection;
 mod peer_event;
@@ -27,7 +26,7 @@ mod uaas;
 use crate::{
     config::get_config,
     peer_event::{PeerEventMessage, PeerEventType},
-    rest_api::{broadcast_tx, AppState},
+    rest_api::{add_monitor, broadcast_tx, delete_monitor, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
     uaas::logic::Logic,
@@ -54,15 +53,20 @@ async fn main() {
     // Get web server address from config
     let server_address = config.service.rust_address.clone();
     // Setup web server data
-    let web_state = web::Data::new(AppState::default());
-    let webstate = web_state.clone();
+    let (tx_rest, rx_rest) = mpsc::channel();
+
+    let app_state = AppState {
+        msg_from_rest_api: tx_rest,
+    };
+    let web_state = web::Data::new(app_state);
+
     // Setup logic
     let mut logic = Logic::new(&config);
     logic.setup();
 
     // Used to track peer connection threads
     let mut children = ThreadTracker::new();
-    let mut manager = ThreadManager::new();
+    let mut manager = ThreadManager::new(rx_rest);
     let tx = manager.get_tx();
 
     // Decode config
@@ -75,18 +79,24 @@ async fn main() {
         // Cycle around all the IP addresses
         for ip in ips.into_iter().cycle() {
             manager.create_thread(ip, &mut children, &config);
-            if manager.process_messages(&mut children, &mut logic, &webstate) {
+            if manager.process_messages(&mut children, &mut logic) {
                 break;
             };
         }
     );
 
     // Start webserver
-    let server =
-        HttpServer::new(move || App::new().app_data(web_state.clone()).service(broadcast_tx))
-            .workers(1)
-            .bind(server_address)
-            .unwrap();
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(web_state.clone())
+            .service(broadcast_tx)
+            .service(version)
+            .service(add_monitor)
+            .service(delete_monitor)
+    })
+    .workers(1)
+    .bind(server_address)
+    .unwrap();
     server.run().await.unwrap();
 
     // Handle control C
@@ -96,7 +106,7 @@ async fn main() {
     thread::spawn(move || {
         for sig in signals.forever() {
             if sig == SIGINT {
-                log::info!("Someone tried to kill us");
+                log::info!("Someone tried to kill us... (Please wait I am still processing)");
                 let stop_msg = PeerEventMessage {
                     time: time::SystemTime::now(),
                     peer: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
