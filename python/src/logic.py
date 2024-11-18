@@ -35,15 +35,13 @@ class Logic:
         block_height = block_manager.get_block_height()
         last_block_time = block_manager.get_last_block_time()
         return {
-            "status": {
-                "network": self.network,
-                "version": self._get_version(),
-                'last block time': last_block_time,
-                'block height': block_height,
-                'number of txs': self._get_no_of_entries("SELECT COUNT(*) FROM tx;"),
-                'number of utxo entries': self._get_no_of_entries("SELECT COUNT(*) FROM utxo;"),
-                'number of mempool entries': self._get_no_of_entries("SELECT COUNT(*) FROM mempool;"),
-            }
+            "network": self.network,
+            "version": self._get_version(),
+            'last block time': last_block_time,
+            'block height': block_height,
+            'number of txs': self._get_no_of_entries("SELECT COUNT(*) FROM tx;"),
+            'number of utxo entries': self._get_no_of_entries("SELECT COUNT(*) FROM utxo;"),
+            'number of mempool entries': self._get_no_of_entries("SELECT COUNT(*) FROM mempool;"),
         }
 
 
