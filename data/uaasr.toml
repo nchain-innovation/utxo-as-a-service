@@ -30,7 +30,7 @@ database = "main_uaas_db"
 # Used by Python and Rust
 block_file = "../data/main-block.dat"
 save_blocks = false
-
+save_txs = false
 
 
 [testnet]
@@ -82,7 +82,7 @@ database = "uaas_db"
 # Used by Python and Rust
 block_file = "../data/test-net.dat"
 save_blocks = false
-
+save_txs = false
 
 #[[collection]]
 #name = "p2pkh"

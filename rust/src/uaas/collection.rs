@@ -140,7 +140,7 @@ impl WorkingCollection {
         self.collection.track_descendants
     }
 
-    pub fn already_have_tx(&self, hash: Hash256) -> bool {
+    pub fn have_tx(&self, hash: Hash256) -> bool {
         // Return true if we already have this tx hash
         self.txs.iter().any(|x| x == &hash)
     }

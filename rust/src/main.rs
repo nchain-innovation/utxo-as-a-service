@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-
 use actix_web::{web, App, HttpServer};
 use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::{

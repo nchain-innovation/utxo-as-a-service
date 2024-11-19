@@ -20,6 +20,7 @@ pub struct NetworkSettings {
     pub startup_load_from_database: bool,
     pub block_file: String,
     pub save_blocks: bool,
+    pub save_txs: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]

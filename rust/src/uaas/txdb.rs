@@ -30,6 +30,7 @@ pub struct TxDB {
     conn: PooledConn,
     // All transactions
     pub txs: HashMap<Hash256, u32>,
+    save_txs: bool,
 
     // mempool - transactions that are not in blocks
     pub mempool: HashMap<Hash256, Hash256>,
@@ -45,10 +46,11 @@ pub struct TxDB {
 }
 
 impl TxDB {
-    pub fn new(conn: PooledConn, tx: mpsc::Sender<DBOperationType>) -> Self {
+    pub fn new(conn: PooledConn, tx: mpsc::Sender<DBOperationType>, save_txs: bool) -> Self {
         TxDB {
             conn,
             txs: HashMap::new(),
+            save_txs,
             mempool: HashMap::new(),
             hashes_to_delete: Vec::new(),
             tx_entries: Vec::new(),
@@ -141,6 +143,28 @@ impl TxDB {
         );
     }
 
+    // save the tx to the database
+    fn save_tx(&mut self, tx: &Tx, hash: Hash256, blockindex: u32, height: usize) {
+        let satoshi_out: u64 = tx
+            .outputs
+            .iter()
+            .map(|x| x.satoshis)
+            .sum::<i64>()
+            .try_into()
+            .unwrap();
+        // Store tx - note that we only do this for tx in a block
+        let tx_entry = TxEntryWriteDB {
+            hash,
+            height,
+            blockindex,
+            size: tx.size() as u32,
+            satoshis: satoshi_out,
+        };
+
+        // Write to database later
+        self.tx_entries.push(tx_entry);
+    }
+
     pub fn process_block(&mut self, block: &Block, height: i32) {
         // for each tx in block
         for (blockindex, tx) in block.txns.iter().enumerate() {
@@ -151,29 +175,18 @@ impl TxDB {
                 self.hashes_to_delete.push(hash);
             }
 
-            let satoshi_out: u64 = tx
-                .outputs
-                .iter()
-                .map(|x| x.satoshis)
-                .sum::<i64>()
-                .try_into()
-                .unwrap();
-            // Store tx - note that we only do this for tx in a block
-            let tx_entry = TxEntryWriteDB {
-                hash,
-                height: height.try_into().unwrap(),
-                blockindex: blockindex.try_into().unwrap(),
-                size: tx.size() as u32,
-                satoshis: satoshi_out,
-            };
-
-            // Write to database later
-            self.tx_entries.push(tx_entry);
-
-            if self.txs.insert(hash, height.try_into().unwrap()).is_some() {
-                // We must have already processed this tx in a block
-                log::warn!("Should not get here, as it indicates that we have processed the same tx twice in a block. {:?}", &hash);
-                //panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
+            if self.save_txs {
+                self.save_tx(
+                    tx,
+                    hash,
+                    blockindex.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                );
+                if self.txs.insert(hash, height.try_into().unwrap()).is_some() {
+                    // We must have already processed this tx in a block
+                    log::warn!("Should not get here, as it indicates that we have processed the same tx twice in a block. {:?}", &hash);
+                    //panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
+                }
             }
         }
     }
