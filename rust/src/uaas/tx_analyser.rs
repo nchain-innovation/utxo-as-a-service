@@ -38,6 +38,7 @@ fn script_to_pubkeyhash(locking_script: &Script) -> String {
 }
 
 pub struct TxAnalyser {
+    save_txs: bool,
     // Database interface
     pub txdb: TxDB,
     // Unspent tx - make public so logic can write to database when in ready state
@@ -58,6 +59,7 @@ impl TxAnalyser {
         let txdb_conn = pool.get_conn().unwrap();
         let collection_conn = pool.get_conn().unwrap();
 
+        let save_txs = config.get_network_settings().save_txs;
         let dynamic_config = DynamicConfig::new(config);
         let mut collection: Vec<WorkingCollection> = Vec::new();
 
@@ -76,7 +78,8 @@ impl TxAnalyser {
             }
         }
         TxAnalyser {
-            txdb: TxDB::new(txdb_conn, tx.clone()),
+            save_txs,
+            txdb: TxDB::new(txdb_conn, tx.clone(), save_txs),
             utxo: Utxo::new(utxo_conn, tx),
             conn: tx_conn,
             collection,
@@ -95,7 +98,7 @@ impl TxAnalyser {
             )
             .unwrap();
 
-        if !tables.iter().any(|x| x.as_str() == "tx") {
+        if self.save_txs && !tables.iter().any(|x| x.as_str() == "tx") {
             self.txdb.create_tx_table();
         }
 
@@ -117,7 +120,10 @@ impl TxAnalyser {
     fn read_tables(&mut self) {
         // Load datastructures from the database tables
         self.txdb.load_mempool();
-        self.txdb.load_tx();
+        if self.save_txs {
+            self.txdb.load_tx();
+        }
+
         self.utxo.load_utxo();
         for c in self.collection.iter_mut() {
             c.txs = self.collection_db.load_txs(c.name());
@@ -160,18 +166,19 @@ impl TxAnalyser {
 
     fn process_tx_inputs(&mut self, tx: &Tx, blockindex: usize) {
         if blockindex == 0 {
-            // if is coinbase - nothing to process as these won't be in the utxo
+            // if is coinbase (blockindex 0)- nothing to process as these won't be in the utxo
         } else {
-            for vin in tx.inputs.iter() {
-                self.utxo.delete(&vin.prev_output);
-            }
+            let _ = tx
+                .inputs
+                .iter()
+                .map(|vin| self.utxo.delete(&vin.prev_output));
         }
     }
 
-    fn process_collection(&mut self, tx: &Tx, _height: i32, _blockindex: i32) {
+    fn process_collection(&mut self, tx: &Tx) {
         for c in self.collection.iter_mut() {
             // Check to see if we have already processed it if so quit
-            if c.already_have_tx(tx.hash()) {
+            if c.have_tx(tx.hash()) {
                 return;
             }
 
@@ -196,7 +203,7 @@ impl TxAnalyser {
         self.process_tx_outputs(tx, height);
 
         // Collection processing
-        self.process_collection(tx, height, blockindex.try_into().unwrap());
+        self.process_collection(tx);
     }
 
     pub fn process_block(&mut self, block: &Block, height: i32) {
@@ -205,9 +212,11 @@ impl TxAnalyser {
         self.txdb.process_block(block, height);
 
         // now process Txs...
-        for (blockindex, tx) in block.txns.iter().enumerate() {
-            self.process_block_tx(tx, height, blockindex);
-        }
+        let _ = block
+            .txns
+            .iter()
+            .enumerate()
+            .map(|(blockindex, tx)| self.process_block_tx(tx, height, blockindex));
 
         // Do db writes here
         self.flush_database_cache();
@@ -216,7 +225,9 @@ impl TxAnalyser {
     pub fn flush_database_cache(&mut self) {
         self.utxo.update_db();
         self.txdb.batch_delete_from_mempool();
-        self.txdb.batch_write_tx_to_table();
+        if self.save_txs {
+            self.txdb.batch_write_tx_to_table();
+        }
     }
 
     fn calc_fee(&self, tx: &Tx) -> i64 {
@@ -254,12 +265,14 @@ impl TxAnalyser {
         self.process_tx_outputs(tx, NOT_IN_BLOCK);
 
         // Collection processing
-        self.process_collection(tx, NOT_IN_BLOCK, NOT_IN_BLOCK);
+        self.process_collection(tx);
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {
         // Return true if txid is in txs or mempool
-        self.txdb.tx_exists(hash)
+        // As we may not store all txs we assume that a collection has been setup for any that we are
+        // interested in and so we have to search the collections
+        self.txdb.tx_exists(hash) || self.collection.iter().any(|c| c.have_tx(hash))
     }
 
     pub fn handle_orphan_block(&mut self, height: u32) {
