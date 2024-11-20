@@ -77,6 +77,11 @@ impl TxAnalyser {
                 Err(e) => println!("Error parsing collection {:?}", e),
             }
         }
+        // Create a collection for broadcast txs
+        let broadcast_collection: WorkingCollection =
+            WorkingCollection::create_broadcast_collection();
+        collection.push(broadcast_collection);
+
         TxAnalyser {
             save_txs,
             txdb: TxDB::new(txdb_conn, tx.clone(), save_txs),
@@ -111,7 +116,7 @@ impl TxAnalyser {
             self.utxo.create_table();
         }
 
-        // Collection table
+        // Collection table - one table for all collections
         if !tables.iter().any(|x| x.as_str() == "collection") {
             self.collection_db.create_table(&mut self.conn);
         }
@@ -125,6 +130,7 @@ impl TxAnalyser {
         }
 
         self.utxo.load_utxo();
+        // Load Collections
         for c in self.collection.iter_mut() {
             c.txs = self.collection_db.load_txs(c.name());
         }
@@ -175,7 +181,7 @@ impl TxAnalyser {
         }
     }
 
-    fn process_collection(&mut self, tx: &Tx) {
+    fn process_collection(&mut self, tx: &Tx, is_uaas_broadcast_tx: bool) {
         for c in self.collection.iter_mut() {
             // Check to see if we have already processed it if so quit
             if c.have_tx(tx.hash()) {
@@ -188,6 +194,21 @@ impl TxAnalyser {
                 self.collection_db.write_tx_to_database(c.name(), tx);
                 return;
             }
+        }
+        // write to a broadcast collection - if hasn't already been picked up by previous collections
+        if is_uaas_broadcast_tx {
+            // get broadcast_collection
+            match self.collection.iter_mut().find(|c| c.name() == "broadcast") {
+                Some(broadcast_collection) => {
+                    // write to a broadcast collection - if hasn't already been picked up by previous collections
+                    broadcast_collection.push(tx.hash());
+                    self.collection_db
+                        .write_tx_to_database(broadcast_collection.name(), tx);
+                }
+                None => {
+                    log::warn!("Unable to find broadcast collection");
+                }
+            };
         }
     }
 
@@ -203,7 +224,7 @@ impl TxAnalyser {
         self.process_tx_outputs(tx, height);
 
         // Collection processing
-        self.process_collection(tx);
+        self.process_collection(tx, false);
     }
 
     pub fn process_block(&mut self, block: &Block, height: i32) {
@@ -249,7 +270,7 @@ impl TxAnalyser {
         cmp::max(0i64, fee)
     }
 
-    pub fn process_standalone_tx(&mut self, tx: &Tx) {
+    pub fn process_standalone_tx(&mut self, tx: &Tx, is_uaas_broadcast_tx: bool) {
         // Process standalone tx as we receive them.
         // Note standalone tx are txs that are not in a block.
         let fee = self.calc_fee(tx);
@@ -265,7 +286,7 @@ impl TxAnalyser {
         self.process_tx_outputs(tx, NOT_IN_BLOCK);
 
         // Collection processing
-        self.process_collection(tx);
+        self.process_collection(tx, is_uaas_broadcast_tx);
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {

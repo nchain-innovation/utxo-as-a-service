@@ -101,7 +101,8 @@ pub struct WorkingCollection {
     pub collection: CollectionConfig,
     pub txs: Vec<Hash256>,
     // No point to the Collection if there is no locking_script_regex
-    locking_script_regex: Regex,
+    // Actually there is for is_uaas_broadcast txs
+    locking_script_regex: Option<Regex>,
 }
 
 impl WorkingCollection {
@@ -113,7 +114,7 @@ impl WorkingCollection {
             return Ok(WorkingCollection {
                 collection: collection.clone(),
                 txs: Vec::new(),
-                locking_script_regex,
+                locking_script_regex: Some(locking_script_regex),
             });
         }
 
@@ -123,13 +124,32 @@ impl WorkingCollection {
             return Ok(WorkingCollection {
                 collection: collection.clone(),
                 txs: Vec::new(),
-                locking_script_regex,
+                locking_script_regex: Some(locking_script_regex),
             });
         }
         Err(anyhow!(
             "Incorrect Collection configuration {:?}",
             &collection
         ))
+    }
+
+    // Create a special form of collection just to catch broadcasts
+    pub fn create_broadcast_collection() -> Self {
+        let broadcast_collection = CollectionConfig {
+            name: "broadcast".to_string(),
+            track_descendants: false,
+            address: None,
+            locking_script_pattern: None,
+        };
+
+        WorkingCollection {
+            // this is a collection that also maintains a list of tx hashes that it has used
+            collection: broadcast_collection,
+            txs: Vec::new(),
+            // No point to the Collection if there is no locking_script_regex
+            // Actually there is for is_uaas_broadcast txs
+            locking_script_regex: None,
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -146,12 +166,14 @@ impl WorkingCollection {
     }
 
     pub fn match_any_locking_script(&self, tx: &Tx) -> bool {
-        for vout in &tx.outputs {
-            // Convert the script into hexstring
-            let script_hex = format!("{}", HexSlice::new(&vout.lock_script.0));
-            // Pattern match here
-            if self.locking_script_regex.is_match(&script_hex) {
-                return true;
+        if let Some(locking_script_regex) = &self.locking_script_regex {
+            for vout in &tx.outputs {
+                // Convert the script into hexstring
+                let script_hex = format!("{}", HexSlice::new(&vout.lock_script.0));
+                // Pattern match here
+                if locking_script_regex.is_match(&script_hex) {
+                    return true;
+                }
             }
         }
         false
