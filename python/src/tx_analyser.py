@@ -1,5 +1,4 @@
 import datetime
-import time
 from typing import List, Dict, Any, Optional
 
 from database import database
@@ -54,13 +53,8 @@ class TxAnalyser:
 
     def get_utxo(self, pubkeyhash: str) -> Dict[str, Any]:
         # Return the UTXO associated with a particular pubkeyhash
-        start = time.time()
 
         result = database.query(f"SELECT hash, pos, satoshis, height FROM utxo WHERE pubkeyhash = '{pubkeyhash}';")
-        elapsed_time = time.time() - start
-        print(f"Time to query {elapsed_time}")
-
-        start = time.time()
 
         retval = [{
             "height": x[3],
@@ -69,10 +63,6 @@ class TxAnalyser:
             "value": x[2],
         } for x in result]
 
-        elapsed_time = time.time() - start
-        print(f"Time to process {elapsed_time}")
-
-        print(f"retval.len() = {len(retval)}")
         return {
             "utxo": retval,
         }

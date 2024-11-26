@@ -31,7 +31,7 @@ class Logic:
                 return result.json()["version"]
         return "unknown"
 
-    def get_status(self) -> Dict[str, Dict[str, Any]]:
+    def get_status(self) -> Dict[str, Any]:
         block_height = block_manager.get_block_height()
         last_block_time = block_manager.get_last_block_time()
         return {
