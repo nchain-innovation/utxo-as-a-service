@@ -98,7 +98,7 @@ impl ThreadManager {
                 }
             }
 
-            PeerEventType::Tx(tx) => logic.on_tx(tx),
+            PeerEventType::Tx(tx) => logic.on_tx(tx, false),
             PeerEventType::Block(block) => logic.on_block(block),
             PeerEventType::Addr(addr) => logic.on_addr(addr),
             PeerEventType::Headers(headers) => logic.on_headers(headers),
@@ -149,7 +149,7 @@ impl ThreadManager {
                         if let Some(peer) = thread_tracker.get_connected_peer() {
                             let message = Message::Tx(tx.clone());
                             peer.send(&message).unwrap();
-                            logic.on_tx(tx);
+                            logic.on_tx(tx, true);
                             logic.flush_database_cache();
                         }
                     }

@@ -143,10 +143,11 @@ impl Logic {
         }
     }
 
-    pub fn on_tx(&mut self, tx: Tx) {
-        // Handle TX message
+    pub fn on_tx(&mut self, tx: Tx, is_uaas_broadcast_tx: bool) {
+        // Handle TX message,
         // Process straight away - goes to mempool
-        self.tx_analyser.process_standalone_tx(&tx);
+        self.tx_analyser
+            .process_standalone_tx(&tx, is_uaas_broadcast_tx);
         if self.state.is_ready() {
             // if we are in ready state write utxo out
             self.tx_analyser.utxo.update_db();
