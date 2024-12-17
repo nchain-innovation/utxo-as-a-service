@@ -6,13 +6,13 @@ import requests
 from io import BytesIO
 
 from p2p_framework.object import CTransaction
-from tx_engine import address_to_public_key_hash
 
 from config import load_config, ConfigType
 from tx_analyser import tx_analyser
 from block_manager import block_manager
 from collection import collection, hexstr_to_tx, Monitor
 from logic import logic
+from util import address_to_public_key_hash
 
 tags_metadata = [
     {
@@ -160,7 +160,7 @@ def get_utxo(address: str, response: Response) -> Dict[str, Any]:
     # address -> pubkeyhash
     try:
         pubkeyhash = address_to_public_key_hash(address).hex()
-    except RuntimeError as e:
+    except ValueError as e:
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {"failure": f"Unable to decode address {address}.\n{e}."}
     else:
@@ -173,7 +173,7 @@ def get_balance(address: str, response: Response) -> Dict[str, Any]:
     # address -> pubkeyhash
     try:
         pubkeyhash = address_to_public_key_hash(address).hex()
-    except RuntimeError as e:
+    except ValueError as e:
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {"failure": f"Unable to decode address {address}.\n{e}."}
     else:

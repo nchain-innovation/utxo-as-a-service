@@ -9,4 +9,3 @@ fastapi_utils
 uvicorn[standard]
 mysql-connector-python
 requests
-tx-engine
