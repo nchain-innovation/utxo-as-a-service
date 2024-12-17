@@ -1,7 +1,5 @@
 toml 
 docker
-coincurve
-bitsv
 flake8
 mypy
 fastapi
