@@ -3,6 +3,8 @@ from io import BytesIO
 from typing import List, Dict
 
 from p2p_framework.object import CBlock
+from p2p_framework.hash import hash256
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -99,3 +101,34 @@ def sort_blocks_by_hash_from_first(blocks: List[CBlock]) -> List[CBlock]:
 
             new_blocks.append(b)
     return new_blocks
+
+
+def address_to_public_key_hash(addr: str) -> bytes:
+    BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+    num: int = 0
+    for c in addr:
+        num *= 58
+        num += BASE58_ALPHABET.index(c)
+    combined: bytes = num.to_bytes(25, byteorder="big")
+    checksum: bytes = combined[-4:]
+    if hash256(combined[:-4])[:4] != checksum:
+        raise ValueError(
+            "bad address: {!r} {!r}".format(checksum, hash256(combined[:-4])[:4])
+        )
+    return combined[1:-4]
+
+
+if __name__ == '__main__':
+    import unittest
+
+    class Addr2PKHTest(unittest.TestCase):
+
+        def test_address_to_public_key_hash(self):
+            address = "mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5"
+            calculated_public_key = address_to_public_key_hash(address).hex()
+            public_key_hash = "10375cfe32b917cd24ca1038f824cd00f7391859"
+
+            self.assertEqual(calculated_public_key, public_key_hash)
+
+    unittest.main()
