@@ -4,6 +4,7 @@ import requests
 from database import database
 from block_manager import block_manager
 from config import ConfigType
+from mysql.connector.errors import ProgrammingError
 
 
 class Logic:
@@ -17,8 +18,12 @@ class Logic:
         self.rust_url = config["web_interface"]["rust_url"]
 
     def _get_no_of_entries(self, provided_query: str) -> int:
-        result = database.query(provided_query)
-        return result[0][0]
+        try:
+            result = database.query(provided_query)
+            return result[0][0]
+        except ProgrammingError as e:
+            print(f"MySQL ProgrammingError {e}")
+            return 0
 
     def _get_version(self) -> str:
         url = self.rust_url + "/version"
