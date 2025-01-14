@@ -33,11 +33,7 @@ pub fn timestamp_age_as_sec(timestamp: u32) -> u64 {
         .unwrap()
         .as_secs();
 
-    if now > block_timestamp {
-        now - block_timestamp
-    } else {
-        0
-    }
+    now.saturating_sub(block_timestamp)
 }
 
 // Decode hex
