@@ -238,25 +238,28 @@ impl BlockManager {
         blocksize: u32,
         numtxs: u32,
     ) {
-        // Write the block header to a database
-        // Needs to be called before process block as process block increments the self.height
-        let block_header = BlockHeaderWriteDB {
-            height: self.height,
-            hash: header.hash(),
-            version: header.version,
-            prev_hash: header.prev_hash,
-            merkle_root: header.merkle_root,
-            timestamp: header.timestamp,
-            bits: header.bits,
-            nonce: header.nonce,
-            position,
-            blocksize,
-            numtxs,
-        };
+        // Double check we haven't already written it
+        if !self.hash_to_index.contains_key(&header.hash()) {
+            // Write the block header to a database
+            // Needs to be called before process block as process block increments the self.height
+            let block_header = BlockHeaderWriteDB {
+                height: self.height,
+                hash: header.hash(),
+                version: header.version,
+                prev_hash: header.prev_hash,
+                merkle_root: header.merkle_root,
+                timestamp: header.timestamp,
+                bits: header.bits,
+                nonce: header.nonce,
+                position,
+                blocksize,
+                numtxs,
+            };
 
-        self.tx
-            .send(DBOperationType::BlockHeaderWrite(block_header))
-            .unwrap();
+            self.tx
+                .send(DBOperationType::BlockHeaderWrite(block_header))
+                .unwrap();
+        }
     }
 
     fn delete_blockheader_from_database(&mut self, hash: &Hash256) {
