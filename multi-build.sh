@@ -11,7 +11,7 @@
 
 # Tags
 BASE_TAG1=uaas-web
-VERSION1=v1.3
+VERSION1=v1.4
 PUBLISH_TAG1=nchain/innovation-$BASE_TAG1:$VERSION1
 
 # multi build, tag and push base images
@@ -23,4 +23,4 @@ VERSION2=v1.3
 PUBLISH_TAG2=nchain/innovation-$BASE_TAG2:$VERSION2
 
 # multi build, tag and push base images
- docker buildx build  --platform linux/amd64,linux/arm64 --push -t $PUBLISH_TAG2 --file Rust_Dockerfile .
+docker buildx build  --platform linux/amd64,linux/arm64 --push -t $PUBLISH_TAG2 --file Rust_Dockerfile .

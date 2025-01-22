@@ -164,7 +164,13 @@ To build and publish the images, run the following command:
 
 - **Docker Buildx:** The script requires Docker's Buildx extension to be set as the active builder. Ensure Buildx is properly installed and selected as the current Docker engine. For help, see [Docker Buildx](https://docs.docker.com/build/builders/)  
 
-- **Publishing Permissions:** Only members of the ```rndprototyping``` team within the ```nChain``` Docker Hub organisation are authorised to publish images with the appropriate tags. Ensure you are logged in with the necessary permissions before running the script, else this will fail.
+- **Publishing Permissions:** Only members of the ```innovation``` team within the ```nChain``` Docker Hub organisation are authorised to publish images with the appropriate tags. Ensure you are logged in with the necessary permissions before running the script, else this will fail.
+
+To login to Docker Hub at the command line use:
+```
+docker login -u <name>
+```
+When prompted enter the password.
 
 
 
