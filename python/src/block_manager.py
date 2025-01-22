@@ -3,6 +3,7 @@ import time
 from database import database
 from p2p_framework.object import CBlockHeader
 import datetime
+from mysql.connector.errors import ProgrammingError
 
 
 class BlockManager:
@@ -86,8 +87,12 @@ class BlockManager:
         return self._results_to_block(retval)
 
     def _read_tx_at_height(self, height) -> List[str]:
-        result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
-        return [x[0] for x in result]
+        try:
+            result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+            return [x[0] for x in result]
+        except ProgrammingError as e:
+            print(f"MySQL ProgrammingError {e}")
+            return []
 
     def _read_last_block(self) -> None | Dict[str, Any]:
         retval = database.query("SELECT * FROM blocks WHERE height = (SELECT MAX(height) FROM blocks);")
