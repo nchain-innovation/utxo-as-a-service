@@ -6,6 +6,7 @@ from blockfile import blockfile
 from merkle import create_merkle_branch
 from p2p_framework.object import CTransaction
 from config import ConfigType
+from mysql.connector.errors import ProgrammingError
 
 
 class TxAnalyser:
@@ -89,8 +90,12 @@ class TxAnalyser:
             return None
 
     def _read_tx_height_and_blockindex(self, hash: str) -> Optional[List[int]]:
-        result = database.query(
-            f"SELECT height, blockindex FROM tx WHERE hash='{hash}';")
+        try:
+            result = database.query(
+                f"SELECT height, blockindex FROM tx WHERE hash='{hash}';")
+        except ProgrammingError as e:
+            print(f"MySQL ProgrammingError {e}")
+            return None
         try:
             return result[0]
         except IndexError:
@@ -156,9 +161,13 @@ class TxAnalyser:
     def tx_exist(self, hash: str) -> bool:
         # Return true if txid is in txs or mempool or collection
         # self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
-        txs = database.query(f"SELECT * FROM tx WHERE hash = '{hash}';")
-        if len(txs) > 0:
-            return True
+        try:
+            txs = database.query(f"SELECT * FROM tx WHERE hash = '{hash}';")
+        except ProgrammingError as e:
+            print(f"MySQL ProgrammingError {e}")
+        else:
+            if len(txs) > 0:
+                return True
         mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
         if len(mempool) > 0:
             return True
@@ -180,8 +189,13 @@ class TxAnalyser:
                 "status": f"Transaction {hash} not found in block"
             }
         # Get the txs in the block
-        result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
-        txs = [x[0] for x in result]
+        try:
+            result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+            txs = [x[0] for x in result]
+        except ProgrammingError as e:
+            print(f"MySQL ProgrammingError {e}")
+            txs = []
+
         # Create merkle proof
         branches = create_merkle_branch(hash, txs)
         return {
