@@ -28,7 +28,7 @@ impl PeerConnection {
         let network = config.get_network().expect("Error decoding config network");
         let user_agent = &config.service.user_agent;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let version = Version {
             version: PROTOCOL_VERSION,
@@ -36,7 +36,7 @@ impl PeerConnection {
             timestamp: secs_since(time::UNIX_EPOCH) as i64,
             user_agent: user_agent.to_string(),
             relay: true, // This must be set to true to receive Tx messages
-            nonce: rng.gen::<u64>(),
+            nonce: rng.random::<u64>(),
             start_height: 738839,
             ..Default::default()
         };
