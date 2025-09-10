@@ -9,19 +9,19 @@ edition = "2021"
 chain-gang = { git = "https://github.com/nchain-innovation/chain-gang.git" }
 
 serde = { version = "1.0.197", features =["derive"] }
-toml = "0.5.8"
+toml = "0.9.5"
 lazy_static = "1.4.0"
 serde_json = "1.0.114"
-mysql = "25.0.1"
+mysql = "26.0.1"
 chrono = "0.4.35"
-rand = "0.8.5"
+rand = "0.9.2"
 hex = "0.4.3"
 regex = "1.10.3"
 retry = "2.0.0"
 actix-web = "4.8.0"
 signal-hook = "0.3.17"
 log = { version = "0.4.21", features = ["max_level_trace", "release_max_level_warn"] }
-simple_logger = "4.3.3"
+simple_logger = "5.0.0"
 anyhow = "1.0.90"
 
 [features]

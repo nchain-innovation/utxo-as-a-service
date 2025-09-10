@@ -1,7 +1,6 @@
 use chain_gang::network::Network;
 use serde::{Deserialize, Serialize};
-use std::env;
-use std::net::IpAddr;
+use std::{env, io, net::IpAddr};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Service {
@@ -124,7 +123,7 @@ impl Config {
 fn read_config(filename: &str) -> std::io::Result<Config> {
     // Given filename read the config
     let content = std::fs::read_to_string(filename)?;
-    Ok(toml::from_str(&content)?)
+    toml::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 // Example environment var
