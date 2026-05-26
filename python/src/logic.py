@@ -6,6 +6,8 @@ from block_manager import block_manager
 from config import ConfigType
 from mysql.connector.errors import ProgrammingError
 
+RUST_REQUEST_TIMEOUT = 30  # seconds
+
 
 class Logic:
     def __init__(self):
@@ -28,7 +30,9 @@ class Logic:
     def _get_version(self) -> str:
         url = self.rust_url + "/version"
         try:
-            result = requests.get(url)
+            result = requests.get(url, timeout=RUST_REQUEST_TIMEOUT)
+        except requests.exceptions.Timeout:
+            print(f"timeout requesting version from {url}")
         except requests.exceptions.ConnectionError as e:
             print(f"failure = {str(e)}, url = {url}")
         else:

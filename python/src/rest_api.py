@@ -22,6 +22,8 @@ from validation import (
     validate_hex_string,
 )
 
+RUST_REQUEST_TIMEOUT = 30  # seconds
+
 tags_metadata = [
     {
         "name": "UTXO as a Service (UaaS) REST API",
@@ -198,7 +200,12 @@ def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {"failure": f" Transaction {hash} already exists."}
     try:
-        result = requests.post(rust_url + "/tx/raw", data=tx.tx)
+        result = requests.post(
+            rust_url + "/tx/raw", data=tx.tx, timeout=RUST_REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        response.status_code = status.HTTP_504_GATEWAY_TIMEOUT
+        return {"failure": "Rust service request timed out"}
     except requests.exceptions.ConnectionError as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         print(f"failure = {str(e)}")
@@ -323,7 +330,12 @@ def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
     data = monitor.model_dump(mode='json')
     print("data=", data)
     try:
-        result = requests.post(rust_url + "/collection/monitor", json=data)
+        result = requests.post(
+            rust_url + "/collection/monitor", json=data, timeout=RUST_REQUEST_TIMEOUT
+        )
+    except requests.exceptions.Timeout:
+        response.status_code = status.HTTP_504_GATEWAY_TIMEOUT
+        return {"failure": "Rust service request timed out"}
     except requests.exceptions.ConnectionError as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         print(f"failure = {str(e)}")
@@ -366,7 +378,13 @@ def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
 
     # call uaas backend
     try:
-        result = requests.delete(rust_url + f"/collection/monitor/{monitor_name}")
+        result = requests.delete(
+            rust_url + f"/collection/monitor/{monitor_name}",
+            timeout=RUST_REQUEST_TIMEOUT,
+        )
+    except requests.exceptions.Timeout:
+        response.status_code = status.HTTP_504_GATEWAY_TIMEOUT
+        return {"failure": "Rust service request timed out"}
     except requests.exceptions.ConnectionError as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         print(f"failure = {str(e)}")
