@@ -74,17 +74,37 @@ pub struct BlockManager {
 }
 
 impl BlockManager {
+    fn send_db_op(&self, op: DBOperationType) {
+        if self.tx.send(op).is_err() {
+            log::error!("Failed to send block database operation; channel closed");
+        }
+    }
+
+    fn decode_stored_hash(label: &str, value: &str) -> Option<Hash256> {
+        match Hash256::decode(value) {
+            Ok(hash) => Some(hash),
+            Err(err) => {
+                log::error!("Invalid {label} hash {value}: {err:?}");
+                None
+            }
+        }
+    }
+
     pub fn new(config: &Config, conn: PooledConn, tx: mpsc::Sender<DBOperationType>) -> Self {
+        let start_block_hash = config.get_network_settings().start_block_hash.clone();
+        let last_hash_processed = Hash256::decode(&start_block_hash).unwrap_or_else(|err| {
+            panic!("Invalid start_block_hash '{start_block_hash}': {err:?}");
+        });
+
         BlockManager {
-            start_block_hash: config.get_network_settings().start_block_hash.clone(),
+            start_block_hash,
             startup_load_from_database: config.get_network_settings().startup_load_from_database,
             block_file: config.get_network_settings().block_file.clone(),
             save_blocks: config.get_network_settings().save_blocks,
             block_headers: Vec::new(),
             hash_to_index: HashMap::new(),
             height: config.get_network_settings().start_block_height + 1,
-            last_hash_processed: Hash256::decode(&config.get_network_settings().start_block_hash)
-                .unwrap(),
+            last_hash_processed,
             block_queue: HashMap::new(),
             conn,
             tx,
@@ -95,18 +115,20 @@ impl BlockManager {
     fn create_tables(&mut self) {
         // Create tables, if required
         // Check for the tables
-        let tables: Vec<String> = self
-            .conn
-            .query(
-                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
-            )
-            .unwrap();
+        let tables: Vec<String> = match self.conn.query(
+            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
+        ) {
+            Ok(tables) => tables,
+            Err(err) => {
+                log::error!("Unable to list database tables: {err:?}");
+                return;
+            }
+        };
 
         if !tables.iter().any(|x| x.as_str() == "blocks") {
             log::info!("Table blocks not found - creating");
-            self.conn
-                .query_drop(
-                    r"CREATE TABLE blocks (
+            if let Err(err) = self.conn.query_drop(
+                r"CREATE TABLE blocks (
                     height int unsigned not null,
                     hash varchar(64) not null,
                     version int unsigned not null,
@@ -119,18 +141,22 @@ impl BlockManager {
                     blocksize int unsigned not null,
                     numtxs int unsigned not null,
                     CONSTRAINT PK_Entry PRIMARY KEY (hash));",
-                )
-                .unwrap();
-            self.conn
+            ) {
+                log::error!("Unable to create blocks table: {err:?}");
+                return;
+            }
+            if let Err(err) = self
+                .conn
                 .query_drop(r"CREATE INDEX idx_hash ON blocks (hash);")
-                .unwrap();
+            {
+                log::error!("Unable to create blocks hash index: {err:?}");
+            }
         }
 
         if !tables.iter().any(|x| x.as_str() == "orphans") {
             log::info!("Table orphans not found - creating");
-            self.conn
-                .query_drop(
-                    r"CREATE TABLE orphans (
+            if let Err(err) = self.conn.query_drop(
+                r"CREATE TABLE orphans (
                     height int unsigned not null,
                     hash varchar(64) not null,
                     version int unsigned not null,
@@ -140,23 +166,37 @@ impl BlockManager {
                     bits int unsigned not null,
                     nonce int unsigned not null,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);",
-                )
-                .unwrap();
+            ) {
+                log::error!("Unable to create orphans table: {err:?}");
+            }
         }
 
         // Disable safe mode... wa ha ha - what could possibly go wrong?
-        self.conn.query_drop("SET sql_safe_updates=0;").unwrap();
+        if let Err(err) = self.conn.query_drop("SET sql_safe_updates=0;") {
+            log::warn!("Unable to disable sql_safe_updates: {err:?}");
+        }
     }
 
     fn load_blockheaders_from_database(&mut self) {
         // load headers from database
         let start = Instant::now();
 
-        let headers = self
-            .conn
-            .query_map(
-                "SELECT * FROM blocks ORDER BY height asc",
-                |(
+        let headers: Vec<DBHeader> = match self.conn.query_map(
+            "SELECT * FROM blocks ORDER BY height asc",
+            |(
+                height,
+                _hash,
+                version,
+                prev_hash,
+                merkle_root,
+                timestamp,
+                bits,
+                nonce,
+                position,
+                _blocksize,
+                _numtxs,
+            )| {
+                DBHeader {
                     height,
                     _hash,
                     version,
@@ -165,32 +205,30 @@ impl BlockManager {
                     timestamp,
                     bits,
                     nonce,
-                    position,
+                    _position: position,
                     _blocksize,
                     _numtxs,
-                )| {
-                    DBHeader {
-                        height,
-                        _hash,
-                        version,
-                        prev_hash,
-                        merkle_root,
-                        timestamp,
-                        bits,
-                        nonce,
-                        _position: position,
-                        _blocksize,
-                        _numtxs,
-                    }
-                },
-            )
-            .unwrap();
+                }
+            },
+        ) {
+            Ok(headers) => headers,
+            Err(err) => {
+                log::error!("Unable to load block headers from database: {err:?}");
+                return;
+            }
+        };
 
         for b in headers {
+            let Some(prev_hash) = Self::decode_stored_hash("prev_hash", &b.prev_hash) else {
+                continue;
+            };
+            let Some(merkle_root) = Self::decode_stored_hash("merkle_root", &b.merkle_root) else {
+                continue;
+            };
             let block_header = BlockHeader {
                 version: b.version,
-                prev_hash: Hash256::decode(&b.prev_hash).unwrap(),
-                merkle_root: Hash256::decode(&b.merkle_root).unwrap(),
+                prev_hash,
+                merkle_root,
                 timestamp: b.timestamp,
                 bits: b.bits,
                 nonce: b.nonce,
@@ -220,11 +258,28 @@ impl BlockManager {
 
         // Determine if this block makes sense based on previous blocks
         // that is process them in chain order
-        assert_eq!(self.last_hash_processed, block.header.prev_hash);
+        if self.last_hash_processed != block.header.prev_hash {
+            log::error!(
+                "Skipping out-of-order block {} (expected prev {}, got {})",
+                hash.encode(),
+                self.last_hash_processed.encode(),
+                block.header.prev_hash.encode()
+            );
+            return;
+        }
         self.last_hash_processed = hash;
 
-        // try_into().unwrap() is required to convert u32 -> i32
-        tx_analyser.process_block(&block, self.height.try_into().unwrap());
+        let block_height: i32 = match self.height.try_into() {
+            Ok(height) => height,
+            Err(err) => {
+                log::error!(
+                    "Block height {} is out of range for tx processing: {err}",
+                    self.height
+                );
+                return;
+            }
+        };
+        tx_analyser.process_block(&block, block_height);
         // Store the block header
         self.hash_to_index.insert(hash, self.height);
         self.block_headers.push(block.header);
@@ -256,17 +311,13 @@ impl BlockManager {
                 numtxs,
             };
 
-            self.tx
-                .send(DBOperationType::BlockHeaderWrite(block_header))
-                .unwrap();
+            self.send_db_op(DBOperationType::BlockHeaderWrite(block_header));
         }
     }
 
     fn delete_blockheader_from_database(&mut self, hash: &Hash256) {
         // Given the hash delete the associated blockheader from the blocks table
-        self.tx
-            .send(DBOperationType::BlockHeaderDelete(*hash))
-            .unwrap();
+        self.send_db_op(DBOperationType::BlockHeaderDelete(*hash));
     }
 
     fn write_orphan_to_database(&mut self, header: &BlockHeader) {
@@ -283,9 +334,7 @@ impl BlockManager {
             nonce: header.nonce,
         };
 
-        self.tx
-            .send(DBOperationType::OrphanBlockHeaderWrite(block_header))
-            .unwrap();
+        self.send_db_op(DBOperationType::OrphanBlockHeaderWrite(block_header));
     }
 
     fn process_block_queue(&mut self, tx_analyser: &mut TxAnalyser) {
@@ -364,11 +413,11 @@ impl BlockManager {
         // Read blocks from a file
         match OpenOptions::new().read(true).open(&self.block_file) {
             Ok(mut file) => {
-                let mut position = file.stream_position().unwrap();
+                let mut position = file.stream_position().unwrap_or(0);
                 // Success - read blocks
                 while let Ok(block) = Block::read(&mut file) {
                     self.process_read_block(block, tx_analyser, position);
-                    position = file.stream_position().unwrap();
+                    position = file.stream_position().unwrap_or(position);
                 }
             }
             Err(e) => log::info!("Unable to open block file {} - {}", &self.block_file, &e),
@@ -399,18 +448,33 @@ impl BlockManager {
 
     fn write_block_to_file(&mut self, block: &Block) -> u64 {
         // Write a block to a block file - should only be called for blocks received on network
-        if self.save_blocks {
-            let mut file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&self.block_file)
-                .unwrap();
-            let pos = file.seek(SeekFrom::End(0)).unwrap();
-            block.write(&mut file).unwrap();
-            pos
-        } else {
-            0 // always give an offset of 0 if nothing is
+        if !self.save_blocks {
+            return 0;
         }
+
+        let mut file = match OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.block_file)
+        {
+            Ok(file) => file,
+            Err(err) => {
+                log::error!("Unable to open block file {}: {err}", self.block_file);
+                return 0;
+            }
+        };
+        let pos = match file.seek(SeekFrom::End(0)) {
+            Ok(pos) => pos,
+            Err(err) => {
+                log::error!("Unable to seek block file {}: {err}", self.block_file);
+                return 0;
+            }
+        };
+        if let Err(err) = block.write(&mut file) {
+            log::error!("Unable to write block to {}: {err}", self.block_file);
+            return 0;
+        }
+        pos
     }
 
     pub fn handle_orphan_block(&mut self, tx_analyser: &mut TxAnalyser) {
@@ -421,9 +485,7 @@ impl BlockManager {
             self.block_queue.clear();
         }
         // Drop the last block - from block headers
-        if !self.block_headers.is_empty() {
-            // Remove the block header
-            let last_block = self.block_headers.pop().unwrap();
+        if let Some(last_block) = self.block_headers.pop() {
             log::info!("Removing block {}", last_block.hash().encode());
             self.hash_to_index.remove(&last_block.hash());
 
@@ -491,23 +553,17 @@ impl BlockManager {
 
     pub fn get_last_known_block_hash(&self) -> String {
         // Return the last known block_hash as a String
-        if self.block_headers.is_empty() {
-            self.start_block_hash.clone()
-        } else {
-            // Now we know the list is in order we can just return the last entry's hash
-            let header = self.block_headers.last().unwrap();
-            header.hash().encode()
+        match self.block_headers.last() {
+            None => self.start_block_hash.clone(),
+            Some(header) => header.hash().encode(),
         }
     }
 
     pub fn has_chain_tip(&self) -> bool {
         // Return true if we have the chain tip
         // This is called after we receive a block
-        if self.block_headers.is_empty() {
-            false
-        } else {
-            let diff = timestamp_age_as_sec(self.block_headers.last().unwrap().timestamp);
-            let header = self.block_headers.last().unwrap();
+        if let Some(header) = self.block_headers.last() {
+            let diff = timestamp_age_as_sec(header.timestamp);
             log::info!(
                 "last header = {}, time behind tip = {}",
                 header.hash().encode(),
@@ -517,6 +573,8 @@ impl BlockManager {
             // Assume chain tip if the block time is less than 10 mins ago
             // Note that we know all the predecessors are present in the list
             diff < 600
+        } else {
+            false
         }
     }
 }
