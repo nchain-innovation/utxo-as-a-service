@@ -2,13 +2,13 @@
 extern crate lazy_static;
 
 use actix_web::{web, App, HttpServer};
-use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::{
     net::{IpAddr, Ipv4Addr},
     panic, process,
     sync::mpsc,
     thread, time,
 };
+use tokio::signal;
 
 mod config;
 mod dynamic_config;
@@ -95,27 +95,52 @@ async fn main() {
     })
     .workers(1)
     .bind(server_address)
-    .unwrap();
-    server.run().await.unwrap();
+    .unwrap()
+    .run();
 
-    // Handle control C
-    let mut signals = Signals::new([SIGINT]).unwrap();
-    // create a stop message
+    let server_handle = server.handle();
+    let tx_stop = tx.clone();
 
-    thread::spawn(move || {
-        for sig in signals.forever() {
-            if sig == SIGINT {
-                log::info!("Someone tried to kill us... (Please wait I am still processing)");
-                let stop_msg = PeerEventMessage {
-                    time: time::SystemTime::now(),
-                    peer: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                    event: PeerEventType::Stop,
-                };
-                tx.send(stop_msg).unwrap();
-            }
+    tokio::spawn(async move {
+        wait_for_shutdown_signal().await;
+        log::info!("Shutdown requested, stopping peer threads and web server...");
+        let stop_msg = PeerEventMessage {
+            time: time::SystemTime::now(),
+            peer: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            event: PeerEventType::Stop,
+        };
+        if tx_stop.send(stop_msg).is_err() {
+            log::warn!("Failed to send stop message to peer manager");
         }
+        server_handle.stop(true).await;
     });
 
-    // wait for peer threads
+    server.await.unwrap();
+
+    // Wait for peer threads
     handle.join().unwrap();
+}
+
+async fn wait_for_shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
