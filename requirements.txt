@@ -1,9 +1,6 @@
-toml 
-docker
-flake8
-mypy
-fastapi
-fastapi_utils
-uvicorn[standard]
-mysql-connector-python
-requests
+toml==0.10.2
+fastapi==0.115.12
+fastapi-utils==0.8.0
+uvicorn[standard]==0.34.2
+mysql-connector-python==9.3.0
+requests==2.32.3

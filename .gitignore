@@ -14,5 +14,4 @@ data/dynamic.toml
 data/dynamic*.toml
 
 out.txt
-rust/Cargo.lock
 .vscode
