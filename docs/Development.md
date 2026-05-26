@@ -34,15 +34,19 @@ cargo run --features "rnd_orphans"
 
 
 # Python Development
-Install dependencies from the project root:
+Install [uv](https://docs.astral.sh/uv/) and sync dependencies from the project root:
 ```
-pip3 install -r requirements-dev.txt
+uv sync --all-groups
 ```
 To lint the source code:
 ```
 ./lint.sh
 ```
-This requires `flake8` and `mypy` from `requirements-dev.txt`.
+To run tests:
+```
+uv run pytest python/tests -v
+```
+This requires dev dependencies from `pyproject.toml` (`dependency-groups.dev`).
 
 ## Python `p2p_framework`
 

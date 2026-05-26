@@ -75,18 +75,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
+          enable-cache: true
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: uv sync --all-groups --frozen
 
       - name: Lint
         run: ./lint.sh
 
       - name: Test
-        run: pytest python/tests -v
+        run: uv run pytest python/tests -v
 
   docker:
     name: Docker

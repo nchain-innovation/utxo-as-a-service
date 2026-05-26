@@ -7,6 +7,9 @@
 *.py[cod]
 __pycache__
 
+# uv virtual environment
+.venv
+
 # Generated data
 data/*.dat
 data/mysql
