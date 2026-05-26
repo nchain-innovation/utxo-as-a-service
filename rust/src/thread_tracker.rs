@@ -87,8 +87,9 @@ impl ThreadTracker {
             let started_at = peer.started_at;
 
             if let Some(thread) = peer.thread {
-                // wait for it
-                thread.join().unwrap();
+                if let Err(e) = thread.join() {
+                    log::error!("Peer thread join failed for {}: {:?}", ip, e);
+                }
 
                 // Create a new entry to replace the existing one
                 let new_peer = PeerThread {

@@ -119,7 +119,9 @@ async fn main() {
     server.await.unwrap();
 
     // Wait for peer threads
-    handle.join().unwrap();
+    if let Err(e) = handle.join() {
+        log::error!("Peer manager thread panicked during shutdown: {:?}", e);
+    }
 }
 
 async fn wait_for_shutdown_signal() {

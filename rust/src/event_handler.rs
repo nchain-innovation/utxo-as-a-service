@@ -53,8 +53,10 @@ impl EventHandler {
     }
 
     fn send_msg(&self, msg: PeerEventMessage) {
-        let tx = self.mutex_tx.lock().unwrap();
-        tx.send(msg).unwrap()
+        let tx = self.mutex_tx.lock().unwrap_or_else(|e| e.into_inner());
+        if tx.send(msg).is_err() {
+            log::warn!("Failed to send peer event; event loop unavailable");
+        }
     }
 
     // Message handlers
@@ -114,7 +116,9 @@ impl EventHandler {
         let p = FeeFilter { minfee: 0 };
         let m = Message::FeeFilter(p);
         if self.get_connected() {
-            peer.send(&m).unwrap();
+            if let Err(e) = peer.send(&m) {
+                log::warn!("Failed to send feefilter response to peer: {:?}", e);
+            }
         }
     }
 
@@ -126,7 +130,9 @@ impl EventHandler {
         };
         let m = Message::SendCmpct(p);
         if self.get_connected() {
-            peer.send(&m).unwrap();
+            if let Err(e) = peer.send(&m) {
+                log::warn!("Failed to send sendcmpct response to peer: {:?}", e);
+            }
         }
     }
 }

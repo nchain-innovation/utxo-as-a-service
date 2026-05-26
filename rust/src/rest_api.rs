@@ -88,9 +88,18 @@ async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl 
     let hash = tx.hash().encode();
 
     // Send Tx for broadcast
-    data.msg_from_rest_api
+    if data
+        .msg_from_rest_api
         .send(RestEventMessage::TxForBroadcast(tx))
-        .unwrap();
+        .is_err()
+    {
+        log::error!("REST API channel closed; cannot broadcast transaction");
+        let response = BroadcastTxResponse {
+            status: "Failed".to_string(),
+            detail: "Service unavailable".to_string(),
+        };
+        return Ok(web::Json(response));
+    }
 
     // Return hash as hex_str, if successful
     let response = BroadcastTxResponse {
@@ -110,11 +119,16 @@ async fn add_monitor(
 
     let cc = monitor.into_inner();
 
-    data.msg_from_rest_api
+    if data
+        .msg_from_rest_api
         .send(RestEventMessage::AddMonitor(cc))
-        .unwrap();
+        .is_err()
+    {
+        log::error!("REST API channel closed; cannot add monitor");
+        return Ok(HttpResponse::ServiceUnavailable().body("Service unavailable"));
+    }
 
-    Ok(HttpResponse::Ok())
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[delete("/collection/monitor/{monitor_name}")]
@@ -124,9 +138,14 @@ async fn delete_monitor(
 ) -> Result<impl Responder> {
     log::info!("delete_monitor '{}'", &monitor_name);
 
-    data.msg_from_rest_api
+    if data
+        .msg_from_rest_api
         .send(RestEventMessage::DeleteMonitor(monitor_name.to_string()))
-        .unwrap();
+        .is_err()
+    {
+        log::error!("REST API channel closed; cannot delete monitor");
+        return Ok(HttpResponse::ServiceUnavailable().body("Service unavailable"));
+    }
 
-    Ok(HttpResponse::Ok())
+    Ok(HttpResponse::Ok().finish())
 }
