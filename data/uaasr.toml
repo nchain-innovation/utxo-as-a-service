@@ -95,8 +95,8 @@ save_txs = false
 #locking_script_pattern = "006a[0-9a-f]*"
 
 [database]
-mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
+mysql_url = "mysql://uaas:uaas-password@localhost:3307/uaas_db"
+mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3307/uaas_db"
 
 # mysql_url = "mysql://maas:maas-password@localhost:3306/main_uaas_db"
 # mysql_url_docker = "mysql://maas:maas-password@host.docker.internal:3306/main_uaas_db"
