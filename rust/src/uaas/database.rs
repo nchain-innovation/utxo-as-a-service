@@ -161,26 +161,29 @@ impl Database {
     }
 
     fn mempool_write(&mut self, mempool_entry: MempoolEntryDB) {
-        let mempool_insert = format!(
-            "INSERT INTO mempool VALUES ('{}', {}, {}, {},'{}');",
-            &mempool_entry.hash.encode(),
-            &mempool_entry.locktime,
-            &mempool_entry.fee,
-            &mempool_entry.age,
-            &mempool_entry.tx,
-        );
+        let hash = mempool_entry.hash.encode();
+        let locktime = mempool_entry.locktime;
+        let fee = mempool_entry.fee;
+        let age = mempool_entry.age;
+        let tx = mempool_entry.tx;
 
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || self.conn.exec_drop(&mempool_insert, Params::Empty),
+            || {
+                self.conn.exec_drop(
+                    "INSERT INTO mempool (hash, locktime, fee, time, tx) \
+                     VALUES (:hash, :locktime, :fee, :time, :tx)",
+                    params! {
+                        "hash" => hash.as_str(),
+                        "locktime" => locktime,
+                        "fee" => fee,
+                        "time" => age,
+                        "tx" => tx.as_str(),
+                    },
+                )
+            },
         );
         result.unwrap();
-        /*
-        // Write mempool entry to database
-        self.conn.exec_drop(&mempool_insert, Params::Empty).expect(
-            "Problem writing to mempool table. Check that tx field is present in mempool table.\n",
-        );
-        */
     }
 
     fn mempool_batch_delete(&mut self, mempool_hashes: Vec<Hash256>) {
@@ -199,51 +202,80 @@ impl Database {
     }
 
     fn block_header_write(&mut self, block_header: BlockHeaderWriteDB) {
-        let blocks_insert = format!(
-            "INSERT INTO blocks
-            VALUES ({}, '{}', {}, '{}', '{}', {}, {}, {}, {}, {}, {});",
-            block_header.height,
-            block_header.hash.encode(),
-            block_header.version,
-            block_header.prev_hash.encode(),
-            block_header.merkle_root.encode(),
-            block_header.timestamp,
-            block_header.bits,
-            block_header.nonce,
-            block_header.position,
-            block_header.blocksize,
-            block_header.numtxs,
-        );
+        let height = block_header.height;
+        let hash = block_header.hash.encode();
+        let version = block_header.version;
+        let prev_hash = block_header.prev_hash.encode();
+        let merkle_root = block_header.merkle_root.encode();
+        let timestamp = block_header.timestamp;
+        let bits = block_header.bits;
+        let nonce = block_header.nonce;
+        let position = block_header.position;
+        let blocksize = block_header.blocksize;
+        let numtxs = block_header.numtxs;
+
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || self.conn.exec_drop(&blocks_insert, Params::Empty),
+            || {
+                self.conn.exec_drop(
+                    r"INSERT INTO blocks
+                    (height, hash, version, prev_hash, merkle_root, timestamp, bits, nonce, `offset`, blocksize, numtxs)
+                    VALUES (:height, :hash, :version, :prev_hash, :merkle_root, :timestamp, :bits, :nonce, :offset, :blocksize, :numtxs)",
+                    params! {
+                        "height" => height,
+                        "hash" => hash.as_str(),
+                        "version" => version,
+                        "prev_hash" => prev_hash.as_str(),
+                        "merkle_root" => merkle_root.as_str(),
+                        "timestamp" => timestamp,
+                        "bits" => bits,
+                        "nonce" => nonce,
+                        "offset" => position,
+                        "blocksize" => blocksize,
+                        "numtxs" => numtxs,
+                    },
+                )
+            },
         );
         result.unwrap();
     }
 
     fn block_header_delete(&mut self, hash: &Hash256) {
-        let block_delete = format!("DELETE FROM blocks WHERE hash = '{}';", hash.encode());
+        let hash = hash.encode();
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || self.conn.exec_drop(&block_delete, Params::Empty),
+            || {
+                self.conn.exec_drop(
+                    "DELETE FROM blocks WHERE hash = :hash",
+                    params! { "hash" => hash.as_str() },
+                )
+            },
         );
         result.unwrap();
     }
 
     fn tx_delete_at_height(&mut self, height: u32) {
-        let tx_delete = format!("DELETE FROM tx WHERE height = '{}';", height);
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || self.conn.exec_drop(&tx_delete, Params::Empty),
+            || {
+                self.conn.exec_drop(
+                    "DELETE FROM tx WHERE height = :height",
+                    params! { "height" => height },
+                )
+            },
         );
         result.unwrap();
     }
 
     fn utxo_delete_at_height(&mut self, height: u32) {
-        let utxo_delete = format!("DELETE FROM utxo WHERE height = '{}';", height);
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || self.conn.exec_drop(&utxo_delete, Params::Empty),
+            || {
+                self.conn.exec_drop(
+                    "DELETE FROM utxo WHERE height = :height",
+                    params! { "height" => height },
+                )
+            },
         );
         result.unwrap();
     }
