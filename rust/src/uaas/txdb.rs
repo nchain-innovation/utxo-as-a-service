@@ -46,6 +46,22 @@ pub struct TxDB {
 }
 
 impl TxDB {
+    fn send_db_op(&self, op: DBOperationType) {
+        if self.tx.send(op).is_err() {
+            log::error!("Failed to send tx database operation; channel closed");
+        }
+    }
+
+    fn decode_stored_hash(value: &str) -> Option<Hash256> {
+        match Hash256::decode(value) {
+            Ok(hash) => Some(hash),
+            Err(err) => {
+                log::error!("Invalid stored tx hash {value}: {err:?}");
+                None
+            }
+        }
+    }
+
     pub fn new(conn: PooledConn, tx: mpsc::Sender<DBOperationType>, save_txs: bool) -> Self {
         TxDB {
             conn,
@@ -61,56 +77,66 @@ impl TxDB {
     pub fn create_tx_table(&mut self) {
         // Create tx table
         log::info!("Table tx not found - creating");
-        self.conn
-            .query_drop(
-                r"CREATE TABLE tx (
+        if let Err(err) = self.conn.query_drop(
+            r"CREATE TABLE tx (
                 hash varchar(64) not null,
                 height int unsigned not null,
                 blockindex int unsigned not null,
                 txsize int unsigned not null,
                 satoshis bigint unsigned not null,
                 CONSTRAINT PK_Entry PRIMARY KEY (hash));",
-            )
-            .unwrap();
+        ) {
+            log::error!("Unable to create tx table: {err:?}");
+            return;
+        }
 
-        self.conn
-            .query_drop(r"CREATE INDEX idx_tx ON tx (hash);")
-            .unwrap();
+        if let Err(err) = self.conn.query_drop(r"CREATE INDEX idx_tx ON tx (hash);") {
+            log::error!("Unable to create tx hash index: {err:?}");
+        }
     }
 
     pub fn create_mempool_table(&mut self) {
         log::info!("Table mempool not found - creating");
-        self.conn
-            .query_drop(
-                r"CREATE TABLE mempool (
+        if let Err(err) = self.conn.query_drop(
+            r"CREATE TABLE mempool (
                 hash varchar(64) not null,
                 locktime int unsigned not null,
                 fee bigint unsigned not null,
                 time int unsigned not null,
                 tx longtext not null)",
-            )
-            .unwrap();
+        ) {
+            log::error!("Unable to create mempool table: {err:?}");
+            return;
+        }
         // Note that tx longtext should be good for 4GB txs
 
-        self.conn
+        if let Err(err) = self
+            .conn
             .query_drop(r"CREATE INDEX idx_txkey ON mempool (hash);")
-            .unwrap();
+        {
+            log::error!("Unable to create mempool hash index: {err:?}");
+        }
     }
 
     pub fn load_tx(&mut self) {
         // Load tx - (tx hash and height) from database
         let start = Instant::now();
 
-        let txs: Vec<TxEntryDB> = self
-            .conn
-            .query_map(
-                "SELECT hash, height FROM tx ORDER BY height",
-                |(hash, height)| TxEntryDB { hash, height },
-            )
-            .unwrap();
+        let txs: Vec<TxEntryDB> = match self.conn.query_map(
+            "SELECT hash, height FROM tx ORDER BY height",
+            |(hash, height)| TxEntryDB { hash, height },
+        ) {
+            Ok(txs) => txs,
+            Err(err) => {
+                log::error!("Unable to load txs from database: {err:?}");
+                return;
+            }
+        };
 
         for tx in txs {
-            let hash = Hash256::decode(&tx.hash).unwrap();
+            let Some(hash) = Self::decode_stored_hash(&tx.hash) else {
+                continue;
+            };
             self.txs.insert(hash, tx.height);
         }
         log::info!(
@@ -124,15 +150,22 @@ impl TxDB {
         // load mempool - tx hash and height from database
         let start = Instant::now();
 
-        let txs: Vec<MempoolEntryReadDB> = self
+        let txs: Vec<MempoolEntryReadDB> = match self
             .conn
             .query_map("SELECT hash FROM mempool ORDER BY time", |hash| {
                 MempoolEntryReadDB { _hash: hash }
-            })
-            .unwrap();
+            }) {
+            Ok(txs) => txs,
+            Err(err) => {
+                log::error!("Unable to load mempool from database: {err:?}");
+                return;
+            }
+        };
 
         for tx in txs {
-            let hash = Hash256::decode(&tx._hash).unwrap();
+            let Some(hash) = Self::decode_stored_hash(&tx._hash) else {
+                continue;
+            };
             self.mempool.insert(hash, hash);
         }
 
@@ -145,13 +178,14 @@ impl TxDB {
 
     // save the tx to the database
     fn save_tx(&mut self, tx: &Tx, hash: Hash256, blockindex: u32, height: usize) {
-        let satoshi_out: u64 = tx
-            .outputs
-            .iter()
-            .map(|x| x.satoshis)
-            .sum::<i64>()
-            .try_into()
-            .unwrap();
+        let satoshi_sum: i64 = tx.outputs.iter().map(|x| x.satoshis).sum();
+        let satoshi_out: u64 = match satoshi_sum.try_into() {
+            Ok(value) => value,
+            Err(_) => {
+                log::warn!("Skipping tx {hash:?}: output satoshi sum {satoshi_sum} out of range");
+                return;
+            }
+        };
         // Store tx - note that we only do this for tx in a block
         let tx_entry = TxEntryWriteDB {
             hash,
@@ -166,6 +200,21 @@ impl TxDB {
     }
 
     pub fn process_block(&mut self, block: &Block, height: i32) {
+        let height_usize = match height.try_into() {
+            Ok(value) => value,
+            Err(_) => {
+                log::error!("Block height {height} out of range while processing txs");
+                return;
+            }
+        };
+        let height_u32 = match height.try_into() {
+            Ok(value) => value,
+            Err(_) => {
+                log::error!("Block height {height} out of range while indexing txs");
+                return;
+            }
+        };
+
         // for each tx in block
         for (blockindex, tx) in block.txns.iter().enumerate() {
             let hash = tx.hash();
@@ -176,16 +225,17 @@ impl TxDB {
             }
 
             if self.save_txs {
-                self.save_tx(
-                    tx,
-                    hash,
-                    blockindex.try_into().unwrap(),
-                    height.try_into().unwrap(),
-                );
-                if self.txs.insert(hash, height.try_into().unwrap()).is_some() {
+                let blockindex_u32 = match blockindex.try_into() {
+                    Ok(value) => value,
+                    Err(_) => {
+                        log::error!("Block index {blockindex} out of range for tx {hash:?}");
+                        continue;
+                    }
+                };
+                self.save_tx(tx, hash, blockindex_u32, height_usize);
+                if self.txs.insert(hash, height_u32).is_some() {
                     // We must have already processed this tx in a block
                     log::warn!("Should not get here, as it indicates that we have processed the same tx twice in a block. {:?}", &hash);
-                    //panic!("Should not get here, as it indicates that we have processed the same tx twice in a block.");
                 }
             }
         }
@@ -193,18 +243,14 @@ impl TxDB {
 
     pub fn batch_delete_from_mempool(&mut self) {
         // Batch Delete from mempool
-        self.tx
-            .send(DBOperationType::MempoolBatchDelete(
-                self.hashes_to_delete.clone(),
-            ))
-            .unwrap();
+        self.send_db_op(DBOperationType::MempoolBatchDelete(
+            self.hashes_to_delete.clone(),
+        ));
         self.hashes_to_delete.clear();
     }
 
     pub fn batch_write_tx_to_table(&mut self) {
-        self.tx
-            .send(DBOperationType::TxBatchWrite(self.tx_entries.clone()))
-            .unwrap();
+        self.send_db_op(DBOperationType::TxBatchWrite(self.tx_entries.clone()));
         self.tx_entries.clear();
     }
 
@@ -212,15 +258,22 @@ impl TxDB {
         let hash = tx.hash();
         let age = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|duration| duration.as_secs())
+            .unwrap_or_else(|err| {
+                log::warn!("Unable to read system time for mempool entry: {err:?}");
+                0
+            });
 
         // Add it to the mempool
         self.mempool.insert(hash, hash);
 
         // Write the tx as hexstr
         let mut b = Vec::with_capacity(tx.size());
-        tx.write(&mut b).unwrap();
+        if let Err(err) = tx.write(&mut b) {
+            log::error!("Unable to serialize mempool tx {hash:?}: {err:?}");
+            self.mempool.remove(&hash);
+            return;
+        }
         let tx_hex = format!("{}", HexSlice::new(&b));
 
         let mempool_entry = MempoolEntryDB {
@@ -231,9 +284,7 @@ impl TxDB {
             tx: tx_hex,
         };
 
-        self.tx
-            .send(DBOperationType::MempoolWrite(mempool_entry))
-            .unwrap();
+        self.send_db_op(DBOperationType::MempoolWrite(mempool_entry));
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {
@@ -243,7 +294,7 @@ impl TxDB {
 
     pub fn handle_orphan_block(&mut self, height: u32) {
         // Remove transactions of this block height
-        self.tx.send(DBOperationType::TxDelete(height)).unwrap();
+        self.send_db_op(DBOperationType::TxDelete(height));
 
         // Remove transactions at this height
         self.txs.retain(|_hash, tx_height| *tx_height != height);
