@@ -7,9 +7,9 @@ WORKDIR /app/rust
 RUN cargo install --path . --root /app
 
 FROM debian:bookworm-slim
-RUN apt-get update
-RUN apt-get install -y libssl3
-RUN rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libssl3 curl \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/bin/uaas /app/bin/uaas
 COPY --from=builder /app/data /app/data
