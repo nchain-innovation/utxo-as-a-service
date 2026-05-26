@@ -19,7 +19,7 @@ hex = "0.4.3"
 regex = "1.10.3"
 retry = "2.0.0"
 actix-web = "4.8.0"
-signal-hook = "0.3.17"
+tokio = { version = "1", features = ["signal", "macros"] }
 log = { version = "0.4.21", features = ["max_level_trace", "release_max_level_warn"] }
 simple_logger = "5.0.0"
 anyhow = "1.0.90"
