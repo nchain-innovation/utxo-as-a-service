@@ -5,10 +5,10 @@ networks:
     name: uaas_network
 
 services:
-  # Database
+  # Database (MariaDB — MySQL-compatible, multi-arch including Apple Silicon)
   database:
     container_name: database
-    image: mysql:8.0
+    image: mariadb:11.4
     cap_add:
       - SYS_NICE
     restart: always
@@ -17,10 +17,14 @@ services:
     networks:
       - uaas_network
     environment:
-        - MYSQL_ROOT_PASSWORD=mysql
-        - MYSQL_DATABASE=db
+        MARIADB_ROOT_PASSWORD: mysql
+        MARIADB_DATABASE: db
     healthcheck:
-      test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
         - ./data/mysql:/var/lib/mysql
         - ./init_database:/docker-entrypoint-initdb.d/:ro
