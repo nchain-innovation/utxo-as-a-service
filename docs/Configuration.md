@@ -1,6 +1,6 @@
 # UTXO as a Service - Configuration
 
-Configuration for this service can be found in the `data\uaas.toml` toml file.
+Configuration for this service can be found in the `data/uaasr.toml` file.
 The toml file is read when the service starts.
 The toml configuration file is also used by the Python REST interface.
 

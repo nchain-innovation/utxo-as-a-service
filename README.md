@@ -2,8 +2,8 @@
 
  The UTXO as a Service (UaaS) monitors BSV Node Peer to Peer (P2P) messages and builds its own UTXO set that can be queried to obtain non-standard transactions.
 
-This uses service implemented in Rust with a Python REST API web interface.
-The two components read the same configuration file and share data using `MySQL` database and a shared data directory.
+This service is implemented in Rust with a Python REST API web interface.
+The two components read the same configuration file and share data using a MySQL-compatible database (MariaDB in Docker Compose) and a shared data directory.
 The diagram also shows the Docker containers that make up the service.
 ![Service Deployment](docs/diagrams/deployment.png)
 
@@ -19,18 +19,20 @@ https://github.com/nchain-innovation/chain-gang
 
 
 ## Run UaaS in Docker Compose
-The docker compose starts the componets that make up the UaaS system in one command.
+Docker Compose starts the components that make up the UaaS system in one command.
 First build the images using the `build.sh` command.
 ```bash
-$ ./build.sh
+./build.sh
 ```
-Then start the system 
+Then start the system:
 ```bash
-$ docker-compose up -d
+docker-compose up -d
 ```
-To stop the system 
+The database service uses MariaDB on host port **3307** when the default compose file is used, to avoid conflicting with other local databases.
+
+To stop the system:
 ```bash
-$ docker-compose down
+docker-compose down
 ```
 
 
@@ -54,7 +56,7 @@ cd rust
 cargo run
 ```
 
-If the following message is seen in the output, this would mean that the service is unable to conect to the `MySQL` database.
+If the following message is seen in the output, the service is unable to connect to the database. Check that MariaDB/MySQL is running and that `data/uaasr.toml` points at the correct host and port.
 ```
 thread 'main' panicked at 'Problem connecting to database. Check database is connected and configuration is correct.
 : DriverError { Could not connect to address `localhost:3306': Cannot assign requested address (os error 99) }', src/uaas/logic.rs:52:14
@@ -63,9 +65,9 @@ thread 'main' panicked at 'Problem connecting to database. Check database is con
 
 The REST Web interface has been developed in Python.
 
-To run this
+To run this:
 ```bash
-cd python\src
+cd python/src
 ./web.py
 ```
 Note again that this is dependent on `MySQL` database.
@@ -84,14 +86,14 @@ Encapsulating the service in Docker removes the need to install the project depe
 Only Docker is required to build and run the service and web interface.
 Note that the `MySQL` docker image is still required.
 ### 1) Build The Docker Image
-To build the docker image associated with the service run the following comand in the project directory.
+To build the docker image associated with the service, run the following command in the project directory.
 ```bash
 ./build.sh
 ```
 This builds two Docker images:
 * `uaas-service` for the Rust service
 * `uaas-web` for the Python REST API
-If there is an out of diskspace error whilst building the images, use the following comand to free up diskspace:
+If there is an out of disk space error whilst building the images, use the following command to free up disk space:
 ```bash
 docker system prune
 ```
@@ -115,16 +117,15 @@ The following directories exist in this project:
 │   └── diagrams
 ├── python
 │   └── src
-├── rust
-│   └── src
-└── rust-sv
+└── rust
+    └── src
 ```
 These directories contain the following:
 * `data` - Configuration, data and logs used and created by the service
 * `docs` - Project documentation
 * `docs/diagrams` - PlantUML diagrams and source in support of the documentation
 * `python/src` - Python REST web interface to UaaS
-* `rust/src` - Service source code in Rust
+* `rust/src` - Rust service source code (P2P sync, UTXO maintenance, internal API)
 
 ## Development
 The following diagram shows how the Rust UaaS processes individual `transactions` and `blocks` from peer nodes.
