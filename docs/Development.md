@@ -46,9 +46,7 @@ This requires `flake8` and `mypy` from `requirements-dev.txt`.
 
 ## Python `p2p_framework`
 
-The Python REST API uses a vendored package at `python/src/p2p_framework/` for Bitcoin transaction/block (de)serialization and hashing. **P2P sync runs in Rust**, not in this package.
-
-Most files under `p2p_framework/` are legacy mininode-style networking code and are **not** imported by the running web service. See [`python/src/p2p_framework/README.md`](../python/src/p2p_framework/README.md) for which modules are active vs legacy.
+The Python REST API uses a vendored package at `python/src/p2p_framework/` for Bitcoin transaction/block (de)serialization and hashing. **P2P sync runs in Rust**, not in this package. See [`python/src/p2p_framework/README.md`](../python/src/p2p_framework/README.md) for module details.
 
 # Background Links
 Details of the messages and the Bitcoin SV peer to peer protocol can be found in the following links:
