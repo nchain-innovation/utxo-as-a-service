@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -pmysql"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config default-mysql-client
+
+      - name: Initialize database
+        run: |
+          mysql -h 127.0.0.1 -u root -pmysql < init_database/01_init.sql
+          mysql -h 127.0.0.1 -u maas -pmaas-password main_uaas_db <<'EOF'
+          CREATE TABLE IF NOT EXISTS orphans (
+              height int unsigned not null,
+              hash varchar(64) not null,
+              version int unsigned not null,
+              prev_hash varchar(64) not null,
+              merkle_root varchar(64) not null,
+              timestamp int unsigned not null,
+              bits int unsigned not null,
+              nonce int unsigned not null,
+              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          EOF
+
+      - name: cargo fmt
+        working-directory: rust
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        working-directory: rust
+        run: cargo clippy
+
+      - name: cargo test
+        working-directory: rust
+        run: cargo test
+
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: ./lint.sh
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        run: ./build.sh
