@@ -29,21 +29,26 @@ app = FastAPI(
     openapi_tags=tags_metadata,
 )
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 try:
     config: ConfigType = load_config("../data/uaasr.toml")
 except ConfigError as e:
     raise RuntimeError(f"Failed to load UaaS config: {e}") from e
-web_address: str = config["web_interface"]["address"]
-rust_url: str = config["web_interface"]["rust_url"]
+web_interface = config["web_interface"]
+web_address: str = web_interface["address"]
+rust_url: str = web_interface["rust_url"]
+
+cors_origins = web_interface.get("cors_origins", ["*"])
+cors_allow_credentials = web_interface.get("cors_allow_credentials", False)
+if cors_allow_credentials and "*" in cors_origins:
+    cors_allow_credentials = False
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/", tags=["Web"])
