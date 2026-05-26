@@ -11,17 +11,18 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     services:
-      mysql:
-        image: mysql:8.0
+      mariadb:
+        image: mariadb:11.4
         env:
-          MYSQL_ROOT_PASSWORD: mysql
+          MARIADB_ROOT_PASSWORD: mysql
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h localhost -u root -pmysql"
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+          --health-start-period=30s
 
     steps:
       - uses: actions/checkout@v4
@@ -31,12 +32,12 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config default-mysql-client
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config mariadb-client
 
       - name: Initialize database
         run: |
-          mysql -h 127.0.0.1 -u root -pmysql < init_database/01_init.sql
-          mysql -h 127.0.0.1 -u maas -pmaas-password main_uaas_db <<'EOF'
+          mariadb -h 127.0.0.1 -u root -pmysql < init_database/01_init.sql
+          mariadb -h 127.0.0.1 -u maas -pmaas-password main_uaas_db <<'EOF'
           CREATE TABLE IF NOT EXISTS orphans (
               height int unsigned not null,
               hash varchar(64) not null,
