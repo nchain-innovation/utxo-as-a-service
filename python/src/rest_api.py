@@ -7,7 +7,7 @@ from io import BytesIO
 
 from p2p_framework.object import CTransaction
 
-from config import load_config, ConfigType
+from config import load_config, ConfigError, ConfigType
 from tx_analyser import tx_analyser
 from block_manager import block_manager
 from collection import collection, hexstr_to_tx, Monitor
@@ -37,7 +37,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-config: ConfigType = load_config("../data/uaasr.toml")
+try:
+    config: ConfigType = load_config("../data/uaasr.toml")
+except ConfigError as e:
+    raise RuntimeError(f"Failed to load UaaS config: {e}") from e
 web_address: str = config["web_interface"]["address"]
 rust_url: str = config["web_interface"]["rust_url"]
 

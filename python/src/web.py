@@ -6,7 +6,7 @@ from blockfile import blockfile
 from tx_analyser import tx_analyser
 from logic import logic
 
-from config import load_config, ConfigType
+from config import load_config_or_exit, ConfigType
 from collection import collection
 
 
@@ -31,7 +31,7 @@ def run_webserver(config: ConfigType):
 def main():
     """ main function - reads config, sets up system starts REST API
     """
-    config = load_config("../data/uaasr.toml")
+    config = load_config_or_exit("../data/uaasr.toml")
     database.set_config(config)
     blockfile.set_config(config)
     tx_analyser.set_config(config)
