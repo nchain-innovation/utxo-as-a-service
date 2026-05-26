@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional, Sequence
 
 from mysql.connector import connect
 from config import ConfigType
@@ -18,16 +18,19 @@ class Database:
         self.password = config[network]["password"]
         self.database = config[network]["database"]
 
-    def query(self, query_string: str) -> List[Any]:
+    def query(
+        self,
+        query_string: str,
+        params: Optional[Sequence[Any]] = None,
+    ) -> List[Any]:
         with connect(
             host=self.host,
             user=self.user,
             password=self.password,
             database=self.database,
         ) as connection:
-            query = (query_string)
             cursor = connection.cursor()
-            cursor.execute(query)
+            cursor.execute(query_string, params or ())
             retval = list(cursor.fetchall())
             connection.commit()
             cursor.close()
