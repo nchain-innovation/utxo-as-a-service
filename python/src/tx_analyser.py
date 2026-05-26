@@ -34,7 +34,7 @@ class TxAnalyser:
 
     def _read_utxo(self, hash: str) -> List[Dict[str, Any]]:
         # Read utxo from database
-        result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}';")
+        result = database.query("SELECT * FROM utxo WHERE hash = %s;", (hash,))
         retval = [{
             "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2],
             "height": x[3]
@@ -49,13 +49,19 @@ class TxAnalyser:
 
     def get_utxo_by_outpoint(self, hash: str, pos: int) -> Dict[str, Any]:
         # Read utxo from database
-        result = database.query(f"SELECT * FROM utxo WHERE hash = '{hash}' AND pos = {pos};")
+        result = database.query(
+            "SELECT * FROM utxo WHERE hash = %s AND pos = %s;",
+            (hash, pos),
+        )
         return {"result": len(result) > 0}
 
     def get_utxo(self, pubkeyhash: str) -> Dict[str, Any]:
         # Return the UTXO associated with a particular pubkeyhash
 
-        result = database.query(f"SELECT hash, pos, satoshis, height FROM utxo WHERE pubkeyhash = '{pubkeyhash}';")
+        result = database.query(
+            "SELECT hash, pos, satoshis, height FROM utxo WHERE pubkeyhash = %s;",
+            (pubkeyhash,),
+        )
 
         retval = [{
             "height": x[3],
@@ -70,7 +76,10 @@ class TxAnalyser:
 
     def get_balance(self, pubkeyhash: str, blockheight: int) -> Dict[str, Any]:
         # Return the UTXO balance with a particular pubkeyhash
-        result = database.query(f"SELECT satoshis, height FROM utxo WHERE pubkeyhash = '{pubkeyhash}';")
+        result = database.query(
+            "SELECT satoshis, height FROM utxo WHERE pubkeyhash = %s;",
+            (pubkeyhash,),
+        )
         confirmed_height = blockheight - self.complete
 
         confirmed = sum([x[0] for x in result if x[1] >= 0 and x[1] <= confirmed_height])
@@ -83,7 +92,9 @@ class TxAnalyser:
     def _read_block_offset(self, hash: str) -> Optional[int]:
         # Read block offset based on tx hash from database
         result = database.query(
-            f"SELECT blocks.`offset` FROM blocks INNER JOIN tx on tx.height = blocks.height where tx.hash='{hash}';")
+            "SELECT blocks.`offset` FROM blocks INNER JOIN tx on tx.height = blocks.height WHERE tx.hash = %s;",
+            (hash,),
+        )
         try:
             return result[0][0]
         except IndexError:
@@ -92,7 +103,9 @@ class TxAnalyser:
     def _read_tx_height_and_blockindex(self, hash: str) -> Optional[List[int]]:
         try:
             result = database.query(
-                f"SELECT height, blockindex FROM tx WHERE hash='{hash}';")
+                "SELECT height, blockindex FROM tx WHERE hash = %s;",
+                (hash,),
+            )
         except ProgrammingError as e:
             print(f"MySQL ProgrammingError {e}")
             return None
@@ -162,16 +175,16 @@ class TxAnalyser:
         # Return true if txid is in txs or mempool or collection
         # self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
         try:
-            txs = database.query(f"SELECT * FROM tx WHERE hash = '{hash}';")
+            txs = database.query("SELECT * FROM tx WHERE hash = %s;", (hash,))
         except ProgrammingError as e:
             print(f"MySQL ProgrammingError {e}")
         else:
             if len(txs) > 0:
                 return True
-        mempool = database.query(f"SELECT * FROM mempool WHERE hash = '{hash}';")
+        mempool = database.query("SELECT * FROM mempool WHERE hash = %s;", (hash,))
         if len(mempool) > 0:
             return True
-        collection = database.query(f"SELECT * FROM collection WHERE hash = '{hash}';")
+        collection = database.query("SELECT * FROM collection WHERE hash = %s;", (hash,))
         if len(collection) > 0:
             return True
         return False
@@ -179,7 +192,11 @@ class TxAnalyser:
     def get_tx_merkle_proof(self, hash: str) -> Dict[str, Any]:
         # Given the txid return the merkle branch proof for a confirmed transaction
         # Get the block
-        block = database.query(f"SELECT blocks.height, blocks.hash, merkle_root FROM blocks INNER JOIN tx on tx.height = blocks.height WHERE tx.hash='{hash}';")
+        block = database.query(
+            "SELECT blocks.height, blocks.hash, merkle_root FROM blocks "
+            "INNER JOIN tx on tx.height = blocks.height WHERE tx.hash = %s;",
+            (hash,),
+        )
         try:
             height = block[0][0]
             block_hash = block[0][1]
@@ -190,7 +207,10 @@ class TxAnalyser:
             }
         # Get the txs in the block
         try:
-            result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+            result = database.query(
+                "SELECT hash FROM tx WHERE height = %s ORDER BY blockindex ASC;",
+                (height,),
+            )
             txs = [x[0] for x in result]
         except ProgrammingError as e:
             print(f"MySQL ProgrammingError {e}")
