@@ -13,7 +13,7 @@ services:
       - SYS_NICE
     restart: always
     ports:
-      - "3306:3306"  
+      - "3306:3306"
     networks:
       - uaas_network
     environment:
@@ -24,7 +24,7 @@ services:
     volumes:
         - ./data/mysql:/var/lib/mysql
         - ./init_database:/docker-entrypoint-initdb.d/:ro
-  
+
   # Basic GUI for interacting with database
   adminer:
     container_name: db_admin
@@ -43,7 +43,7 @@ services:
     container_name: uaas_backend
     image: uaas-service
     ports:
-      - 9000:9000
+      - "8081:8081"
     networks:
       - uaas_network
     depends_on:
@@ -51,6 +51,7 @@ services:
         condition: service_healthy
     volumes:
       - ./data:/app/data
+      - ./data/uaasr.docker.toml:/app/data/uaasr.toml:ro
     restart: on-failure
 
   # UaaS web API
@@ -58,14 +59,16 @@ services:
     container_name: uaas_web
     image: uaas-web
     ports:
-      - 5010:5010
+      - "5010:5010"
     networks:
       - uaas_network
     depends_on:
-      - uaas_backend
+      database:
+        condition: service_healthy
+      uaas_backend:
+        condition: service_started
     volumes:
       - ./python/src:/app/python
       - ./data:/app/data
+      - ./data/uaasr.docker.toml:/app/data/uaasr.toml:ro
     restart: on-failure
-
-  

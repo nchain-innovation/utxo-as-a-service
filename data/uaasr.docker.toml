@@ -1,0 +1,132 @@
+# Docker Compose configuration.
+# Mounted over uaasr.toml by docker-compose.yml so services use the compose network.
+
+[service]
+user_agent = "/Bitcoin SV:1.0.11/"
+# network = "mainnet"
+network = "testnet"
+# Bind on all interfaces so other containers can reach the Rust API
+rust_address = "0.0.0.0:8081"
+
+
+[mainnet]
+# ip = ["18.157.234.254",
+ip = ["65.108.14.253"]  # The murphy machine
+port = 8333
+#start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
+#start_block_height = 739859
+start_block_hash = "00000000000000000545267003727771023c9822756f187cbee83a5329ffecd8" # current tip
+start_block_height = 776082
+
+timeout_period = 2048.0
+block_request_period = 280
+
+startup_load_from_database = true
+# startup_load_from_database = false
+
+# Python database access
+host = "database"
+user = "maas"
+password = "maas-password"
+database = "main_uaas_db"
+
+# Used by Python and Rust
+block_file = "../data/main-block.dat"
+save_blocks = false
+save_txs = false
+
+
+[testnet]
+ip = [ "167.172.61.80"]  # Murphy machine
+
+port = 18333
+
+# 2023-07-23 23:52:44
+# start_block_hash = "000000000000057fff6b3ddd2f51e3749ed27a8fea819bcfdceb8d89a1789da7"
+# start_block_height = 1563559
+
+# 2024-10-25 07:12:14
+
+start_block_hash = "0000000000002035e634d492fff01d273c8c0afd9ad42aff68672276903c5314"
+start_block_height = 1643523
+
+# Note need a larger timeout on testnet
+#timeout_period = 240.0
+# 331 MB block taking over 5 mins to download
+# 600 too small
+# 1000s => 16 mins
+timeout_period = 1000.0
+
+startup_load_from_database = true
+#startup_load_from_database = false
+
+
+# Python database access
+host = "database"
+user = "uaas"
+password = "uaas-password"
+database = "uaas_db"
+
+# Used by Python and Rust
+block_file = "../data/test-net.dat"
+save_blocks = false
+save_txs = false
+
+[database]
+mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
+mysql_url_docker = "mysql://uaas:uaas-password@database:3306/uaas_db"
+
+ms_delay = 300
+retries = 6
+
+[orphan]
+detect = true
+threshold = 100
+
+[logging]
+level = "info"
+
+[utxo]
+complete = 6
+# The number of blocks required to complete a blockchain transaction
+
+
+[[collection]]
+name = "johns"
+track_descendants = false
+locking_script_pattern = "7576a914[0-9a-f]{40}88ac$"
+
+[[collection]]
+name = "dsa"
+track_descendants = false
+locking_script_pattern = "006a[0-9a-f]{2}53417631[0-9a-f]*"
+# OP_0 OP_RETURN len DSAv1...
+
+
+[[collection]]
+name = "CoCv1"
+track_descendants = false
+locking_script_pattern = "006a[0-9a-f]{2}436f437631[0-9a-f]*"
+
+[[collection]]
+name = "Fin"
+track_descendants = false
+locking_script_pattern = "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac"
+
+
+[[collection]]
+name = "1sat"
+track_descendants = true
+locking_script_pattern = "0063036f726451126170706c69636174696f6e2f6273762d323000[0-9a-f]*"
+
+
+[web_interface]
+address = '0.0.0.0:5010'
+
+log_level = 'info'
+reload = false
+rust_url = "http://uaas_backend:8081"
+
+
+[dynamic_config]
+filename = "../data/dynamic.toml"

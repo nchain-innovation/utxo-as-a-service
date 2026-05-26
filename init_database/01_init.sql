@@ -12,5 +12,5 @@ GRANT ALL PRIVILEGES on uaas_db.* to 'uaas'@'localhost';
 GRANT ALL PRIVILEGES on main_uaas_db.* to 'maas'@'localhost';
 
 GRANT ALL PRIVILEGES on uaas_db.* to 'uaas'@'%';
-GRANT ALL PRIVILEGES on maas_db.* to 'maas'@'%';
+GRANT ALL PRIVILEGES on main_uaas_db.* to 'maas'@'%';
 
