@@ -162,6 +162,10 @@ reload = false
 rust_url = "http://host.docker.internal:8081"
 # rust_url = "http://127.0.0.1:8081"
 
+# CORS: credentials cannot be used with allow_origins = ["*"]
+cors_origins = ["*"]
+cors_allow_credentials = false
+
 
 [dynamic_config]
 filename = "../data/dynamic.toml"
