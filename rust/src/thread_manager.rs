@@ -148,9 +148,12 @@ impl ThreadManager {
                         }
                         if let Some(peer) = thread_tracker.get_connected_peer() {
                             let message = Message::Tx(tx.clone());
-                            peer.send(&message).unwrap();
-                            logic.on_tx(tx, true);
-                            logic.flush_database_cache();
+                            if let Err(e) = peer.send(&message) {
+                                log::warn!("Failed to broadcast transaction to peer: {:?}", e);
+                            } else {
+                                logic.on_tx(tx, true);
+                                logic.flush_database_cache();
+                            }
                         }
                     }
                     RestEventMessage::AddMonitor(monitor) => logic.tx_analyser.add_monitor(monitor),

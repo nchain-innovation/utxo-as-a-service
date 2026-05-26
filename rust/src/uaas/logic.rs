@@ -260,7 +260,17 @@ impl Logic {
 
             // Build getblocks message - this results in an inv message
             let mut locator = BlockLocator::default();
-            let hash = Hash256::decode(&hash).unwrap();
+            let hash = match Hash256::decode(&hash) {
+                Ok(hash) => hash,
+                Err(e) => {
+                    log::error!(
+                        "Invalid block hash for GetBlocks request: {} ({:?})",
+                        hash,
+                        e
+                    );
+                    return;
+                }
+            };
             locator.block_locator_hashes.push(hash);
             let message = Message::GetBlocks(locator);
             self.send_message_queue.push(message)
@@ -273,14 +283,10 @@ impl Logic {
             let want = Message::GetData(Inv { objects: object });
             self.send_message_queue.push(want);
         } else {
-            // really shouldn't get here
-            log::info!("wrong place");
-            self.block_inventory
-                .iter()
-                .enumerate()
-                .for_each(|(i, list)| log::info!("list {}, len = {}", i, list.len()));
-            panic!("should not get here");
-            // block_inv not empty but nothing in first entry
+            log::error!("Block inventory has empty first entry; removing stale entry");
+            if !self.block_inventory.is_empty() {
+                self.block_inventory.remove(0);
+            }
         }
     }
 
