@@ -16,8 +16,8 @@ pub struct DynamicConfigConfig {
 
 fn read_dynamic_config(filename: &str) -> std::io::Result<Vec<CollectionConfig>> {
     let content = std::fs::read_to_string(filename)?;
-    let config: DynamicConfigConfig =toml::from_str(&content)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let config: DynamicConfigConfig =
+        toml::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     Ok(config.collection)
 }
