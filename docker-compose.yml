@@ -5,29 +5,33 @@ networks:
     name: uaas_network
 
 services:
-  # Database
+  # Database (MariaDB — MySQL-compatible, multi-arch including Apple Silicon)
   database:
-    container_name: database
-    image: mysql:8.0.37-bookworm
+    container_name: uaas_database
+    image: mariadb:11.4
     cap_add:
       - SYS_NICE
     restart: always
     ports:
-      - "3306:3306"  
+      - "3307:3306"
     networks:
       - uaas_network
     environment:
-        - MYSQL_ROOT_PASSWORD=mysql
-        - MYSQL_DATABASE=db
+        MARIADB_ROOT_PASSWORD: mysql
+        MARIADB_DATABASE: db
     healthcheck:
-      test: mysqladmin ping -h 127.0.0.1 -u root --password=$$MYSQL_ROOT_PASSWORD
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
         - ./data/mysql:/var/lib/mysql
         - ./init_database:/docker-entrypoint-initdb.d/:ro
-  
+
   # Basic GUI for interacting with database
   adminer:
-    container_name: db_admin
+    container_name: uaas_db_admin
     image: adminer
     restart: always
     depends_on:
@@ -43,7 +47,7 @@ services:
     container_name: uaas_backend
     image: uaas-service
     ports:
-      - 9000:9000
+      - "8081:8081"
     networks:
       - uaas_network
     depends_on:
@@ -51,6 +55,7 @@ services:
         condition: service_healthy
     volumes:
       - ./data:/app/data
+      - ./data/uaasr.docker.toml:/app/data/uaasr.toml:ro
     restart: on-failure
 
   # UaaS web API
@@ -58,14 +63,16 @@ services:
     container_name: uaas_web
     image: uaas-web
     ports:
-      - 5010:5010
+      - "5010:5010"
     networks:
       - uaas_network
     depends_on:
-      - uaas_backend
+      database:
+        condition: service_healthy
+      uaas_backend:
+        condition: service_started
     volumes:
       - ./python/src:/app/python
       - ./data:/app/data
+      - ./data/uaasr.docker.toml:/app/data/uaasr.toml:ro
     restart: on-failure
-
-  

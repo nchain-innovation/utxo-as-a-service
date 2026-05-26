@@ -83,7 +83,7 @@ class TxAnalyser:
     def _read_block_offset(self, hash: str) -> Optional[int]:
         # Read block offset based on tx hash from database
         result = database.query(
-            f"SELECT offset FROM blocks INNER JOIN tx on tx.height = blocks.height where tx.hash='{hash}';")
+            f"SELECT blocks.`offset` FROM blocks INNER JOIN tx on tx.height = blocks.height where tx.hash='{hash}';")
         try:
             return result[0][0]
         except IndexError:

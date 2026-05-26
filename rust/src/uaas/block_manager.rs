@@ -115,7 +115,7 @@ impl BlockManager {
                     timestamp int unsigned not null,
                     bits int unsigned not null,
                     nonce int unsigned not null,
-                    offset bigint unsigned not null,
+                    `offset` bigint unsigned not null,
                     blocksize int unsigned not null,
                     numtxs int unsigned not null,
                     CONSTRAINT PK_Entry PRIMARY KEY (hash));",

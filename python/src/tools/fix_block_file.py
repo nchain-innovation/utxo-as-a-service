@@ -23,7 +23,7 @@ def quick_test(offset):
 
 
 def find_0_offset_blocks() -> List[str]:
-    retval = database.query("SELECT hash FROM blocks WHERE offset = 0;")
+    retval = database.query("SELECT hash FROM blocks WHERE `offset` = 0;")
     retval = list(map(lambda x: x[0], retval))
     return retval
 
@@ -69,7 +69,7 @@ def main():
 
     for hash in zero_offset_blocks:
         offset = hash_to_offset[hash]
-        query = f"UPDATE blocks SET offset={offset} WHERE hash='{hash}';"
+        query = f"UPDATE blocks SET `offset`={offset} WHERE hash='{hash}';"
         # query = f"replace blocks where hash = '{hash}' (offset) VALUES ({offset});"
         print(query)
         r = database.query(query)
