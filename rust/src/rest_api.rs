@@ -61,7 +61,6 @@ async fn version(_data: web::Data<AppState>) -> impl Responder {
 // curl -X POST -d 'txt=txt' 127.0.0.1:8080/echo
 #[post("/tx/raw")]
 async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl Responder> {
-    dbg!(&hexstr);
     // decode the hexstr to tx
     let bytes = match decode_hexstr(&hexstr) {
         Ok(b) => b,

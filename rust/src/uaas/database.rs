@@ -308,8 +308,17 @@ mod test {
 
     #[test]
     fn test_operation() {
-        let pool = Pool::new("mysql://maas:maas-password@localhost:3306/main_uaas_db")
-            .expect("Problem connecting to database. Check database is connected and database connection configuration is correct.\n");
+        let Some(url) = std::env::var("UAAS_TEST_MYSQL_URL").ok() else {
+            eprintln!("skipping database integration test: UAAS_TEST_MYSQL_URL not set");
+            return;
+        };
+
+        let pool = Pool::new(url.as_str()).unwrap_or_else(|err| {
+            panic!(
+                "Problem connecting to database at {url}. \
+                 Check database is connected and database connection configuration is correct.\n: {err}"
+            );
+        });
         let conn = pool.get_conn().unwrap();
         let (_tx, rx) = mpsc::channel();
         let mut database = Database {
