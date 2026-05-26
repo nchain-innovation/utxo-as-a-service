@@ -64,6 +64,8 @@ jobs:
 
       - name: cargo test
         working-directory: rust
+        env:
+          UAAS_TEST_MYSQL_URL: mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
         run: cargo test
 
   python:
