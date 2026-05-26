@@ -166,6 +166,9 @@ rust_url = "http://host.docker.internal:8081"
 cors_origins = ["*"]
 cors_allow_credentials = false
 
+# Optional: require X-API-Key header on API requests (see docs/Security.md)
+# api_key = "change-me-to-a-long-random-secret"
+
 
 [dynamic_config]
 filename = "../data/dynamic.toml"

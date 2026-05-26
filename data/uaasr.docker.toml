@@ -127,6 +127,9 @@ log_level = 'info'
 reload = false
 rust_url = "http://uaas_backend:8081"
 
+# Optional: require X-API-Key header on API requests (see docs/Security.md)
+# api_key = "change-me-to-a-long-random-secret"
+
 
 [dynamic_config]
 filename = "../data/dynamic.toml"

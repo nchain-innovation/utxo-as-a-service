@@ -4,6 +4,9 @@ from pydantic import BaseModel, field_validator
 from typing import Any, Dict
 import requests
 from io import BytesIO
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from p2p_framework.object import CTransaction
 
@@ -23,6 +26,7 @@ from validation import (
 )
 
 RUST_REQUEST_TIMEOUT = 30  # seconds
+API_KEY_HEADER = "X-API-Key"
 
 tags_metadata = [
     {
@@ -51,6 +55,22 @@ cors_allow_credentials = web_interface.get("cors_allow_credentials", False)
 if cors_allow_credentials and "*" in cors_origins:
     cors_allow_credentials = False
 
+api_key: str | None = web_interface.get("api_key")
+
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if api_key and request.method != "OPTIONS" and request.url.path != "/health":
+            provided = request.headers.get(API_KEY_HEADER)
+            if provided != api_key:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"failure": "Unauthorized"},
+                )
+        return await call_next(request)
+
+
+app.add_middleware(ApiKeyMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -58,6 +78,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _rust_headers() -> Dict[str, str]:
+    if api_key:
+        return {API_KEY_HEADER: api_key}
+    return {}
 
 
 def _invalid_input(response: Response, message: str) -> Dict[str, str]:
@@ -201,7 +227,8 @@ def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
         return {"failure": f" Transaction {hash} already exists."}
     try:
         result = requests.post(
-            rust_url + "/tx/raw", data=tx.tx, timeout=RUST_REQUEST_TIMEOUT
+            rust_url + "/tx/raw", data=tx.tx, timeout=RUST_REQUEST_TIMEOUT,
+            headers=_rust_headers(),
         )
     except requests.exceptions.Timeout:
         response.status_code = status.HTTP_504_GATEWAY_TIMEOUT
@@ -331,7 +358,8 @@ def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
     print("data=", data)
     try:
         result = requests.post(
-            rust_url + "/collection/monitor", json=data, timeout=RUST_REQUEST_TIMEOUT
+            rust_url + "/collection/monitor", json=data, timeout=RUST_REQUEST_TIMEOUT,
+            headers=_rust_headers(),
         )
     except requests.exceptions.Timeout:
         response.status_code = status.HTTP_504_GATEWAY_TIMEOUT
@@ -381,6 +409,7 @@ def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
         result = requests.delete(
             rust_url + f"/collection/monitor/{monitor_name}",
             timeout=RUST_REQUEST_TIMEOUT,
+            headers=_rust_headers(),
         )
     except requests.exceptions.Timeout:
         response.status_code = status.HTTP_504_GATEWAY_TIMEOUT

@@ -56,6 +56,7 @@ async fn main() {
 
     let app_state = AppState {
         msg_from_rest_api: tx_rest,
+        api_key: config.web_interface.api_key.clone(),
     };
     let web_state = web::Data::new(app_state);
 
