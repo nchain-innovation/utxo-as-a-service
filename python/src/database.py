@@ -28,9 +28,7 @@ class Database:
             query = (query_string)
             cursor = connection.cursor()
             cursor.execute(query)
-            retval = []
-            for x in cursor:
-                retval.append(x)
+            retval = list(cursor.fetchall())
             connection.commit()
             cursor.close()
             connection.close()

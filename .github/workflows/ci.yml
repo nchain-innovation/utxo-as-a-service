@@ -40,7 +40,7 @@ jobs:
       - name: Initialize database
         run: |
           mariadb -h 127.0.0.1 -u root -pmysql < init_database/01_init.sql
-          mariadb -h 127.0.0.1 -u maas -pmaas-password main_uaas_db <<'EOF'
+          mariadb -h 127.0.0.1 -u root -pmysql main_uaas_db <<'EOF'
           CREATE TABLE IF NOT EXISTS orphans (
               height int unsigned not null,
               hash varchar(64) not null,

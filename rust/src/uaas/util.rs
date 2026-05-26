@@ -40,7 +40,7 @@ pub fn timestamp_age_as_sec(timestamp: u32) -> u64 {
 // from https://play.rust-lang.org/?version=stable&mode=debug&edition=2015&gist=e241493d100ecaadac3c99f37d0f766f
 
 pub fn decode_hexstr(s: &str) -> Result<Vec<u8>, DecodeHexError> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         Err(DecodeHexError::OddLength)
     } else {
         (0..s.len())
