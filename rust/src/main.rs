@@ -25,7 +25,7 @@ mod uaas;
 use crate::{
     config::get_config,
     peer_event::{PeerEventMessage, PeerEventType},
-    rest_api::{add_monitor, broadcast_tx, delete_monitor, version, AppState},
+    rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
     uaas::logic::Logic,
@@ -88,6 +88,7 @@ async fn main() {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(web_state.clone())
+            .service(health)
             .service(broadcast_tx)
             .service(version)
             .service(add_monitor)

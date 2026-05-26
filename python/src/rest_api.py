@@ -7,6 +7,7 @@ from io import BytesIO
 
 from p2p_framework.object import CTransaction
 
+from database import database
 from config import load_config, ConfigError, ConfigType
 from tx_analyser import tx_analyser
 from block_manager import block_manager
@@ -51,6 +52,24 @@ def root() -> Dict[str, str]:
     return {
         "name": "UTXO as a Service (UaaS) REST API",
         "description": "UTXO as a Service REST API",
+    }
+
+
+@app.get("/health", tags=["Status"])
+def health(response: Response) -> Dict[str, Any]:
+    """Return service health, including database connectivity."""
+    try:
+        database.query("SELECT 1")
+    except Exception as e:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {
+            "status": "unhealthy",
+            "service": "uaas-web",
+            "database": str(e),
+        }
+    return {
+        "status": "ok",
+        "service": "uaas-web",
     }
 
 

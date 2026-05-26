@@ -31,6 +31,22 @@ struct BroadcastTxResponse {
     detail: String,
 }
 
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
+    version: &'static str,
+}
+
+#[get("/health")]
+async fn health() -> impl Responder {
+    web::Json(HealthResponse {
+        status: "ok",
+        service: "uaas-service",
+        version: env!("CARGO_PKG_VERSION"),
+    })
+}
+
 #[get("/version")]
 async fn version(_data: web::Data<AppState>) -> impl Responder {
     log::info!("version");
