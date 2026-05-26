@@ -1,7 +1,7 @@
 
 # Rust Development
-As noted in the main README.md  the best way to install Rust is to use `rustup`.
-This code was developed using rustc `1.60.0`.
+As noted in the main README.md, the best way to install Rust is to use `rustup`.
+Use a recent stable Rust toolchain (edition 2021).
 
 Once installed update rust toolset using:
 ```bash
@@ -34,11 +34,15 @@ cargo run --features "rnd_orphans"
 
 
 # Python Development
-To lint the source code use the following command line script from the project root directory:
+Install dependencies from the project root:
 ```
-$ ./lint.sh
+pip3 install -r requirements-dev.txt
 ```
-This requires `flake8` and `mypy` to be installed to perform the static code analysis.
+To lint the source code:
+```
+./lint.sh
+```
+This requires `flake8` and `mypy` from `requirements-dev.txt`.
 
 # Background Links
 Details of the messages and the Bitcoin SV peer to peer protocol can be found in the following links:
