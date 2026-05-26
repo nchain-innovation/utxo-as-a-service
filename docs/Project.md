@@ -126,6 +126,18 @@ This section contains project status related notes.
     * self.complete = config['utxo']['complete'] 
 * remove unused endpoints
 
+-- 26/05/2026 (code review / hardening)
+* Parameterized Python SQL queries and REST API input validation
+* Python MySQL connection pool
+* Health endpoints (`/health`) for Rust and Python; Docker Compose healthchecks
+* Graceful Rust shutdown (Ctrl+C / SIGTERM)
+* Python config fail-fast; CORS configuration fix
+* CI (GitHub Actions: Rust, Python lint, Docker build)
+* Dependency pinning and updates
+* HTTP timeouts on Python → Rust proxy calls
+* Rust error handling improvements (REST API, event loop)
+* Documentation refresh (README, Development, Configuration, p2p_framework)
+
 ## In Progress
 
 * Merkle Proofs
@@ -141,11 +153,7 @@ This section contains project status related notes.
 * If searching tx fails check the collections
 
 * Speed up mysql database, see what can be done in config
-* Add configuration item to enble/disable blockfiles
-
-* Search for TODOs
-
-* Prevent sql injection attack on string fields - clean entry...
+* Add configuration item to enable/disable blockfiles
 
 * Store blocks in multiple files
     * index to file mapping
@@ -173,14 +181,7 @@ This section contains project status related notes.
 * add secondary mempool - what determines secondary mempool ?
     * https://wiki.bitcoinsv.io/index.php/Transaction_Pools
 
-
 * unable to write blobs to database
-* add logging
-* Update documentation on Configuration settings
-
-
-
-# Memory usage
 * 05/05/2022 - 242 MB - mainnet
 * 06/05/2022 - 261 MB - mainnet
 * 10/05/2022 - 51..98.9MB - testnet now with large utxo set
