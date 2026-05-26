@@ -1,6 +1,6 @@
 from fastapi import FastAPI, status, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Any, Dict
 import requests
 from io import BytesIO
@@ -13,6 +13,13 @@ from block_manager import block_manager
 from collection import collection, hexstr_to_tx, Monitor
 from logic import logic
 from util import address_to_public_key_hash
+from validation import (
+    validate_tx_hash,
+    validate_block_hash,
+    validate_block_height,
+    validate_monitor_name,
+    validate_hex_string,
+)
 
 tags_metadata = [
     {
@@ -45,6 +52,11 @@ web_address: str = config["web_interface"]["address"]
 rust_url: str = config["web_interface"]["rust_url"]
 
 
+def _invalid_input(response: Response, message: str) -> Dict[str, str]:
+    response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    return {"failure": message}
+
+
 @app.get("/", tags=["Web"])
 def root() -> Dict[str, str]:
     """Web server Root"""
@@ -68,22 +80,34 @@ if config[config["service"]["network"]]["save_blocks"]:
     """
     # Can only get this info if we have saved the blocks
     @app.get("/tx", tags=["Tx"])
-    def get_transaction(hash: str) -> Dict[str, Any]:
+    def get_transaction(hash: str, response: Response) -> Dict[str, Any]:
         """ Return the transaction entry identified by hash as a dictionary
             Note that this also indicates if the transaction outpoints have been spent or not
         """
+        try:
+            hash = validate_tx_hash(hash)
+        except ValueError as e:
+            return _invalid_input(response, str(e))
         return tx_analyser.get_tx_entry(hash)
 
     # Can only get this info if we have saved the blocks
     @app.get("/tx/hex", tags=["Tx"])
-    def get_tx_hex(hash: str) -> Dict[str, Any]:
+    def get_tx_hex(hash: str, response: Response) -> Dict[str, Any]:
         """ Return the tx raw entry identified by hash"""
+        try:
+            hash = validate_tx_hash(hash)
+        except ValueError as e:
+            return _invalid_input(response, str(e))
         return tx_analyser.get_tx_raw_entry(hash)
 
     @app.get("/tx/proof", tags=["Tx"])
-    def get_merkle_proof(hash: str) -> Dict[str, Any]:
+    def get_merkle_proof(hash: str, response: Response) -> Dict[str, Any]:
         """ Return the merkle branch proof for a confirmed transaction
         """
+        try:
+            hash = validate_tx_hash(hash)
+        except ValueError as e:
+            return _invalid_input(response, str(e))
         return tx_analyser.get_tx_merkle_proof(hash)
 
 else:
@@ -94,6 +118,10 @@ else:
         """ Return the tx from the  collection
             Note that this also indicates if the transaction outpoints have been spent or not
         """
+        try:
+            hash = validate_tx_hash(hash)
+        except ValueError as e:
+            return _invalid_input(response, str(e))
         result = collection.get_tx_as_hex(hash)
         if len(result) > 0:
             hexstr = result[0][0]
@@ -107,6 +135,10 @@ else:
     @app.get("/tx/hex", tags=["Tx"])
     def get_tx_from_collection_as_hex(hash: str, response: Response) -> Dict[str, Any]:
         """ Return the tx hex str from the collection"""
+        try:
+            hash = validate_tx_hash(hash)
+        except ValueError as e:
+            return _invalid_input(response, str(e))
         result = collection.get_tx_as_hex(hash)
         if len(result) > 0:
             return {"result": result[0][0]}
@@ -119,6 +151,11 @@ else:
 
 class Tx(BaseModel):
     tx: str
+
+    @field_validator("tx")
+    @classmethod
+    def check_tx_hex(cls, value: str) -> str:
+        return validate_hex_string(value)
 
 
 @app.post("/tx/hex", tags=["Tx"])
@@ -193,14 +230,22 @@ def get_latest_block_headers() -> Dict[str, Any]:
 
 
 @app.get("/block/height", tags=["Block Header"])
-def get_block_header_at_height(height: int) -> Dict[str, Any]:
+def get_block_header_at_height(height: int, response: Response) -> Dict[str, Any]:
     """ Return the block header at the given height"""
+    try:
+        height = validate_block_height(height)
+    except ValueError as e:
+        return _invalid_input(response, str(e))
     return block_manager.get_block_at_height(height)
 
 
 @app.get("/block/hash", tags=["Block Header"])
-def get_block_header_at_hash(hash: str) -> Dict[str, Any]:
+def get_block_header_at_hash(hash: str, response: Response) -> Dict[str, Any]:
     """ Return the block header at the given hash"""
+    try:
+        hash = validate_block_hash(hash)
+    except ValueError as e:
+        return _invalid_input(response, str(e))
     return block_manager.get_block_at_hash(hash)
 
 
@@ -278,6 +323,11 @@ def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
 def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
     """ This endpoint can delete an monitor with the provided address
     """
+    try:
+        monitor_name = validate_monitor_name(monitor_name)
+    except ValueError as e:
+        return _invalid_input(response, str(e))
+
     if not collection.is_valid_collection(monitor_name):
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {
