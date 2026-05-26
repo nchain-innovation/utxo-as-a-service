@@ -1,6 +1,11 @@
 from typing import Dict, Any, List
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import toml
+
+from validation import (
+    validate_monitor_name,
+    validate_locking_script_pattern,
+)
 
 from io import BytesIO
 from p2p_framework.object import CTransaction
@@ -27,6 +32,18 @@ class Monitor(BaseModel):
     track_descendants: bool
     address: None | str
     locking_script_pattern: None | str
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, value: str) -> str:
+        return validate_monitor_name(value)
+
+    @field_validator("locking_script_pattern")
+    @classmethod
+    def check_locking_script_pattern(cls, value: None | str) -> None | str:
+        if value is None:
+            return value
+        return validate_locking_script_pattern(value)
 
 
 def load_dynamic_config(config: ConfigType) -> List[str]:
