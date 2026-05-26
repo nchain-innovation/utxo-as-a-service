@@ -66,7 +66,7 @@ class Collection:
 
     def get_tx_as_hex(self, hash: str) -> List[Any]:
         # Read tx from database
-        return database.query(f"SELECT tx FROM collection WHERE hash = '{hash}';")
+        return database.query("SELECT tx FROM collection WHERE hash = %s;", (hash,))
 
     def is_valid_collection(self, cname: str) -> bool:
         return cname in self.static_names or cname in self.dynamic_names
@@ -74,7 +74,10 @@ class Collection:
     def get_collection_contents(self, monitor_name: str) -> List[Any]:
         """ Return the collection hashes associated with this collection name """
         assert self.is_valid_collection(monitor_name)
-        return database.query(f"SELECT hash FROM collection WHERE name = '{monitor_name}';")
+        return database.query(
+            "SELECT hash FROM collection WHERE name = %s;",
+            (monitor_name,),
+        )
 
     def add_monitor(self, monitor: Monitor):
         assert not self.is_valid_collection(monitor.name)

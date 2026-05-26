@@ -69,10 +69,9 @@ def main():
 
     for hash in zero_offset_blocks:
         offset = hash_to_offset[hash]
-        query = f"UPDATE blocks SET `offset`={offset} WHERE hash='{hash}';"
-        # query = f"replace blocks where hash = '{hash}' (offset) VALUES ({offset});"
-        print(query)
-        r = database.query(query)
+        query = "UPDATE blocks SET `offset` = %s WHERE hash = %s;"
+        print(query, offset, hash)
+        r = database.query(query, (offset, hash))
         print(r)
 
 

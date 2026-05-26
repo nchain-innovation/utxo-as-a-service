@@ -75,7 +75,7 @@ class BlockManager:
         This reads a block without accessing the blockfile.
         As the blockfile can be large and expensive to read.
         """
-        retval = database.query(f"SELECT * FROM blocks WHERE hash = '{hash}';")
+        retval = database.query("SELECT * FROM blocks WHERE hash = %s;", (hash,))
         return self._results_to_block(retval)
 
     def _read_block_from_height(self, height) -> Optional[Dict[str, Any]]:
@@ -83,12 +83,15 @@ class BlockManager:
         This reads a block without accessing the blockfile.
         As the blockfile can be large and expensive to read.
         """
-        retval = database.query(f"SELECT * FROM blocks WHERE height = '{height}';")
+        retval = database.query("SELECT * FROM blocks WHERE height = %s;", (height,))
         return self._results_to_block(retval)
 
     def _read_tx_at_height(self, height) -> List[str]:
         try:
-            result = database.query(f"SELECT hash FROM tx WHERE height = '{height}' ORDER BY blockindex ASC;")
+            result = database.query(
+                "SELECT hash FROM tx WHERE height = %s ORDER BY blockindex ASC;",
+                (height,),
+            )
             return [x[0] for x in result]
         except ProgrammingError as e:
             print(f"MySQL ProgrammingError {e}")
