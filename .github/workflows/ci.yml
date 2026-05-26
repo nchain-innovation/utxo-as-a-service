@@ -85,6 +85,9 @@ jobs:
       - name: Lint
         run: ./lint.sh
 
+      - name: Test
+        run: pytest python/tests -v
+
   docker:
     name: Docker
     runs-on: ubuntu-latest

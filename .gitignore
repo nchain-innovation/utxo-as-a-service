@@ -13,5 +13,8 @@ data/mysql
 data/dynamic.toml
 data/dynamic*.toml
 
+# Test symlink created by python/tests/conftest.py (Docker-style ../data layout)
+python/data
+
 out.txt
 .vscode
