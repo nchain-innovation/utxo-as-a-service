@@ -153,9 +153,9 @@ impl BlockManager {
             }
             if let Err(err) = self
                 .conn
-                .query_drop(r"CREATE INDEX idx_hash ON blocks (hash);")
+                .query_drop(r"CREATE INDEX IF NOT EXISTS idx_blocks_height ON blocks (height);")
             {
-                log::error!("Unable to create blocks hash index: {err:?}");
+                log::error!("Unable to create blocks height index: {err:?}");
             }
         }
 
@@ -457,6 +457,7 @@ impl BlockManager {
     pub fn setup(&mut self, tx_analyser: &mut TxAnalyser) {
         // Does all the startup stuff a BlockManager needs to do
         self.create_tables();
+        super::schema::ensure_performance_indexes(&mut self.conn);
         if self.startup_load_from_database {
             self.load_blockheaders_from_database();
             // Set the status - note that the height is updated by the load_blockheaders_from_database method

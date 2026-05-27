@@ -30,9 +30,9 @@ class TestLogic:
         logic.rust_url = "http://127.0.0.1:8081"
         response = MagicMock()
         response.status_code = 200
-        response.json.return_value = {"version": "1.2.0"}
+        response.json.return_value = {"version": "1.3.0"}
         with patch("logic.requests.get", return_value=response):
-            assert logic._get_version() == "1.2.0"
+            assert logic._get_version() == "1.3.0"
 
     def test_get_status_includes_database_counts(self) -> None:
         logic = Logic()
@@ -42,7 +42,7 @@ class TestLogic:
         with patch("logic.block_manager.get_block_height", return_value=10), patch(
             "logic.block_manager.get_last_block_time",
             return_value="2024-01-01 00:00:00",
-        ), patch.object(logic, "_get_version", return_value="1.2.0"), patch.object(
+        ), patch.object(logic, "_get_version", return_value="1.3.0"), patch.object(
             logic,
             "_get_no_of_entries",
             side_effect=[5, 3, 1],
@@ -51,7 +51,7 @@ class TestLogic:
 
         assert status == {
             "network": "testnet",
-            "version": "1.2.0",
+            "version": "1.3.0",
             "last block time": "2024-01-01 00:00:00",
             "block height": 10,
             "number of txs": 5,

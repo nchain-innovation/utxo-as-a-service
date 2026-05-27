@@ -75,3 +75,80 @@ impl DynamicConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{
+        CollectionConfig, Config, DatabaseConfig, DynamicConfigConfig as RootDynamicConfigConfig,
+        LoggingConfig, NetworkSettings, OrphanConfig, Service, WebInterfaceConfig,
+    };
+
+    fn sample_root_config(filename: &str) -> Config {
+        Config {
+            service: Service {
+                user_agent: "/Bitcoin SV:1.0.11/".to_string(),
+                network: "testnet".to_string(),
+                rust_address: "127.0.0.1:8081".to_string(),
+            },
+            mainnet: NetworkSettings {
+                ip: vec!["127.0.0.1".to_string()],
+                port: 8333,
+                timeout_period: 60.0,
+                start_block_hash: "a".repeat(64),
+                start_block_height: 1,
+                startup_load_from_database: true,
+                block_file: "../data/main-block.dat".to_string(),
+                save_blocks: false,
+                save_txs: false,
+            },
+            testnet: NetworkSettings {
+                ip: vec!["127.0.0.1".to_string()],
+                port: 18333,
+                timeout_period: 60.0,
+                start_block_hash: "b".repeat(64),
+                start_block_height: 1,
+                startup_load_from_database: false,
+                block_file: "../data/test-net.dat".to_string(),
+                save_blocks: false,
+                save_txs: false,
+            },
+            database: DatabaseConfig {
+                mysql_url: "mysql://local".to_string(),
+                mysql_url_docker: "mysql://docker".to_string(),
+                ms_delay: 300,
+                retries: 3,
+            },
+            orphan: OrphanConfig {
+                detect: false,
+                threshold: 100,
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+            },
+            dynamic_config: RootDynamicConfigConfig {
+                filename: filename.to_string(),
+            },
+            web_interface: WebInterfaceConfig::default(),
+            collection: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn cfg06_add_monitor_persists_to_dynamic_config_file() {
+        let dir =
+            std::env::temp_dir().join(format!("uaas_dynamic_config_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("dynamic.toml");
+        let config = sample_root_config(path.to_str().unwrap());
+        let mut dynamic = DynamicConfig::new(&config);
+        dynamic.add(&CollectionConfig {
+            name: "runtime-monitor".to_string(),
+            track_descendants: false,
+            address: Some("mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5".to_string()),
+            locking_script_pattern: None,
+        });
+        let saved = std::fs::read_to_string(&path).expect("dynamic config file");
+        assert!(saved.contains("runtime-monitor"));
+    }
+}

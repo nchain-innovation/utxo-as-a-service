@@ -90,8 +90,10 @@ impl TxDB {
             return;
         }
 
-        if let Err(err) = self.conn.query_drop(r"CREATE INDEX idx_tx ON tx (hash);") {
-            log::error!("Unable to create tx hash index: {err:?}");
+        if let Err(err) = self.conn.query_drop(
+            r"CREATE INDEX IF NOT EXISTS idx_tx_height_blockindex ON tx (height, blockindex);",
+        ) {
+            log::error!("Unable to create tx height index: {err:?}");
         }
     }
 
@@ -103,19 +105,12 @@ impl TxDB {
                 locktime int unsigned not null,
                 fee bigint unsigned not null,
                 time int unsigned not null,
-                tx longtext not null)",
+                tx longtext not null,
+                CONSTRAINT PK_Mempool PRIMARY KEY (hash))",
         ) {
             log::error!("Unable to create mempool table: {err:?}");
-            return;
         }
         // Note that tx longtext should be good for 4GB txs
-
-        if let Err(err) = self
-            .conn
-            .query_drop(r"CREATE INDEX idx_txkey ON mempool (hash);")
-        {
-            log::error!("Unable to create mempool hash index: {err:?}");
-        }
     }
 
     pub fn load_tx(&mut self) {

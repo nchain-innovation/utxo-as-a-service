@@ -179,16 +179,6 @@ if config[config["service"]["network"]]["save_blocks"]:
             return _invalid_input(response, str(e))
         return tx_analyser.get_tx_raw_entry(hash)
 
-    @app.get("/tx/proof", tags=["Tx"])
-    def get_merkle_proof(hash: str, response: Response) -> Dict[str, Any]:
-        """ Return the merkle branch proof for a confirmed transaction
-        """
-        try:
-            hash = validate_tx_hash(hash)
-        except ValueError as e:
-            return _invalid_input(response, str(e))
-        return tx_analyser.get_tx_merkle_proof(hash)
-
 else:
     """ Note that if we are not saving Tx we can only get txs from the collections
     """
@@ -226,6 +216,17 @@ else:
             return {
                 "failed": f"Unknown txid {hash}",
             }
+
+
+@app.get("/tx/proof", tags=["Tx"])
+def get_merkle_proof(hash: str, response: Response) -> Dict[str, Any]:
+    """ Return the merkle branch proof for a confirmed transaction
+    """
+    try:
+        hash = validate_tx_hash(hash)
+    except ValueError as e:
+        return _invalid_input(response, str(e))
+    return tx_analyser.get_tx_merkle_proof(hash)
 
 
 class Tx(BaseModel):
