@@ -20,6 +20,7 @@ mod rest_api;
 mod services;
 mod thread_manager;
 mod thread_tracker;
+mod thread_util;
 mod uaas;
 
 use crate::{
@@ -28,6 +29,7 @@ use crate::{
     rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
+    thread_util::catch_unwind_logged,
     uaas::logic::Logic,
 };
 
@@ -40,12 +42,11 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
-    // Hook in our own panic handler
+    // Log panics without terminating unrelated threads (for example the web server).
     let orig_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
-        // invoke the default handler and exit the process
+        log::error!("Thread panic: {panic_info}");
         orig_hook(panic_info);
-        process::exit(1);
     }));
 
     let config = get_config("UAASR_CONFIG", "../data/uaasr.toml")?;
@@ -78,15 +79,16 @@ async fn run() -> Result<(), String> {
     let ips = config.get_ips()?;
 
     // Start the peer threads
-    let handle = thread::spawn(move ||
-        // Cycle around all the IP addresses
-        for ip in ips.into_iter().cycle() {
-            manager.create_thread(ip, &mut children, &config);
-            if manager.process_messages(&mut children, &mut logic) {
-                break;
-            };
-        }
-    );
+    let handle = thread::spawn(move || {
+        catch_unwind_logged("peer manager", || {
+            for ip in ips.into_iter().cycle() {
+                manager.create_thread(ip, &mut children, &config);
+                if manager.process_messages(&mut children, &mut logic) {
+                    break;
+                }
+            }
+        });
+    });
 
     // Start webserver
     let server = HttpServer::new(move || {
@@ -125,8 +127,8 @@ async fn run() -> Result<(), String> {
         .map_err(|err| format!("web server error: {err}"))?;
 
     // Wait for peer threads
-    if let Err(e) = handle.join() {
-        log::error!("Peer manager thread panicked during shutdown: {:?}", e);
+    if handle.join().is_err() {
+        log::error!("Peer manager thread panicked during shutdown");
     }
 
     Ok(())

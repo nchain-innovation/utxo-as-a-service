@@ -9,6 +9,7 @@ use chain_gang::{
 
 use crate::{
     config::Config,
+    thread_util::catch_unwind_logged,
     uaas::{
         address_manager::AddressManager, block_manager::BlockManager, connection::Connection,
         database::Database, tx_analyser::TxAnalyser,
@@ -106,8 +107,10 @@ impl Logic {
 
         let db_config = config.clone();
         logic.thread = Some(thread::spawn(move || {
-            let mut database = Database::new(db_conn, rx, &db_config);
-            database.perform_db_operations();
+            catch_unwind_logged("database writer", || {
+                let mut database = Database::new(db_conn, rx, &db_config);
+                database.perform_db_operations();
+            });
         }));
 
         Ok(logic)

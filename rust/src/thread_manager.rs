@@ -2,7 +2,7 @@ use std::{
     net::IpAddr,
     sync::{atomic::AtomicBool, mpsc, Arc},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use chain_gang::messages::Message;
@@ -14,6 +14,7 @@ use crate::{
     peer_thread::{PeerThread, PeerThreadStatus},
     rest_api::RestEventMessage,
     thread_tracker::ThreadTracker,
+    thread_util::catch_unwind_logged,
     uaas::logic::{Logic, ServerStateType},
 };
 
@@ -57,6 +58,7 @@ impl ThreadManager {
             }
         };
 
+        let notify_tx = local_tx.clone();
         let peer_connection = match PeerConnection::new(ip, &local_config, local_tx) {
             Ok(peer_connection) => peer_connection,
             Err(err) => {
@@ -65,9 +67,23 @@ impl ThreadManager {
             }
         };
         let peer = peer_connection.peer.clone();
+        let peer_ip = ip;
         let peer_thread = PeerThread {
             thread: Some(thread::spawn(move || {
-                peer_connection.wait_for_messages(timeout_period, local_running);
+                let finished = catch_unwind_logged(&format!("peer connection {peer_ip}"), || {
+                    peer_connection.wait_for_messages(timeout_period, local_running)
+                })
+                .is_some();
+                if !finished {
+                    let msg = PeerEventMessage {
+                        time: SystemTime::now(),
+                        peer: peer_ip,
+                        event: PeerEventType::Disconnected,
+                    };
+                    if notify_tx.send(msg).is_err() {
+                        log::warn!("Failed to notify peer manager that {peer_ip} thread panicked");
+                    }
+                }
             })),
             status: PeerThreadStatus::Started,
             running: peer_running,
@@ -78,6 +94,18 @@ impl ThreadManager {
     }
 
     fn process_event(
+        &self,
+        received: PeerEventMessage,
+        thread_tracker: &mut ThreadTracker,
+        logic: &mut Logic,
+    ) -> bool {
+        catch_unwind_logged(&format!("peer event handler for {}", received.peer), || {
+            self.process_event_inner(received, thread_tracker, logic)
+        })
+        .unwrap_or(true)
+    }
+
+    fn process_event_inner(
         &self,
         received: PeerEventMessage,
         thread_tracker: &mut ThreadTracker,
