@@ -5,6 +5,7 @@ mod connection;
 mod database;
 mod hexslice;
 pub mod logic;
+mod schema;
 mod tx_analyser;
 mod txdb;
 pub mod util;

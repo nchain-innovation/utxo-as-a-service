@@ -172,7 +172,8 @@ def init_integration_schema(mysql_url: str) -> None:
                 `offset` bigint unsigned not null,
                 blocksize int unsigned not null,
                 numtxs int unsigned not null,
-                PRIMARY KEY (hash)
+                PRIMARY KEY (hash),
+                INDEX idx_blocks_height (height)
             )
             """
         )
@@ -184,7 +185,8 @@ def init_integration_schema(mysql_url: str) -> None:
                 blockindex int unsigned not null,
                 txsize int unsigned not null,
                 satoshis bigint unsigned not null,
-                PRIMARY KEY (hash)
+                PRIMARY KEY (hash),
+                INDEX idx_tx_height_blockindex (height, blockindex)
             )
             """
         )
@@ -196,7 +198,9 @@ def init_integration_schema(mysql_url: str) -> None:
                 satoshis bigint unsigned not null,
                 height int not null,
                 pubkeyhash varchar(64),
-                PRIMARY KEY (hash, pos)
+                PRIMARY KEY (hash, pos),
+                INDEX speed_key (pubkeyhash),
+                INDEX idx_utxo_height (height)
             )
             """
         )
@@ -207,7 +211,8 @@ def init_integration_schema(mysql_url: str) -> None:
                 locktime int unsigned not null,
                 fee bigint unsigned not null,
                 time int unsigned not null,
-                tx longtext not null
+                tx longtext not null,
+                PRIMARY KEY (hash)
             )
             """
         )
