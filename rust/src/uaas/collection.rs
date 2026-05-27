@@ -49,30 +49,50 @@ impl CollectionDatabase {
         }
     }
 
+    fn decode_stored_hash(value: &str) -> Option<Hash256> {
+        match Hash256::decode(value) {
+            Ok(hash) => Some(hash),
+            Err(err) => {
+                log::error!("Invalid stored collection tx hash {value}: {err:?}");
+                None
+            }
+        }
+    }
+
     pub fn create_table(&self, conn: &mut PooledConn) {
         log::info!("Table collection not found - creating");
 
         let table = "CREATE TABLE collection (hash varchar(64), name varchar(64), tx longtext, CONSTRAINT PK_Entry PRIMARY KEY (hash, name));";
-        conn.query_drop(table).unwrap();
+        if let Err(err) = conn.query_drop(table) {
+            log::error!("Unable to create collection table: {err:?}");
+            return;
+        }
 
-        // create index
         let index = "CREATE INDEX collect_key ON collection (hash, name);";
-        conn.query_drop(index).unwrap();
+        if let Err(err) = conn.query_drop(index) {
+            log::error!("Unable to create collection index: {err:?}");
+        }
     }
 
     pub fn load_txs(&mut self, collection_name: &str) -> Vec<Hash256> {
         // load txs- tx hash from database
         let start = Instant::now();
-        let txs: Vec<String> = self
-            .conn
-            .exec_map(
-                "SELECT hash FROM collection WHERE name = :name",
-                params! { "name" => collection_name },
-                |hash| hash,
-            )
-            .unwrap();
+        let txs: Vec<String> = match self.conn.exec_map(
+            "SELECT hash FROM collection WHERE name = :name",
+            params! { "name" => collection_name },
+            |hash| hash,
+        ) {
+            Ok(txs) => txs,
+            Err(err) => {
+                log::error!("Unable to load collection txs for {collection_name}: {err:?}");
+                return Vec::new();
+            }
+        };
 
-        let retval: Vec<Hash256> = txs.iter().map(|x| Hash256::decode(x).unwrap()).collect();
+        let retval: Vec<Hash256> = txs
+            .iter()
+            .filter_map(|hash| Self::decode_stored_hash(hash))
+            .collect();
 
         log::info!(
             "Collection {} Loaded {} in {} seconds",
@@ -87,7 +107,10 @@ impl CollectionDatabase {
         let hash = tx.hash().encode();
         // Write the tx as hexstr
         let mut b = Vec::with_capacity(tx.size());
-        tx.write(&mut b).unwrap();
+        if let Err(err) = tx.write(&mut b) {
+            log::error!("Unable to serialize collection tx {hash}: {err:?}");
+            return;
+        }
         let tx_hex = format!("{}", HexSlice::new(&b));
 
         let result = retry(
@@ -103,7 +126,9 @@ impl CollectionDatabase {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            log::error!("Unable to write collection tx {hash} for {collection_name}: {err:?}");
+        }
     }
 }
 

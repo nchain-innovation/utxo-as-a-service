@@ -22,37 +22,41 @@ impl Connection {
     }
 
     fn create_table(&mut self) {
-        // Create tables, if required
-
-        // Check for the tables
-        let tables: Vec<String> = self
-            .conn
-            .query(
-                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
-            )
-            .unwrap();
+        let tables: Vec<String> = match self.conn.query(
+            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
+        ) {
+            Ok(tables) => tables,
+            Err(err) => {
+                log::error!("Unable to list database tables for connect log: {err:?}");
+                return;
+            }
+        };
 
         if !tables.iter().any(|x| x.as_str() == "connect") {
             log::info!("Table connect not found - creating");
-            self.conn
-                .query_drop(
-                    "CREATE TABLE connect (date VARCHAR(64), ip VARCHAR(64), event VARCHAR(64));",
-                )
-                .unwrap();
+            if let Err(err) = self.conn.query_drop(
+                "CREATE TABLE connect (date VARCHAR(64), ip VARCHAR(64), event VARCHAR(64));",
+            ) {
+                log::error!("Unable to create connect table: {err:?}");
+            }
         }
     }
 
     pub fn setup(&mut self) {
-        // Do startup setup stuff
         self.create_table();
     }
 
     fn insert_data(&mut self, ip: &IpAddr, event: &str) {
-        // On receiving an Connect or Disconnect message, write it to the database
-        let connect_insert = self
+        let connect_insert = match self
             .conn
             .prep("INSERT INTO connect (date, ip, event) VALUES (:date, :ip, :event)")
-            .unwrap();
+        {
+            Ok(stmt) => stmt,
+            Err(err) => {
+                log::error!("Unable to prepare connect insert statement: {err:?}");
+                return;
+            }
+        };
 
         let date = Utc::now();
         let date_str = date.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -61,12 +65,18 @@ impl Connection {
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
             || {
                 self.conn.exec_drop(
-                &connect_insert,
-                params! { "date" => date_str.clone() , "ip" => ip.to_string(), "event" => event},
-            )
+                    &connect_insert,
+                    params! {
+                        "date" => date_str.clone(),
+                        "ip" => ip.to_string(),
+                        "event" => event
+                    },
+                )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            log::error!("Unable to write connect event for {ip}: {err:?}");
+        }
     }
 
     pub fn on_connect(&mut self, ip: &IpAddr) {
