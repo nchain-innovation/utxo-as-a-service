@@ -5,7 +5,7 @@ use actix_web::{web, App, HttpServer};
 use std::{
     net::{IpAddr, Ipv4Addr},
     panic, process,
-    sync::mpsc,
+    sync::{mpsc, Arc},
     thread, time,
 };
 use tokio::signal;
@@ -16,6 +16,7 @@ mod event_handler;
 mod peer_connection;
 mod peer_event;
 mod peer_thread;
+mod rate_limit;
 mod rest_api;
 mod services;
 mod thread_manager;
@@ -25,6 +26,7 @@ mod uaas;
 use crate::{
     config::get_config,
     peer_event::{PeerEventMessage, PeerEventType},
+    rate_limit::RateLimiter,
     rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
@@ -54,9 +56,12 @@ async fn main() {
     // Setup web server data
     let (tx_rest, rx_rest) = mpsc::channel();
 
+    let rate_limiter = Arc::new(RateLimiter::new(config.web_interface.rate_limit_per_minute));
+
     let app_state = AppState {
         msg_from_rest_api: tx_rest,
         api_key: config.web_interface.api_key.clone(),
+        rate_limiter,
     };
     let web_state = web::Data::new(app_state);
 

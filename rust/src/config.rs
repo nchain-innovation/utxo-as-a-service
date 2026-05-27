@@ -58,6 +58,8 @@ pub struct DynamicConfigConfig {
 pub struct WebInterfaceConfig {
     #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub rate_limit_per_minute: u32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
