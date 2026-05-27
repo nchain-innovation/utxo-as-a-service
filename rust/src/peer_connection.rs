@@ -24,8 +24,14 @@ pub struct PeerConnection {
 
 impl PeerConnection {
     pub fn new(ip: IpAddr, config: &Config, tx: mpsc::Sender<PeerEventMessage>) -> Self {
-        let port = config.get_network_settings().port;
-        let network = config.get_network().expect("Error decoding config network");
+        // Config is validated in main before peer threads are started.
+        let settings = config
+            .get_network_settings()
+            .expect("config must pass validate_startup before peer connections");
+        let port = settings.port;
+        let network = config
+            .get_network()
+            .expect("config must pass validate_startup before peer connections");
         let user_agent = &config.service.user_agent;
 
         let mut rng = rand::rng();

@@ -57,30 +57,29 @@ pub struct Logic {
 }
 
 impl Logic {
-    fn pool_conn(pool: &Pool, label: &str) -> PooledConn {
-        match pool.get_conn() {
-            Ok(conn) => conn,
-            Err(err) => {
-                log::error!("Unable to get {label} database connection: {err:?}");
-                panic!("Unable to get {label} database connection");
-            }
-        }
+    fn pool_conn(pool: &Pool, label: &str) -> Result<PooledConn, String> {
+        pool.get_conn().map_err(|err| {
+            log::error!("Unable to get {label} database connection: {err:?}");
+            format!("Unable to get {label} database connection")
+        })
     }
 
-    pub fn new(config: &Config, pool: Pool) -> Self {
-        // Set up database connections for the components
-        let block_conn = Self::pool_conn(&pool, "block");
-        let addr_conn = Self::pool_conn(&pool, "address");
-        let connection_conn = Self::pool_conn(&pool, "connection");
-        let db_conn = Self::pool_conn(&pool, "database writer");
+    pub fn new(config: &Config, pool: Pool) -> Result<Self, String> {
+        let block_conn = Self::pool_conn(&pool, "block")?;
+        let addr_conn = Self::pool_conn(&pool, "address")?;
+        let connection_conn = Self::pool_conn(&pool, "connection")?;
+        let db_conn = Self::pool_conn(&pool, "database writer")?;
 
         // Channel for database writes
         let (tx, rx) = mpsc::channel();
 
+        let tx_analyser = TxAnalyser::new(config, pool, tx.clone())?;
+        let block_manager = BlockManager::new(config, block_conn, tx)?;
+
         let mut logic = Logic {
             state: ServerStateType::Starting,
-            tx_analyser: TxAnalyser::new(config, pool, tx.clone()),
-            block_manager: BlockManager::new(config, block_conn, tx),
+            tx_analyser,
+            block_manager,
             address_manager: AddressManager::new(config, addr_conn),
             connection: Connection::new(config, connection_conn),
 
@@ -102,7 +101,7 @@ impl Logic {
             database.perform_db_operations();
         }));
 
-        logic
+        Ok(logic)
     }
 
     pub fn setup(&mut self) {

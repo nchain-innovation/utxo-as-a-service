@@ -99,6 +99,7 @@ class TestRestApiSmoke:
         assert response.status_code == 422
         assert "failure" in response.json()
 
+
     def test_invalid_block_hash_returns_422(self, client: TestClient) -> None:
         response = client.get("/block/hash", params={"hash": "not-a-hash"})
         assert response.status_code == 422
@@ -205,6 +206,7 @@ class TestRestApiSmoke:
         assert response.status_code == 422
         assert "does not exist" in response.json()["failed"]
 
+
     def test_delete_monitor_rejects_static_collection(self, client: TestClient) -> None:
         import rest_api
 
@@ -218,4 +220,4 @@ class TestRestApiSmoke:
                 params={"monitor_name": "CoCv1"},
             )
         assert response.status_code == 422
-        assert "dynmatic monitor" in response.json()["failed"]
+        assert "dynamic monitor" in response.json()["failed"]

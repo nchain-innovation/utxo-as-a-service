@@ -50,7 +50,11 @@ impl ThreadManager {
         let peer_running = local_running.clone();
 
         // Read config
-        let timeout_period = config.get_network_settings().timeout_period;
+        // Config is validated in main before peer threads are started.
+        let timeout_period = config
+            .get_network_settings()
+            .expect("config must pass validate_startup before peer connections")
+            .timeout_period;
 
         let peer_connection = PeerConnection::new(ip, &local_config, local_tx);
         let peer = peer_connection.peer.clone();
