@@ -2239,7 +2239,7 @@ dependencies = [
  "lazy_static",
  "log",
  "mysql",
- "rand 0.9.4",
+ "rand 0.10.1",
  "regex",
  "retry",
  "serde",
