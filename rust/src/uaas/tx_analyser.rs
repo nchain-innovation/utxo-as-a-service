@@ -54,30 +54,28 @@ pub struct TxAnalyser {
 }
 
 impl TxAnalyser {
-    fn pool_conn(pool: &Pool, label: &str) -> PooledConn {
-        match pool.get_conn() {
-            Ok(conn) => conn,
-            Err(err) => {
-                log::error!("Unable to get {label} database connection: {err:?}");
-                panic!("Unable to get {label} database connection");
-            }
-        }
+    fn pool_conn(pool: &Pool, label: &str) -> Result<PooledConn, String> {
+        pool.get_conn().map_err(|err| {
+            log::error!("Unable to get {label} database connection: {err:?}");
+            format!("Unable to get {label} database connection")
+        })
     }
 
-    pub fn new(config: &Config, pool: Pool, tx: mpsc::Sender<DBOperationType>) -> Self {
-        let tx_conn = Self::pool_conn(&pool, "tx analyser");
-        let utxo_conn = Self::pool_conn(&pool, "utxo");
-        let txdb_conn = Self::pool_conn(&pool, "txdb");
-        let collection_conn = Self::pool_conn(&pool, "collection");
+    pub fn new(
+        config: &Config,
+        pool: Pool,
+        tx: mpsc::Sender<DBOperationType>,
+    ) -> Result<Self, String> {
+        let tx_conn = Self::pool_conn(&pool, "tx analyser")?;
+        let utxo_conn = Self::pool_conn(&pool, "utxo")?;
+        let txdb_conn = Self::pool_conn(&pool, "txdb")?;
+        let collection_conn = Self::pool_conn(&pool, "collection")?;
 
-        let save_txs = config.get_network_settings().save_txs;
-        let network = match config.get_network() {
-            Ok(network) => network,
-            Err(err) => {
-                log::error!("Invalid network in config: {err}");
-                panic!("invalid network in config; expected mainnet, testnet, or stn");
-            }
-        };
+        let save_txs = config
+            .get_network_settings()
+            .map_err(|err| err.to_string())?
+            .save_txs;
+        let network = config.get_network().map_err(|err| err.to_string())?;
         let dynamic_config = DynamicConfig::new(config);
         let mut collection: Vec<WorkingCollection> = Vec::new();
 
@@ -100,7 +98,7 @@ impl TxAnalyser {
             WorkingCollection::create_broadcast_collection();
         collection.push(broadcast_collection);
 
-        TxAnalyser {
+        Ok(TxAnalyser {
             save_txs,
             txdb: TxDB::new(txdb_conn, tx.clone(), save_txs),
             utxo: Utxo::new(utxo_conn, tx),
@@ -109,7 +107,7 @@ impl TxAnalyser {
             collection_db: CollectionDatabase::new(collection_conn, config),
             dynamic_config: dynamic_config.clone(),
             network,
-        }
+        })
     }
 
     fn create_tables(&mut self) {
@@ -378,8 +376,8 @@ mod tests {
         //fn script_to_pubkeyhash(locking_script: &Script) -> String {
         //"asm": "OP_DUP OP_HASH160 7c78584493557fac782023a4ad591b64545929d9 OP_EQUALVERIFY OP_CHECKSIG",
 
-        let encoded_script =
-            hex::decode("76a9147c78584493557fac782023a4ad591b64545929d988ac").unwrap();
+        let encoded_script = hex::decode("76a9147c78584493557fac782023a4ad591b64545929d988ac")
+            .expect("valid test locking script hex");
         let locking_script = Script(encoded_script);
         let result = script_to_pubkeyhash(&locking_script);
         println!("{}", &result);

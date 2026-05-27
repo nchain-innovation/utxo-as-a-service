@@ -1,4 +1,4 @@
-use chain_gang::network::Network;
+use chain_gang::{network::Network, util::Hash256};
 use serde::{Deserialize, Serialize};
 use std::{env, io, net::IpAddr};
 
@@ -88,24 +88,44 @@ impl Config {
         }
     }
 
-    pub fn get_network_settings(&self) -> &NetworkSettings {
+    pub fn get_network_settings(&self) -> Result<&NetworkSettings, &'static str> {
         match self.service.network.as_str() {
-            "mainnet" => &self.mainnet,
-            "testnet" => &self.testnet,
-            "stn" => panic!("no settings for STN"),
-            _ => panic!("unable to decode network"),
+            "mainnet" => Ok(&self.mainnet),
+            "testnet" => Ok(&self.testnet),
+            "stn" => Err("no settings for STN"),
+            _ => Err("unable to decode network"),
         }
     }
 
-    pub fn get_ips(&self) -> Result<Vec<IpAddr>, &str> {
+    pub fn get_ips(&self) -> Result<Vec<IpAddr>, String> {
         let mut ip_list: Vec<IpAddr> = Vec::new();
-        for ip in self.get_network_settings().ip.iter() {
-            match ip.parse() {
-                Ok(value) => ip_list.push(value),
-                Err(_) => return Err("unable to parse ip address"),
-            }
+        for ip in self
+            .get_network_settings()
+            .map_err(|e| e.to_string())?
+            .ip
+            .iter()
+        {
+            ip.parse()
+                .map(|value| ip_list.push(value))
+                .map_err(|_| format!("unable to parse ip address '{ip}'"))?;
         }
         Ok(ip_list)
+    }
+
+    pub fn validate_startup(&self) -> Result<(), String> {
+        let settings = self.get_network_settings().map_err(|err| err.to_string())?;
+        if settings.ip.is_empty() {
+            return Err("network ip list must not be empty".into());
+        }
+        self.get_ips()?;
+        self.get_network().map_err(|err| err.to_string())?;
+        Hash256::decode(&settings.start_block_hash).map_err(|err| {
+            format!(
+                "invalid start_block_hash '{}': {err:?}",
+                settings.start_block_hash
+            )
+        })?;
+        Ok(())
     }
 
     pub fn get_mysql_url(&self) -> &str {
@@ -141,25 +161,15 @@ fn read_config(filename: &str) -> std::io::Result<Config> {
 // BNAR_CONFIG='{"user_agent": "/Bitcoin SV:1.0.9/","ip": ["18.157.234.254",  "65.21.201.45" ], "port": 8333, "network": "Mainnet", "timeout_period": 60.0}'
 // cargo run
 
-pub fn get_config(env_var: &str, filename: &str) -> Option<Config> {
-    // read config try env var, then filename, panic if fails
-
+pub fn get_config(env_var: &str, filename: &str) -> Result<Config, String> {
     match env::var_os(env_var) {
         Some(content) => {
-            let val = content.into_string().unwrap();
-            // Parse to Config
-            match serde_json::from_str(&val) {
-                Ok(config) => Some(config),
-                Err(e) => panic!("Error parsing JSON environment var {:?}", e),
-            }
+            let val = content
+                .into_string()
+                .map_err(|_| format!("environment variable {env_var} contains invalid UTF-8"))?;
+            serde_json::from_str(&val)
+                .map_err(|err| format!("error parsing JSON environment variable {env_var}: {err}"))
         }
-        None => {
-            // Read config
-            let config = match read_config(filename) {
-                Ok(config) => config,
-                Err(error) => panic!("Error reading config file {:?}", error),
-            };
-            Some(config)
-        }
+        None => read_config(filename).map_err(|err| format!("error reading config file: {err}")),
     }
 }
