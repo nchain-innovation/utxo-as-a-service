@@ -54,6 +54,21 @@ def validate_hex_string(value: str) -> str:
     return value.lower()
 
 
+DEFAULT_MAX_BROADCAST_TX_BYTES = 1_000_000
+
+
+def validate_broadcast_tx_hex(
+    value: str, max_bytes: int = DEFAULT_MAX_BROADCAST_TX_BYTES
+) -> str:
+    value = validate_hex_string(value)
+    tx_bytes = len(value) // 2
+    if tx_bytes > max_bytes:
+        raise ValueError(
+            f"Transaction too large: {tx_bytes} bytes exceeds limit of {max_bytes} bytes"
+        )
+    return value
+
+
 def validate_locking_script_pattern(value: str) -> str:
     if not value or len(value) > 512:
         raise ValueError(
