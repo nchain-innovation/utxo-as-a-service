@@ -23,15 +23,16 @@ pub struct PeerConnection {
 }
 
 impl PeerConnection {
-    pub fn new(ip: IpAddr, config: &Config, tx: mpsc::Sender<PeerEventMessage>) -> Self {
-        // Config is validated in main before peer threads are started.
+    pub fn new(
+        ip: IpAddr,
+        config: &Config,
+        tx: mpsc::Sender<PeerEventMessage>,
+    ) -> Result<Self, String> {
         let settings = config
             .get_network_settings()
-            .expect("config must pass validate_startup before peer connections");
+            .map_err(|err| err.to_string())?;
         let port = settings.port;
-        let network = config
-            .get_network()
-            .expect("config must pass validate_startup before peer connections");
+        let network = config.get_network().map_err(|err| err.to_string())?;
         let user_agent = &config.service.user_agent;
 
         let mut rng = rand::rng();
@@ -54,10 +55,10 @@ impl PeerConnection {
         peer.disconnected_event().subscribe(&event_handler);
         peer.messages().subscribe(&event_handler);
 
-        PeerConnection {
+        Ok(PeerConnection {
             peer,
             event_handler,
-        }
+        })
     }
 
     pub fn wait_for_messages(&self, timeout_period: f64, running: Arc<AtomicBool>) {

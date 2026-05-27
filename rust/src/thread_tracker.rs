@@ -87,8 +87,8 @@ impl ThreadTracker {
             let started_at = peer.started_at;
 
             if let Some(thread) = peer.thread {
-                if let Err(e) = thread.join() {
-                    log::error!("Peer thread join failed for {}: {:?}", ip, e);
+                if thread.join().is_err() {
+                    log::error!("Peer thread for {ip} panicked");
                 }
 
                 // Create a new entry to replace the existing one

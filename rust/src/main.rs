@@ -21,6 +21,7 @@ mod rest_api;
 mod services;
 mod thread_manager;
 mod thread_tracker;
+mod thread_util;
 mod uaas;
 
 use crate::{
@@ -29,6 +30,7 @@ use crate::{
     rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
+    thread_util::catch_unwind_logged,
     uaas::logic::Logic,
 };
 
@@ -41,6 +43,7 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
+    // Log panics without terminating unrelated threads (for example the web server).
     let orig_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
         log::error!("Thread panic: {panic_info}");
@@ -82,14 +85,17 @@ async fn run() -> Result<(), String> {
 
     let ips = config.get_ips()?;
 
-    let handle = thread::spawn(move ||
-        for ip in ips.into_iter().cycle() {
-            manager.create_thread(ip, &mut children, &config);
-            if manager.process_messages(&mut children, &mut logic) {
-                break;
-            };
-        }
-    );
+    // Start the peer threads
+    let handle = thread::spawn(move || {
+        catch_unwind_logged("peer manager", || {
+            for ip in ips.into_iter().cycle() {
+                manager.create_thread(ip, &mut children, &config);
+                if manager.process_messages(&mut children, &mut logic) {
+                    break;
+                }
+            }
+        });
+    });
 
     let server = HttpServer::new(move || {
         App::new()
@@ -126,6 +132,7 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|err| format!("web server error: {err}"))?;
 
+    // Wait for peer threads
     if handle.join().is_err() {
         log::error!("Peer manager thread panicked during shutdown");
     }
