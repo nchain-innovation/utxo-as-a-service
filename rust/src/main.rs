@@ -2,6 +2,7 @@
 extern crate lazy_static;
 
 use actix_web::{web, App, HttpServer};
+use mysql::Pool;
 use std::{
     net::{IpAddr, Ipv4Addr},
     panic, process,
@@ -54,14 +55,19 @@ async fn main() {
     // Setup web server data
     let (tx_rest, rx_rest) = mpsc::channel();
 
+    let db_pool = Pool::new(config.get_mysql_url()).expect(
+        "Problem connecting to database. Check database is connected and database connection configuration is correct.\n",
+    );
+
     let app_state = AppState {
         msg_from_rest_api: tx_rest,
         api_key: config.web_interface.api_key.clone(),
+        db_pool: db_pool.clone(),
     };
     let web_state = web::Data::new(app_state);
 
     // Setup logic
-    let mut logic = Logic::new(&config);
+    let mut logic = Logic::new(&config, db_pool);
     logic.setup();
 
     // Used to track peer connection threads

@@ -1,3 +1,4 @@
+import os
 from typing import Any, MutableMapping
 from urllib.parse import urlparse
 
@@ -15,6 +16,71 @@ def parse_mysql_url(url: str) -> dict[str, Any]:
         "password": parsed.password or "",
         "database": parsed.path.lstrip("/"),
     }
+
+
+def verify_mysql_connection(mysql_url: str) -> None:
+    """Raise mysql.connector.Error if the test URL cannot connect."""
+    import mysql.connector
+
+    db = parse_mysql_url(mysql_url)
+    connection = mysql.connector.connect(
+        host=db["host"],
+        port=db["port"],
+        user=db["user"],
+        password=db["password"],
+        database=db["database"],
+    )
+    connection.close()
+
+
+def ensure_test_user_grants(mysql_url: str) -> None:
+    """Ensure the integration-test user can connect from Docker bridge hosts.
+
+    Local docker-compose volumes created before maas@'%' was added only grant
+    maas@localhost. Host connections via 127.0.0.1:3307 appear as 172.x to MariaDB.
+    """
+    import mysql.connector
+
+    db = parse_mysql_url(mysql_url)
+    root_password = os.environ.get("UAAS_TEST_MYSQL_ROOT_PASSWORD", "mysql")
+    root_user = os.environ.get("UAAS_TEST_MYSQL_ROOT_USER", "root")
+
+    connection = mysql.connector.connect(
+        host=db["host"],
+        port=db["port"],
+        user=root_user,
+        password=root_password,
+    )
+    cursor = connection.cursor()
+    try:
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{db['database']}`")
+        cursor.execute(
+            "CREATE USER IF NOT EXISTS %s@'%%' IDENTIFIED BY %s",
+            (db["user"], db["password"]),
+        )
+        cursor.execute(
+            f"GRANT ALL PRIVILEGES ON `{db['database']}`.* TO %s@'%%'",
+            (db["user"],),
+        )
+        cursor.execute("FLUSH PRIVILEGES")
+        connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
+
+
+def prepare_mysql_for_tests(mysql_url: str) -> None:
+    """Verify test DB access, repairing common Docker grant issues when possible."""
+    import mysql.connector
+
+    try:
+        verify_mysql_connection(mysql_url)
+    except mysql.connector.Error:
+        try:
+            ensure_test_user_grants(mysql_url)
+        except mysql.connector.Error:
+            raise
+        verify_mysql_connection(mysql_url)
 
 
 def build_integration_config(mysql_url: str) -> ConfigType:
@@ -36,6 +102,7 @@ def build_integration_config(mysql_url: str) -> ConfigType:
             "user": db["user"],
             "password": db["password"],
             "database": db["database"],
+            "mysql_port": db["port"],
             "block_file": "../data/main-block.dat",
             "save_blocks": False,
             "save_txs": False,
@@ -51,6 +118,7 @@ def build_integration_config(mysql_url: str) -> ConfigType:
             "user": db["user"],
             "password": db["password"],
             "database": db["database"],
+            "mysql_port": db["port"],
             "block_file": "../data/test-net.dat",
             "save_blocks": False,
             "save_txs": False,
@@ -108,6 +176,41 @@ def init_integration_schema(mysql_url: str) -> None:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tx (
+                hash varchar(64) not null,
+                height int unsigned not null,
+                blockindex int unsigned not null,
+                txsize int unsigned not null,
+                satoshis bigint unsigned not null,
+                PRIMARY KEY (hash)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS utxo (
+                hash varchar(64) not null,
+                pos int unsigned not null,
+                satoshis bigint unsigned not null,
+                height int not null,
+                pubkeyhash varchar(64),
+                PRIMARY KEY (hash, pos)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mempool (
+                hash varchar(64) not null,
+                locktime int unsigned not null,
+                fee bigint unsigned not null,
+                time int unsigned not null,
+                tx longtext not null
+            )
+            """
+        )
         connection.commit()
     finally:
         cursor.close()
@@ -128,6 +231,26 @@ def clear_blocks(mysql_url: str) -> None:
     cursor = connection.cursor()
     try:
         cursor.execute("DELETE FROM blocks")
+        connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
+
+
+def clear_utxo(mysql_url: str) -> None:
+    import mysql.connector
+
+    db = parse_mysql_url(mysql_url)
+    connection = mysql.connector.connect(
+        host=db["host"],
+        port=db["port"],
+        user=db["user"],
+        password=db["password"],
+        database=db["database"],
+    )
+    cursor = connection.cursor()
+    try:
+        cursor.execute("DELETE FROM utxo")
         connection.commit()
     finally:
         cursor.close()
@@ -167,6 +290,39 @@ def insert_sample_block(mysql_url: str, height: int, block_hash: str) -> None:
                 1000,
                 1,
             ),
+        )
+        connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
+
+
+def insert_sample_utxo(
+    mysql_url: str,
+    tx_hash: str,
+    pubkeyhash: str,
+    height: int,
+    satoshis: int,
+    pos: int = 0,
+) -> None:
+    import mysql.connector
+
+    db = parse_mysql_url(mysql_url)
+    connection = mysql.connector.connect(
+        host=db["host"],
+        port=db["port"],
+        user=db["user"],
+        password=db["password"],
+        database=db["database"],
+    )
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO utxo (hash, pos, satoshis, height, pubkeyhash)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (tx_hash, pos, satoshis, height, pubkeyhash),
         )
         connection.commit()
     finally:

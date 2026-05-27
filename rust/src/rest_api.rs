@@ -4,6 +4,7 @@ use std::sync::mpsc;
 use actix_web::{
     delete, get, http::header::ContentType, post, web, HttpRequest, HttpResponse, Responder, Result,
 };
+use mysql::{prelude::*, Pool};
 use serde::Serialize;
 
 use chain_gang::{messages::Tx, util::Serializable};
@@ -24,6 +25,7 @@ pub enum RestEventMessage {
 pub struct AppState {
     pub msg_from_rest_api: mpsc::Sender<RestEventMessage>,
     pub api_key: Option<String>,
+    pub db_pool: Pool,
 }
 
 const API_KEY_HEADER: &str = "X-API-Key";
@@ -54,16 +56,43 @@ struct BroadcastTxResponse {
 struct HealthResponse {
     status: &'static str,
     service: &'static str,
-    version: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    database: Option<String>,
+}
+
+fn check_database(pool: &Pool) -> Result<(), String> {
+    let mut conn = pool.get_conn().map_err(|err| err.to_string())?;
+    conn.query_first::<u8, _>("SELECT 1")
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "database health check returned no rows".to_string())?;
+    Ok(())
 }
 
 #[get("/health")]
-async fn health() -> impl Responder {
-    web::Json(HealthResponse {
-        status: "ok",
-        service: "uaas-service",
-        version: env!("CARGO_PKG_VERSION"),
-    })
+async fn health(data: web::Data<AppState>) -> impl Responder {
+    let pool = data.db_pool.clone();
+    match web::block(move || check_database(&pool)).await {
+        Ok(Ok(())) => HttpResponse::Ok().json(HealthResponse {
+            status: "ok",
+            service: "uaas-service",
+            version: Some(env!("CARGO_PKG_VERSION")),
+            database: None,
+        }),
+        Ok(Err(db_err)) => HttpResponse::ServiceUnavailable().json(HealthResponse {
+            status: "unhealthy",
+            service: "uaas-service",
+            version: None,
+            database: Some(db_err),
+        }),
+        Err(block_err) => HttpResponse::ServiceUnavailable().json(HealthResponse {
+            status: "unhealthy",
+            service: "uaas-service",
+            version: None,
+            database: Some(block_err.to_string()),
+        }),
+    }
 }
 
 #[get("/version")]
@@ -179,4 +208,203 @@ async fn delete_monitor(
     }
 
     Ok(HttpResponse::Ok().finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test as actix_test, App};
+    use std::sync::mpsc;
+
+    fn mysql_test_url() -> Option<String> {
+        std::env::var("UAAS_TEST_MYSQL_URL").ok()
+    }
+
+    fn live_db_pool() -> Option<Pool> {
+        let url = mysql_test_url()?;
+        Some(Pool::new(url.as_str()).expect("failed to connect to test database"))
+    }
+
+    fn invalid_credentials_pool() -> Option<Pool> {
+        let url = mysql_test_url()?;
+        let bad_url = url.replacen("maas:maas-password", "maas:not-the-password", 1);
+        Pool::new(bad_url.as_str()).ok()
+    }
+
+    fn skip_without_mysql(test_name: &str) -> Option<Pool> {
+        live_db_pool().or_else(|| {
+            eprintln!("skipping {test_name}: UAAS_TEST_MYSQL_URL not set");
+            None
+        })
+    }
+
+    mod database_checks {
+        use super::*;
+
+        #[test]
+        fn live_mysql_passes_health_check() {
+            let Some(pool) = skip_without_mysql("live_mysql_passes_health_check") else {
+                return;
+            };
+            check_database(&pool).expect("database health check should succeed");
+        }
+
+        #[test]
+        fn invalid_credentials_fail_health_check() {
+            let Some(pool) = invalid_credentials_pool() else {
+                eprintln!(
+                    "skipping invalid_credentials_fail_health_check: \
+                     could not create pool with invalid credentials"
+                );
+                return;
+            };
+            let result = check_database(&pool);
+            assert!(
+                result.is_err(),
+                "expected database check to fail: {result:?}"
+            );
+        }
+    }
+
+    fn test_app_state(db_pool: Pool) -> web::Data<AppState> {
+        let (tx, _rx) = mpsc::channel();
+        web::Data::new(AppState {
+            msg_from_rest_api: tx,
+            api_key: None,
+            db_pool,
+        })
+    }
+
+    #[actix_web::test]
+    async fn health_returns_ok_with_database() {
+        let Some(pool) = skip_without_mysql("health_returns_ok_with_database") else {
+            return;
+        };
+
+        let app =
+            actix_test::init_service(App::new().app_data(test_app_state(pool)).service(health))
+                .await;
+
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::get().uri("/health").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), 200);
+        let bytes = actix_test::read_body(response).await;
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("health json");
+        assert_eq!(body["status"], "ok");
+        assert_eq!(body["service"], "uaas-service");
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        assert!(body.get("database").is_none());
+    }
+
+    #[actix_web::test]
+    async fn health_returns_503_when_database_unreachable() {
+        let Some(pool) = invalid_credentials_pool() else {
+            eprintln!(
+                "skipping health_returns_503_when_database_unreachable: \
+                 could not create pool with invalid credentials"
+            );
+            return;
+        };
+
+        let app =
+            actix_test::init_service(App::new().app_data(test_app_state(pool)).service(health))
+                .await;
+
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::get().uri("/health").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), 503);
+        let bytes = actix_test::read_body(response).await;
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("health json");
+        assert_eq!(body["status"], "unhealthy");
+        assert_eq!(body["service"], "uaas-service");
+        assert!(body.get("version").is_none());
+        assert!(body.get("database").is_some());
+    }
+
+    #[actix_web::test]
+    async fn version_returns_package_version() {
+        let Some(pool) = skip_without_mysql("version_returns_package_version") else {
+            return;
+        };
+
+        let app =
+            actix_test::init_service(App::new().app_data(test_app_state(pool)).service(version))
+                .await;
+
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::get().uri("/version").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), 200);
+        let body = actix_test::read_body(response).await;
+        let body = std::str::from_utf8(&body).expect("version response should be utf-8");
+        assert!(body.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[actix_web::test]
+    async fn health_does_not_require_api_key() {
+        let Some(pool) = skip_without_mysql("health_does_not_require_api_key") else {
+            return;
+        };
+
+        let (tx, _rx) = mpsc::channel();
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState {
+                    msg_from_rest_api: tx,
+                    api_key: Some("secret-key".to_string()),
+                    db_pool: pool,
+                }))
+                .service(health),
+        )
+        .await;
+
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::get().uri("/health").to_request(),
+        )
+        .await;
+
+        assert_ne!(response.status(), 401);
+    }
+
+    #[actix_web::test]
+    async fn broadcast_tx_requires_api_key_when_configured() {
+        let Some(pool) = skip_without_mysql("broadcast_tx_requires_api_key_when_configured") else {
+            return;
+        };
+
+        let (tx, _rx) = mpsc::channel();
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState {
+                    msg_from_rest_api: tx,
+                    api_key: Some("secret-key".to_string()),
+                    db_pool: pool,
+                }))
+                .service(broadcast_tx),
+        )
+        .await;
+
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::post()
+                .uri("/tx/raw")
+                .set_payload("00")
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), 401);
+    }
 }
