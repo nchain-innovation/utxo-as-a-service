@@ -51,6 +51,15 @@ def _validate_config(config: ConfigType, filename: str) -> None:
             f"Config '{filename}' section [web_interface] 'api_key' must be a non-empty string when set."
         )
 
+    max_broadcast_tx_bytes = web_interface.get("max_broadcast_tx_bytes")
+    if max_broadcast_tx_bytes is not None and (
+        not isinstance(max_broadcast_tx_bytes, int) or max_broadcast_tx_bytes < 1
+    ):
+        raise ConfigError(
+            f"Config '{filename}' section [web_interface] 'max_broadcast_tx_bytes' "
+            "must be a positive integer when set."
+        )
+
 
 def load_config(filename: str) -> ConfigType:
     """Load and validate config from the provided TOML file."""

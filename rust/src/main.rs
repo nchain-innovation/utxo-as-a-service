@@ -54,9 +54,13 @@ async fn main() {
     // Setup web server data
     let (tx_rest, rx_rest) = mpsc::channel();
 
+    let max_broadcast_tx_bytes = config.web_interface.max_broadcast_tx_bytes;
+    let payload_limit = max_broadcast_tx_bytes.saturating_mul(2).max(1024);
+
     let app_state = AppState {
         msg_from_rest_api: tx_rest,
         api_key: config.web_interface.api_key.clone(),
+        max_broadcast_tx_bytes,
     };
     let web_state = web::Data::new(app_state);
 
@@ -88,6 +92,7 @@ async fn main() {
     // Start webserver
     let server = HttpServer::new(move || {
         App::new()
+            .app_data(web::PayloadConfig::default().limit(payload_limit))
             .app_data(web_state.clone())
             .service(health)
             .service(broadcast_tx)

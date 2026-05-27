@@ -34,3 +34,10 @@ class TestRestApiSmoke:
         response = client.get("/block/height", params={"height": -1})
         assert response.status_code == 422
         assert "failure" in response.json()
+
+    def test_oversized_broadcast_tx_returns_422(self, client: TestClient) -> None:
+        import rest_api
+
+        hexstr = "00" * (rest_api.max_broadcast_tx_bytes + 1)
+        response = client.post("/tx/hex", json={"tx": hexstr})
+        assert response.status_code == 422

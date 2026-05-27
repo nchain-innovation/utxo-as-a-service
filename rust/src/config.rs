@@ -54,10 +54,25 @@ pub struct DynamicConfigConfig {
     pub filename: String,
 }
 
-#[derive(Debug, Default, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct WebInterfaceConfig {
     #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default = "default_max_broadcast_tx_bytes")]
+    pub max_broadcast_tx_bytes: usize,
+}
+
+fn default_max_broadcast_tx_bytes() -> usize {
+    1_000_000
+}
+
+impl Default for WebInterfaceConfig {
+    fn default() -> Self {
+        Self {
+            api_key: None,
+            max_broadcast_tx_bytes: default_max_broadcast_tx_bytes(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
