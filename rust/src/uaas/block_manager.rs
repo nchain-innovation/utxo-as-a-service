@@ -429,23 +429,18 @@ impl BlockManager {
                         0
                     }
                 };
-                loop {
-                    match Block::read(&mut file) {
-                        Ok(block) => {
-                            self.process_read_block(block, tx_analyser, position);
-                            position = match file.stream_position() {
-                                Ok(pos) => pos,
-                                Err(err) => {
-                                    log::warn!(
-                                        "Unable to read block file stream position for {}: {err}",
-                                        &self.block_file
-                                    );
-                                    position
-                                }
-                            };
+                while let Ok(block) = Block::read(&mut file) {
+                    self.process_read_block(block, tx_analyser, position);
+                    position = match file.stream_position() {
+                        Ok(pos) => pos,
+                        Err(err) => {
+                            log::warn!(
+                                "Unable to read block file stream position for {}: {err}",
+                                &self.block_file
+                            );
+                            position
                         }
-                        Err(_) => break,
-                    }
+                    };
                 }
             }
             Err(e) => log::info!("Unable to open block file {} - {}", &self.block_file, &e),
