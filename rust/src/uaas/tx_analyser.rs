@@ -264,6 +264,7 @@ impl TxAnalyser {
     pub fn flush_database_cache(&mut self) {
         self.utxo.update_db();
         self.txdb.batch_delete_from_mempool();
+        self.txdb.batch_write_mempool();
         if self.save_txs {
             self.txdb.batch_write_tx_to_table();
         }
@@ -305,6 +306,8 @@ impl TxAnalyser {
 
         // Collection processing
         self.process_collection(tx, is_uaas_broadcast_tx);
+
+        self.txdb.batch_write_mempool();
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {

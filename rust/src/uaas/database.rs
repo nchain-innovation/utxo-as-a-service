@@ -69,7 +69,7 @@ pub enum DBOperationType {
     UtxoBatchDelete(Vec<OutPoint>),
     TxBatchWrite(Vec<TxEntryWriteDB>),
     MempoolBatchDelete(Vec<Hash256>),
-    MempoolWrite(MempoolEntryDB),
+    MempoolBatchWrite(Vec<MempoolEntryDB>),
     BlockHeaderWrite(BlockHeaderWriteDB),
     OrphanBlockHeaderWrite(OrphanBlockHeaderWriteDB),
     BlockHeaderDelete(Hash256),
@@ -113,6 +113,9 @@ impl Database {
     }
 
     fn utxo_batch_write(&mut self, utxo_entries: Vec<UtxoEntryDB>) {
+        if utxo_entries.is_empty() {
+            return;
+        }
         // bulk/batch write tx output to utxo table
 
         let result = retry(
@@ -135,6 +138,9 @@ impl Database {
     }
 
     fn utxo_batch_delete(&mut self, utxo_deletes: Vec<OutPoint>) {
+        if utxo_deletes.is_empty() {
+            return;
+        }
         // bulk/batch delete utxo table entries
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
@@ -153,6 +159,9 @@ impl Database {
     }
 
     fn tx_batch_write(&mut self, tx_entries: Vec<TxEntryWriteDB>) {
+        if tx_entries.is_empty() {
+            return;
+        }
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
             || {
@@ -170,35 +179,76 @@ impl Database {
         }
     }
 
-    fn mempool_write(&mut self, mempool_entry: MempoolEntryDB) {
-        let hash = mempool_entry.hash.encode();
-        let locktime = mempool_entry.locktime;
-        let fee = mempool_entry.fee;
-        let age = mempool_entry.age;
-        let tx = mempool_entry.tx;
+    fn mempool_batch_write(&mut self, mempool_entries: Vec<MempoolEntryDB>) {
+        if mempool_entries.is_empty() {
+            return;
+        }
 
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
             || {
-                self.conn.exec_drop(
+                self.conn.exec_batch(
                     "INSERT INTO mempool (hash, locktime, fee, time, tx) \
                      VALUES (:hash, :locktime, :fee, :time, :tx)",
-                    params! {
-                        "hash" => hash.as_str(),
-                        "locktime" => locktime,
-                        "fee" => fee,
-                        "time" => age,
-                        "tx" => tx.as_str(),
-                    },
+                    mempool_entries.iter().map(|entry| {
+                        params! {
+                            "hash" => entry.hash.encode(),
+                            "locktime" => entry.locktime,
+                            "fee" => entry.fee,
+                            "time" => entry.age,
+                            "tx" => entry.tx.as_str(),
+                        }
+                    }),
                 )
             },
         );
         if let Err(err) = result {
-            Self::log_write_error("mempool write", err);
+            Self::log_write_error("mempool batch write", err);
         }
     }
 
+    fn coalesce_utxo_batch_write(&mut self, mut entries: Vec<UtxoEntryDB>) -> Vec<UtxoEntryDB> {
+        while let Ok(DBOperationType::UtxoBatchWrite(more)) = self.rx.try_recv() {
+            entries.extend(more);
+        }
+        entries
+    }
+
+    fn coalesce_utxo_batch_delete(&mut self, mut deletes: Vec<OutPoint>) -> Vec<OutPoint> {
+        while let Ok(DBOperationType::UtxoBatchDelete(more)) = self.rx.try_recv() {
+            deletes.extend(more);
+        }
+        deletes
+    }
+
+    fn coalesce_tx_batch_write(&mut self, mut entries: Vec<TxEntryWriteDB>) -> Vec<TxEntryWriteDB> {
+        while let Ok(DBOperationType::TxBatchWrite(more)) = self.rx.try_recv() {
+            entries.extend(more);
+        }
+        entries
+    }
+
+    fn coalesce_mempool_batch_write(
+        &mut self,
+        mut entries: Vec<MempoolEntryDB>,
+    ) -> Vec<MempoolEntryDB> {
+        while let Ok(DBOperationType::MempoolBatchWrite(more)) = self.rx.try_recv() {
+            entries.extend(more);
+        }
+        entries
+    }
+
+    fn coalesce_mempool_batch_delete(&mut self, mut hashes: Vec<Hash256>) -> Vec<Hash256> {
+        while let Ok(DBOperationType::MempoolBatchDelete(more)) = self.rx.try_recv() {
+            hashes.extend(more);
+        }
+        hashes
+    }
+
     fn mempool_batch_delete(&mut self, mempool_hashes: Vec<Hash256>) {
+        if mempool_hashes.is_empty() {
+            return;
+        }
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
             || {
@@ -330,17 +380,25 @@ impl Database {
     pub fn perform_db_operations(&mut self) {
         while let Ok(op) = self.rx.recv() {
             match op {
-                DBOperationType::UtxoBatchWrite(utxo_entries) => {
-                    self.utxo_batch_write(utxo_entries)
+                DBOperationType::UtxoBatchWrite(entries) => {
+                    let entries = self.coalesce_utxo_batch_write(entries);
+                    self.utxo_batch_write(entries);
                 }
-                DBOperationType::UtxoBatchDelete(utxo_deletes) => {
-                    self.utxo_batch_delete(utxo_deletes)
+                DBOperationType::UtxoBatchDelete(deletes) => {
+                    let deletes = self.coalesce_utxo_batch_delete(deletes);
+                    self.utxo_batch_delete(deletes);
                 }
-                DBOperationType::TxBatchWrite(tx_entries) => self.tx_batch_write(tx_entries),
-
-                DBOperationType::MempoolWrite(mempool_entry) => self.mempool_write(mempool_entry),
-                DBOperationType::MempoolBatchDelete(mempool_hashes) => {
-                    self.mempool_batch_delete(mempool_hashes)
+                DBOperationType::TxBatchWrite(entries) => {
+                    let entries = self.coalesce_tx_batch_write(entries);
+                    self.tx_batch_write(entries);
+                }
+                DBOperationType::MempoolBatchWrite(entries) => {
+                    let entries = self.coalesce_mempool_batch_write(entries);
+                    self.mempool_batch_write(entries);
+                }
+                DBOperationType::MempoolBatchDelete(hashes) => {
+                    let hashes = self.coalesce_mempool_batch_delete(hashes);
+                    self.mempool_batch_delete(hashes);
                 }
                 DBOperationType::BlockHeaderWrite(block_header) => {
                     self.block_header_write(block_header)

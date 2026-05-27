@@ -41,6 +41,9 @@ pub struct TxDB {
     // txs to add to tx table
     tx_entries: Vec<TxEntryWriteDB>,
 
+    // mempool entries to write to database
+    mempool_entries: Vec<MempoolEntryDB>,
+
     // Channel to database
     tx: mpsc::Sender<DBOperationType>,
 }
@@ -70,6 +73,7 @@ impl TxDB {
             mempool: HashMap::new(),
             hashes_to_delete: Vec::new(),
             tx_entries: Vec::new(),
+            mempool_entries: Vec::new(),
             tx,
         }
     }
@@ -254,6 +258,14 @@ impl TxDB {
         self.tx_entries.clear();
     }
 
+    pub fn batch_write_mempool(&mut self) {
+        if self.mempool_entries.is_empty() {
+            return;
+        }
+        let entries = std::mem::take(&mut self.mempool_entries);
+        self.send_db_op(DBOperationType::MempoolBatchWrite(entries));
+    }
+
     pub fn add_to_mempool(&mut self, tx: &Tx, fee: i64) {
         let hash = tx.hash();
         let age = SystemTime::now()
@@ -284,7 +296,7 @@ impl TxDB {
             tx: tx_hex,
         };
 
-        self.send_db_op(DBOperationType::MempoolWrite(mempool_entry));
+        self.mempool_entries.push(mempool_entry);
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {
