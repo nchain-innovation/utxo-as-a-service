@@ -1,6 +1,6 @@
 [project]
 name = "uaas-web"
-version = "1.2.0"
+version = "1.3.0"
 description = "UTXO as a Service Python REST API"
 requires-python = ">=3.12"
 dependencies = [

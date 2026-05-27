@@ -2,7 +2,7 @@
 
 This document defines systems requirements for **UTXO as a Service (UaaS)** and maps each requirement to automated verification. Every requirement has at least one automated test (unit, integration, source-contract, or CI workflow check).
 
-**Version:** 1.2.0  
+**Version:** 1.3.0  
 **Related docs:** [Configuration](Configuration.md), [Security](Security.md), [Development](Development.md)
 
 ---
