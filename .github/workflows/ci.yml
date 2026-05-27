@@ -71,6 +71,19 @@ jobs:
   python:
     name: Python
     runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: mysql
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          --health-start-period=30s
 
     steps:
       - uses: actions/checkout@v6
@@ -79,6 +92,26 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+
+      - name: Initialize database
+        run: |
+          mariadb -h 127.0.0.1 -u root -pmysql < init_database/01_init.sql
+          mariadb -h 127.0.0.1 -u root -pmysql main_uaas_db <<'EOF'
+          CREATE TABLE IF NOT EXISTS orphans (
+              height int unsigned not null,
+              hash varchar(64) not null,
+              version int unsigned not null,
+              prev_hash varchar(64) not null,
+              merkle_root varchar(64) not null,
+              timestamp int unsigned not null,
+              bits int unsigned not null,
+              nonce int unsigned not null,
+              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          EOF
+
       - name: Install dependencies
         run: uv sync --all-groups --frozen
 
@@ -86,6 +119,8 @@ jobs:
         run: ./lint.sh
 
       - name: Test
+        env:
+          UAAS_TEST_MYSQL_URL: mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
         run: uv run pytest python/tests -v
 
   docker:
