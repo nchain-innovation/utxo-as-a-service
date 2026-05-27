@@ -42,6 +42,10 @@ curl -H "X-API-Key: change-me-to-a-long-random-secret" \
 
 When `api_key` is omitted from config, authentication is disabled (default for local development).
 
+## Rate limiting
+
+Set `rate_limit_per_minute` under `[web_interface]` to cap requests per client IP (per minute). `0` disables limiting (default). `/health` is always exempt so Docker healthchecks keep working. When running behind a reverse proxy, ensure `X-Forwarded-For` reflects the real client address.
+
 ## Sensitive operations
 
 Even with an API key, treat the service as privileged infrastructure:

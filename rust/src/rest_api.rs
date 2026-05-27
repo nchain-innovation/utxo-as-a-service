@@ -1,5 +1,5 @@
 use std::io::Cursor;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use actix_web::{
     delete, get, http::header::ContentType, post, web, HttpRequest, HttpResponse, Responder, Result,
@@ -9,6 +9,7 @@ use serde::Serialize;
 use chain_gang::{messages::Tx, util::Serializable};
 
 use crate::config::CollectionConfig;
+use crate::rate_limit::RateLimiter;
 use crate::uaas::util::decode_hexstr;
 
 // RestEventMessage - used for sending messages from REST API to main event processing loop
@@ -24,6 +25,7 @@ pub enum RestEventMessage {
 pub struct AppState {
     pub msg_from_rest_api: mpsc::Sender<RestEventMessage>,
     pub api_key: Option<String>,
+    pub rate_limiter: Arc<RateLimiter>,
     pub max_broadcast_tx_bytes: usize,
 }
 
@@ -32,6 +34,16 @@ fn tx_hex_exceeds_limit(hex_len: usize, max_tx_bytes: usize) -> bool {
 }
 
 const API_KEY_HEADER: &str = "X-API-Key";
+
+fn rate_limit(req: &HttpRequest, limiter: &RateLimiter) -> Option<HttpResponse> {
+    if limiter.allow(&crate::rate_limit::client_ip(req)) {
+        None
+    } else {
+        Some(HttpResponse::TooManyRequests().json(serde_json::json!({
+            "failure": "Rate limit exceeded",
+        })))
+    }
+}
 
 fn authorize(req: &HttpRequest, api_key: &Option<String>) -> Option<HttpResponse> {
     let expected = api_key.as_ref()?;
@@ -72,7 +84,11 @@ async fn health() -> impl Responder {
 }
 
 #[get("/version")]
-async fn version(_data: web::Data<AppState>) -> impl Responder {
+async fn version(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return response;
+    }
+
     log::info!("version");
     let version = env!("CARGO_PKG_VERSION");
     let status = format!("{{\"version\": \"{}\"}}", version);
@@ -89,6 +105,9 @@ async fn broadcast_tx(
     req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse> {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return Ok(response);
+    }
     if let Some(response) = authorize(&req, &data.api_key) {
         return Ok(response);
     }
@@ -152,6 +171,9 @@ async fn add_monitor(
     req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return Ok(response);
+    }
     if let Some(response) = authorize(&req, &data.api_key) {
         return Ok(response);
     }
@@ -178,6 +200,9 @@ async fn delete_monitor(
     req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return Ok(response);
+    }
     if let Some(response) = authorize(&req, &data.api_key) {
         return Ok(response);
     }

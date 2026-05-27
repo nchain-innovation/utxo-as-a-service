@@ -169,6 +169,9 @@ cors_allow_credentials = false
 # Optional: require X-API-Key header on API requests (see docs/Security.md)
 # api_key = "change-me-to-a-long-random-secret"
 
+# Per-client request limit per minute (0 = disabled)
+# rate_limit_per_minute = 120
+
 # Maximum decoded transaction size accepted by POST /tx/hex (default: 1000000)
 # max_broadcast_tx_bytes = 1000000
 

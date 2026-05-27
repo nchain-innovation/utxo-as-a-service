@@ -35,6 +35,39 @@ class TestRestApiSmoke:
         assert response.status_code == 422
         assert "failure" in response.json()
 
+    def test_rate_limit_returns_429(self, client: TestClient) -> None:
+        import rest_api
+        from rate_limit import FixedWindowRateLimiter
+
+        original_limit = rest_api.rate_limit_per_minute
+        original_limiter = rest_api.rate_limiter
+        rest_api.rate_limit_per_minute = 1
+        rest_api.rate_limiter = FixedWindowRateLimiter(1)
+        try:
+            assert client.get("/").status_code == 200
+            response = client.get("/")
+            assert response.status_code == 429
+            assert response.json()["failure"] == "Rate limit exceeded"
+        finally:
+            rest_api.rate_limit_per_minute = original_limit
+            rest_api.rate_limiter = original_limiter
+
+    def test_health_exempt_from_rate_limit(self, client: TestClient) -> None:
+        import rest_api
+        from rate_limit import FixedWindowRateLimiter
+
+        original_limit = rest_api.rate_limit_per_minute
+        original_limiter = rest_api.rate_limiter
+        rest_api.rate_limit_per_minute = 1
+        rest_api.rate_limiter = FixedWindowRateLimiter(1)
+        try:
+            with patch.object(rest_api.database, "query", return_value=[(1,)]):
+                assert client.get("/health").status_code == 200
+                assert client.get("/health").status_code == 200
+        finally:
+            rest_api.rate_limit_per_minute = original_limit
+            rest_api.rate_limiter = original_limiter
+
     def test_oversized_broadcast_tx_returns_422(self, client: TestClient) -> None:
         import rest_api
 

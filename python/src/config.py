@@ -51,6 +51,15 @@ def _validate_config(config: ConfigType, filename: str) -> None:
             f"Config '{filename}' section [web_interface] 'api_key' must be a non-empty string when set."
         )
 
+    rate_limit_per_minute = web_interface.get("rate_limit_per_minute")
+    if rate_limit_per_minute is not None and (
+        not isinstance(rate_limit_per_minute, int) or rate_limit_per_minute < 0
+    ):
+        raise ConfigError(
+            f"Config '{filename}' section [web_interface] 'rate_limit_per_minute' "
+            "must be a non-negative integer when set."
+        )
+
     max_broadcast_tx_bytes = web_interface.get("max_broadcast_tx_bytes")
     if max_broadcast_tx_bytes is not None and (
         not isinstance(max_broadcast_tx_bytes, int) or max_broadcast_tx_bytes < 1

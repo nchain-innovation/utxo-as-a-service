@@ -58,6 +58,8 @@ pub struct DynamicConfigConfig {
 pub struct WebInterfaceConfig {
     #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub rate_limit_per_minute: u32,
     #[serde(default = "default_max_broadcast_tx_bytes")]
     pub max_broadcast_tx_bytes: usize,
 }
@@ -70,6 +72,7 @@ impl Default for WebInterfaceConfig {
     fn default() -> Self {
         Self {
             api_key: None,
+            rate_limit_per_minute: 0,
             max_broadcast_tx_bytes: default_max_broadcast_tx_bytes(),
         }
     }
