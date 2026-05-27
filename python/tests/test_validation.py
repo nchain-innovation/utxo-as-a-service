@@ -1,9 +1,11 @@
 import pytest
 
 from validation import (
+    DEFAULT_MAX_BROADCAST_TX_BYTES,
     MAX_BLOCK_HEIGHT,
     validate_block_hash,
     validate_block_height,
+    validate_broadcast_tx_hex,
     validate_hex_string,
     validate_locking_script_pattern,
     validate_monitor_name,
@@ -75,6 +77,17 @@ class TestValidateHexString:
     def test_rejects_non_hex(self) -> None:
         with pytest.raises(ValueError, match="non-hexadecimal"):
             validate_hex_string("zz")
+
+
+class TestValidateBroadcastTxHex:
+    def test_accepts_tx_within_limit(self) -> None:
+        hexstr = "00" * DEFAULT_MAX_BROADCAST_TX_BYTES
+        assert validate_broadcast_tx_hex(hexstr) == hexstr
+
+    def test_rejects_tx_over_limit(self) -> None:
+        hexstr = "00" * (DEFAULT_MAX_BROADCAST_TX_BYTES + 1)
+        with pytest.raises(ValueError, match="exceeds limit"):
+            validate_broadcast_tx_hex(hexstr)
 
 
 class TestValidateLockingScriptPattern:

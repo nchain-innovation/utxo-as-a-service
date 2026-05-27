@@ -17,12 +17,15 @@ from tx_analyser import tx_analyser
 from block_manager import block_manager
 from collection import collection, hexstr_to_tx, Monitor
 from logic import logic
+from rate_limit import FixedWindowRateLimiter, client_ip
 from util import address_to_public_key_hash
 from validation import (
+    DEFAULT_MAX_BROADCAST_TX_BYTES,
     validate_tx_hash,
     validate_block_hash,
     validate_block_height,
     validate_monitor_name,
+    validate_broadcast_tx_hex,
     validate_hex_string,
 )
 
@@ -58,6 +61,27 @@ if cors_allow_credentials and "*" in cors_origins:
     cors_allow_credentials = False
 
 api_key: str | None = web_interface.get("api_key")
+rate_limit_per_minute: int = web_interface.get("rate_limit_per_minute", 0)
+rate_limiter = FixedWindowRateLimiter(rate_limit_per_minute)
+max_broadcast_tx_bytes: int = web_interface.get(
+    "max_broadcast_tx_bytes", DEFAULT_MAX_BROADCAST_TX_BYTES
+)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if (
+            rate_limit_per_minute == 0
+            or request.method == "OPTIONS"
+            or request.url.path == "/health"
+        ):
+            return await call_next(request)
+        if not rate_limiter.allow(client_ip(request)):
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"failure": "Rate limit exceeded"},
+            )
+        return await call_next(request)
 
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
@@ -73,6 +97,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(ApiKeyMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -209,7 +234,7 @@ class Tx(BaseModel):
     @field_validator("tx")
     @classmethod
     def check_tx_hex(cls, value: str) -> str:
-        return validate_hex_string(value)
+        return validate_broadcast_tx_hex(value, max_broadcast_tx_bytes)
 
 
 @app.post("/tx/hex", tags=["Tx"])

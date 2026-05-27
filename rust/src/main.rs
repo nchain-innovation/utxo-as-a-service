@@ -6,7 +6,7 @@ use mysql::Pool;
 use std::{
     net::{IpAddr, Ipv4Addr},
     panic, process,
-    sync::mpsc,
+    sync::{mpsc, Arc},
     thread, time,
 };
 use tokio::signal;
@@ -17,6 +17,7 @@ mod event_handler;
 mod peer_connection;
 mod peer_event;
 mod peer_thread;
+mod rate_limit;
 mod rest_api;
 mod services;
 mod thread_manager;
@@ -27,6 +28,7 @@ mod uaas;
 use crate::{
     config::get_config,
     peer_event::{PeerEventMessage, PeerEventType},
+    rate_limit::RateLimiter,
     rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
@@ -60,6 +62,10 @@ async fn run() -> Result<(), String> {
     let server_address = config.service.rust_address.clone();
     let (tx_rest, rx_rest) = mpsc::channel();
 
+    let rate_limiter = Arc::new(RateLimiter::new(config.web_interface.rate_limit_per_minute));
+    let max_broadcast_tx_bytes = config.web_interface.max_broadcast_tx_bytes;
+    let payload_limit = max_broadcast_tx_bytes.saturating_mul(2).max(1024);
+
     let db_pool = Pool::new(config.get_mysql_url()).map_err(|err| {
         log::error!(
             "Problem connecting to database. Check database is connected and configuration is correct: {err:?}"
@@ -72,6 +78,8 @@ async fn run() -> Result<(), String> {
     let app_state = AppState {
         msg_from_rest_api: tx_rest,
         api_key: config.web_interface.api_key.clone(),
+        rate_limiter,
+        max_broadcast_tx_bytes,
         db_pool: db_pool.clone(),
     };
     let web_state = web::Data::new(app_state);
@@ -99,6 +107,7 @@ async fn run() -> Result<(), String> {
 
     let server = HttpServer::new(move || {
         App::new()
+            .app_data(web::PayloadConfig::default().limit(payload_limit))
             .app_data(web_state.clone())
             .service(health)
             .service(broadcast_tx)

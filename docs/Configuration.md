@@ -146,6 +146,8 @@ The web interface section has the following fields:
 * `reload` - if set to true the webserver will reload if the source code is changed
 * `rust_url` - base URL of the Rust backend used for broadcast and collection monitor operations
 * `api_key` - *(optional)* when set, clients must send this value in the `X-API-Key` request header on all endpoints except `/health`. The same key is enforced on the Rust backend for mutating operations. Leave unset for local development with no authentication.
+* `rate_limit_per_minute` - *(optional, default `0` = disabled)* maximum requests per client IP per minute on all endpoints except `/health`. Applies to both the Python and Rust REST APIs. Uses the first address in `X-Forwarded-For` when present.
+* `max_broadcast_tx_bytes` - *(optional, default `1000000`)* maximum decoded transaction size accepted by `POST /tx/hex` and the Rust `POST /tx/raw` broadcast endpoint. Requests above this limit are rejected before parsing.
 
 For production deployments, bind the Python API to a private interface (for example `127.0.0.1:5010`) or place the service behind a reverse proxy. Do not expose the Rust API port (`8081`) or the database/admin ports to the public internet without additional network controls. See [Security](Security.md) for details.
 

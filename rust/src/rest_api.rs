@@ -1,5 +1,5 @@
 use std::io::Cursor;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use actix_web::{
     delete, get, http::header::ContentType, post, web, HttpRequest, HttpResponse, Responder, Result,
@@ -10,6 +10,7 @@ use serde::Serialize;
 use chain_gang::{messages::Tx, util::Serializable};
 
 use crate::config::CollectionConfig;
+use crate::rate_limit::RateLimiter;
 use crate::uaas::util::decode_hexstr;
 
 // RestEventMessage - used for sending messages from REST API to main event processing loop
@@ -25,10 +26,26 @@ pub enum RestEventMessage {
 pub struct AppState {
     pub msg_from_rest_api: mpsc::Sender<RestEventMessage>,
     pub api_key: Option<String>,
+    pub rate_limiter: Arc<RateLimiter>,
+    pub max_broadcast_tx_bytes: usize,
     pub db_pool: Pool,
 }
 
+fn tx_hex_exceeds_limit(hex_len: usize, max_tx_bytes: usize) -> bool {
+    hex_len / 2 > max_tx_bytes
+}
+
 const API_KEY_HEADER: &str = "X-API-Key";
+
+fn rate_limit(req: &HttpRequest, limiter: &RateLimiter) -> Option<HttpResponse> {
+    if limiter.allow(&crate::rate_limit::client_ip(req)) {
+        None
+    } else {
+        Some(HttpResponse::TooManyRequests().json(serde_json::json!({
+            "failure": "Rate limit exceeded",
+        })))
+    }
+}
 
 fn authorize(req: &HttpRequest, api_key: &Option<String>) -> Option<HttpResponse> {
     let expected = api_key.as_ref()?;
@@ -96,7 +113,11 @@ async fn health(data: web::Data<AppState>) -> impl Responder {
 }
 
 #[get("/version")]
-async fn version(_data: web::Data<AppState>) -> impl Responder {
+async fn version(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return response;
+    }
+
     log::info!("version");
     let version = env!("CARGO_PKG_VERSION");
     let status = format!("{{\"version\": \"{}\"}}", version);
@@ -113,8 +134,21 @@ async fn broadcast_tx(
     req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse> {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return Ok(response);
+    }
     if let Some(response) = authorize(&req, &data.api_key) {
         return Ok(response);
+    }
+
+    if tx_hex_exceeds_limit(hexstr.len(), data.max_broadcast_tx_bytes) {
+        return Ok(HttpResponse::Ok().json(BroadcastTxResponse {
+            status: "Failed".to_string(),
+            detail: format!(
+                "Transaction exceeds maximum broadcast size of {} bytes",
+                data.max_broadcast_tx_bytes
+            ),
+        }));
     }
 
     // decode the hexstr to tx
@@ -166,6 +200,9 @@ async fn add_monitor(
     req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return Ok(response);
+    }
     if let Some(response) = authorize(&req, &data.api_key) {
         return Ok(response);
     }
@@ -192,6 +229,9 @@ async fn delete_monitor(
     req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
+    if let Some(response) = rate_limit(&req, &data.rate_limiter) {
+        return Ok(response);
+    }
     if let Some(response) = authorize(&req, &data.api_key) {
         return Ok(response);
     }
@@ -238,6 +278,25 @@ mod tests {
         })
     }
 
+    mod broadcast_limits {
+        use super::tx_hex_exceeds_limit;
+
+        #[test]
+        fn tx_hex_within_limit() {
+            assert!(!tx_hex_exceeds_limit(1_999_998, 1_000_000));
+        }
+
+        #[test]
+        fn tx_hex_at_limit() {
+            assert!(!tx_hex_exceeds_limit(2_000_000, 1_000_000));
+        }
+
+        #[test]
+        fn tx_hex_over_limit() {
+            assert!(tx_hex_exceeds_limit(2_000_002, 1_000_000));
+        }
+    }
+
     mod database_checks {
         use super::*;
 
@@ -271,6 +330,8 @@ mod tests {
         web::Data::new(AppState {
             msg_from_rest_api: tx,
             api_key: None,
+            rate_limiter: Arc::new(RateLimiter::new(0)),
+            max_broadcast_tx_bytes: 1_000_000,
             db_pool,
         })
     }
@@ -363,6 +424,8 @@ mod tests {
                 .app_data(web::Data::new(AppState {
                     msg_from_rest_api: tx,
                     api_key: Some("secret-key".to_string()),
+                    rate_limiter: Arc::new(RateLimiter::new(0)),
+                    max_broadcast_tx_bytes: 1_000_000,
                     db_pool: pool,
                 }))
                 .service(health),
@@ -390,6 +453,8 @@ mod tests {
                 .app_data(web::Data::new(AppState {
                     msg_from_rest_api: tx,
                     api_key: Some("secret-key".to_string()),
+                    rate_limiter: Arc::new(RateLimiter::new(0)),
+                    max_broadcast_tx_bytes: 1_000_000,
                     db_pool: pool,
                 }))
                 .service(broadcast_tx),
