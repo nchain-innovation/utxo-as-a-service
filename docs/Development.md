@@ -46,6 +46,11 @@ To run tests:
 ```
 uv run pytest python/tests -v
 ```
+Integration tests require MariaDB and are skipped unless `UAAS_TEST_MYSQL_URL` is set:
+```
+export UAAS_TEST_MYSQL_URL=mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
+uv run pytest python/tests -v
+```
 This requires dev dependencies from `pyproject.toml` (`dependency-groups.dev`).
 
 ## Python `p2p_framework`

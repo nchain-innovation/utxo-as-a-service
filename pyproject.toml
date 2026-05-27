@@ -25,3 +25,9 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests requiring MariaDB (set UAAS_TEST_MYSQL_URL)",
+]
+testpaths = ["python/tests"]

@@ -65,16 +65,7 @@ impl Logic {
         })
     }
 
-    pub fn new(config: &Config) -> Result<Self, String> {
-        let pool = Pool::new(config.get_mysql_url()).map_err(|err| {
-            log::error!(
-                "Problem connecting to database. Check database is connected and configuration is correct: {err:?}"
-            );
-            format!(
-                "Problem connecting to database. Check database is connected and database connection configuration is correct: {err:?}"
-            )
-        })?;
-
+    pub fn new(config: &Config, pool: Pool) -> Result<Self, String> {
         let block_conn = Self::pool_conn(&pool, "block")?;
         let addr_conn = Self::pool_conn(&pool, "address")?;
         let connection_conn = Self::pool_conn(&pool, "connection")?;
