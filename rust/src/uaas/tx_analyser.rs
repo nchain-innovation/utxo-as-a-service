@@ -376,8 +376,8 @@ mod tests {
         //fn script_to_pubkeyhash(locking_script: &Script) -> String {
         //"asm": "OP_DUP OP_HASH160 7c78584493557fac782023a4ad591b64545929d9 OP_EQUALVERIFY OP_CHECKSIG",
 
-        let encoded_script =
-            hex::decode("76a9147c78584493557fac782023a4ad591b64545929d988ac").unwrap();
+        let encoded_script = hex::decode("76a9147c78584493557fac782023a4ad591b64545929d988ac")
+            .expect("valid test locking script hex");
         let locking_script = Script(encoded_script);
         let result = script_to_pubkeyhash(&locking_script);
         println!("{}", &result);

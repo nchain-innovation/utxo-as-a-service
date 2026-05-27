@@ -9,6 +9,7 @@ use chain_gang::{
 
 use crate::{
     config::Config,
+    thread_util::catch_unwind_logged,
     uaas::{
         address_manager::AddressManager, block_manager::BlockManager, connection::Connection,
         database::Database, tx_analyser::TxAnalyser,
@@ -106,8 +107,10 @@ impl Logic {
 
         let db_config = config.clone();
         logic.thread = Some(thread::spawn(move || {
-            let mut database = Database::new(db_conn, rx, &db_config);
-            database.perform_db_operations();
+            catch_unwind_logged("database writer", || {
+                let mut database = Database::new(db_conn, rx, &db_config);
+                database.perform_db_operations();
+            });
         }));
 
         Ok(logic)
@@ -238,28 +241,32 @@ impl Logic {
         }
     }
 
+    fn trim_empty_inventory_front(&mut self) {
+        while self
+            .block_inventory
+            .first()
+            .is_some_and(|entries| entries.is_empty())
+        {
+            self.block_inventory.remove(0);
+        }
+    }
+
     fn request_next_block(&mut self, hash: Option<Hash256>) {
         // Remove the received hash from the inventory
         log::info!("request_next_block {:?}", &hash);
         if let Some(hash) = hash {
-            // no point looking if there is nothing in the block_inventory
-            if !self.block_inventory.is_empty() {
-                // As each hash arrives remove it from the block_inventory
-                self.block_inventory[0].retain(|block| block.hash != hash);
+            if let Some(entries) = self.block_inventory.first_mut() {
+                entries.retain(|block| block.hash != hash);
             }
         }
-        // while there is an empty entry at the front of block_inventory
-        while !self.block_inventory.is_empty() && self.block_inventory[0].is_empty() {
-            // remove empty list from front
-            let _ = self.block_inventory.remove(0);
-        }
+        self.trim_empty_inventory_front();
 
         // Display block_inventory
-        if !self.block_inventory.is_empty() {
+        if let Some(entries) = self.block_inventory.first() {
             log::info!(
                 "block_inventory.len = {}, [0].len = {}",
                 self.block_inventory.len(),
-                self.block_inventory[0].len()
+                entries.len()
             );
         } else {
             log::info!(
@@ -291,7 +298,11 @@ impl Logic {
             self.send_message_queue.push(message)
 
             // else take the first block off the queue
-        } else if let Some(block) = self.block_inventory[0].first() {
+        } else if let Some(block) = self
+            .block_inventory
+            .first()
+            .and_then(|entries| entries.first())
+        {
             let object: Vec<InvVect> = vec![block.clone()];
             // Request the block with GetData
             log::info!("requesting GetData {:?}", object[0].hash.encode());
@@ -299,9 +310,7 @@ impl Logic {
             self.send_message_queue.push(want);
         } else {
             log::error!("Block inventory has empty first entry; removing stale entry");
-            if !self.block_inventory.is_empty() {
-                self.block_inventory.remove(0);
-            }
+            self.trim_empty_inventory_front();
         }
     }
 

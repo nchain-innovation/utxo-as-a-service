@@ -28,10 +28,13 @@ pub fn timestamp_age_as_sec(timestamp: u32) -> u64 {
     // Return the age of the block timestamp (against current time) in seconds
     let block_timestamp: u64 = timestamp.into();
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs(),
+        Err(err) => {
+            log::warn!("Unable to read system time: {err:?}");
+            return 0;
+        }
+    };
 
     now.saturating_sub(block_timestamp)
 }
