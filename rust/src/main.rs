@@ -2,6 +2,7 @@
 extern crate lazy_static;
 
 use actix_web::{web, App, HttpServer};
+use mysql::Pool;
 use std::{
     net::{IpAddr, Ipv4Addr},
     panic, process,
@@ -58,28 +59,34 @@ async fn run() -> Result<(), String> {
 
     config.validate_startup()?;
 
-    // Get web server address from config
     let server_address = config.service.rust_address.clone();
-    // Setup web server data
     let (tx_rest, rx_rest) = mpsc::channel();
 
     let rate_limiter = Arc::new(RateLimiter::new(config.web_interface.rate_limit_per_minute));
     let max_broadcast_tx_bytes = config.web_interface.max_broadcast_tx_bytes;
     let payload_limit = max_broadcast_tx_bytes.saturating_mul(2).max(1024);
 
+    let db_pool = Pool::new(config.get_mysql_url()).map_err(|err| {
+        log::error!(
+            "Problem connecting to database. Check database is connected and configuration is correct: {err:?}"
+        );
+        format!(
+            "Problem connecting to database. Check database is connected and database connection configuration is correct: {err:?}"
+        )
+    })?;
+
     let app_state = AppState {
         msg_from_rest_api: tx_rest,
         api_key: config.web_interface.api_key.clone(),
         rate_limiter,
         max_broadcast_tx_bytes,
+        db_pool: db_pool.clone(),
     };
     let web_state = web::Data::new(app_state);
 
-    // Setup logic
-    let mut logic = Logic::new(&config)?;
+    let mut logic = Logic::new(&config, db_pool)?;
     logic.setup();
 
-    // Used to track peer connection threads
     let mut children = ThreadTracker::new();
     let mut manager = ThreadManager::new(rx_rest);
     let tx = manager.get_tx();
@@ -98,7 +105,6 @@ async fn run() -> Result<(), String> {
         });
     });
 
-    // Start webserver
     let server = HttpServer::new(move || {
         App::new()
             .app_data(web::PayloadConfig::default().limit(payload_limit))

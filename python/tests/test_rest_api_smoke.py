@@ -1,14 +1,9 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
-
-@pytest.fixture(scope="module")
-def client() -> TestClient:
-    import rest_api
-
-    return TestClient(rest_api.app)
+VALID_HASH = "a" * 64
+TESTNET_ADDRESS = "mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5"
 
 
 class TestRestApiSmoke:
@@ -23,12 +18,81 @@ class TestRestApiSmoke:
         with patch.object(rest_api.database, "query", return_value=[(1,)]):
             response = client.get("/health")
         assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "ok"
+        assert body["service"] == "uaas-web"
+
+    def test_health_when_database_unavailable(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(
+            rest_api.database,
+            "query",
+            side_effect=RuntimeError("connection refused"),
+        ):
+            response = client.get("/health")
+        assert response.status_code == 503
+        body = response.json()
+        assert body["status"] == "unhealthy"
+        assert body["service"] == "uaas-web"
+        assert "connection refused" in body["database"]
+
+    def test_health_does_not_require_api_key(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api, "api_key", "secret-key"):
+            with patch.object(rest_api.database, "query", return_value=[(1,)]):
+                response = client.get("/health")
+        assert response.status_code == 200
         assert response.json()["status"] == "ok"
+
+    def test_protected_endpoint_requires_api_key(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api, "api_key", "secret-key"):
+            response = client.get("/status")
+        assert response.status_code == 401
+        assert response.json()["failure"] == "Unauthorized"
+
+    def test_protected_endpoint_accepts_api_key(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api, "api_key", "secret-key"), patch.object(
+            rest_api.logic,
+            "get_status",
+            return_value={"network": "testnet"},
+        ):
+            response = client.get("/status", headers={"X-API-Key": "secret-key"})
+        assert response.status_code == 200
+        assert response.json()["network"] == "testnet"
+
+    def test_options_request_bypasses_api_key(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api, "api_key", "secret-key"):
+            response = client.options("/status")
+        assert response.status_code != 401
 
     def test_invalid_tx_hash_returns_422(self, client: TestClient) -> None:
         response = client.get("/tx", params={"hash": "not-a-hash"})
         assert response.status_code == 422
         assert "failure" in response.json()
+
+    def test_unknown_tx_returns_422(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api.collection, "get_tx_as_hex", return_value=[]):
+            response = client.get("/tx", params={"hash": VALID_HASH})
+        assert response.status_code == 422
+        assert "Unknown txid" in response.json()["failed"]
+
+    def test_unknown_tx_hex_returns_422(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api.collection, "get_tx_as_hex", return_value=[]):
+            response = client.get("/tx/hex", params={"hash": VALID_HASH})
+        assert response.status_code == 422
+        assert "Unknown txid" in response.json()["failed"]
 
     def test_invalid_block_height_returns_422(self, client: TestClient) -> None:
         response = client.get("/block/height", params={"height": -1})
@@ -74,6 +138,113 @@ class TestRestApiSmoke:
         hexstr = "00" * (rest_api.max_broadcast_tx_bytes + 1)
         response = client.post("/tx/hex", json={"tx": hexstr})
         assert response.status_code == 422
+
+    def test_invalid_block_hash_returns_422(self, client: TestClient) -> None:
+        response = client.get("/block/hash", params={"hash": "not-a-hash"})
+        assert response.status_code == 422
+        assert "failure" in response.json()
+
+    def test_block_last_returns_503_when_no_blocks(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api.block_manager, "get_last_block", return_value=None):
+            response = client.get("/block/last")
+        assert response.status_code == 503
+        assert response.json() == {}
+
+    def test_block_last_hex_returns_503_when_no_blocks(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(
+            rest_api.block_manager,
+            "get_last_block_as_hex",
+            return_value=None,
+        ):
+            response = client.get("/block/last/hex")
+        assert response.status_code == 503
+        assert response.json() == {}
+
+    def test_invalid_address_returns_422_for_utxo(self, client: TestClient) -> None:
+        response = client.get("/utxo/get", params={"address": "not-an-address"})
+        assert response.status_code == 422
+        assert "failure" in response.json()
+
+    def test_invalid_address_returns_422_for_balance(self, client: TestClient) -> None:
+        response = client.get("/utxo/balance", params={"address": "not-an-address"})
+        assert response.status_code == 422
+        assert "failure" in response.json()
+
+    def test_utxo_returns_empty_list_for_valid_address(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(
+            rest_api.tx_analyser,
+            "get_utxo",
+            return_value={"utxo": []},
+        ):
+            response = client.get("/utxo/get", params={"address": TESTNET_ADDRESS})
+        assert response.status_code == 200
+        assert response.json() == {"utxo": []}
+
+    def test_balance_returns_zero_for_valid_address(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api.block_manager, "get_block_height", return_value=0), patch.object(
+            rest_api.tx_analyser,
+            "get_balance",
+            return_value={"confirmed": 0, "unconfirmed": 0},
+        ):
+            response = client.get("/utxo/balance", params={"address": TESTNET_ADDRESS})
+        assert response.status_code == 200
+        assert response.json() == {"confirmed": 0, "unconfirmed": 0}
+
+    def test_broadcast_tx_hex_returns_503_when_rust_unreachable(
+        self,
+        client: TestClient,
+    ) -> None:
+        import rest_api
+        import requests
+
+        mock_tx = MagicMock()
+        mock_tx.hash = VALID_HASH
+        with patch.object(rest_api, "CTransaction", return_value=mock_tx), patch.object(
+            rest_api.tx_analyser,
+            "tx_exist",
+            return_value=False,
+        ), patch.object(
+            rest_api.requests,
+            "post",
+            side_effect=requests.exceptions.ConnectionError("connection refused"),
+        ):
+            response = client.post("/tx/hex", json={"tx": "0100000001"})
+        assert response.status_code == 503
+        assert "Unable to connect with Rust service" in response.json()["failure"]
+
+    def test_add_monitor_rejects_duplicate_name(self, client: TestClient) -> None:
+        import rest_api
+
+        monitor = {
+            "name": "CoCv1",
+            "track_descendants": False,
+            "address": TESTNET_ADDRESS,
+            "locking_script_pattern": None,
+        }
+        with patch.object(rest_api.collection, "is_valid_collection", return_value=True):
+            response = client.post("/collection/monitor", json=monitor)
+        assert response.status_code == 422
+        assert "already exists" in response.json()["failed"]
+
+    def test_delete_monitor_rejects_unknown_name(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api.collection, "is_valid_collection", return_value=False):
+            response = client.delete(
+                "/collection/monitor",
+                params={"monitor_name": "missing-monitor"},
+            )
+        assert response.status_code == 422
+        assert "does not exist" in response.json()["failed"]
+
 
     def test_delete_monitor_rejects_static_collection(self, client: TestClient) -> None:
         import rest_api

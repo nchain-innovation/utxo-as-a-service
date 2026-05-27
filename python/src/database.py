@@ -11,15 +11,20 @@ class Database:
 
     def set_config(self, config: ConfigType):
         network = config["service"]["network"]
-        self._pool = MySQLConnectionPool(
-            pool_name="uaas_pool",
-            pool_size=5,
-            pool_reset_session=True,
-            host=config[network]["host"],
-            user=config[network]["user"],
-            password=config[network]["password"],
-            database=config[network]["database"],
-        )
+        network_config = config[network]
+        pool_kwargs: dict[str, Any] = {
+            "pool_name": "uaas_pool",
+            "pool_size": 5,
+            "pool_reset_session": True,
+            "host": network_config["host"],
+            "user": network_config["user"],
+            "password": network_config["password"],
+            "database": network_config["database"],
+        }
+        mysql_port = network_config.get("mysql_port")
+        if mysql_port is not None:
+            pool_kwargs["port"] = mysql_port
+        self._pool = MySQLConnectionPool(**pool_kwargs)
 
     def query(
         self,
