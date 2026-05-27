@@ -28,7 +28,7 @@ jobs:
           --health-start-period=30s
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v6
         with:
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build images
         run: ./build.sh
