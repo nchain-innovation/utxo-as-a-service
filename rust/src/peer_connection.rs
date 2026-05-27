@@ -7,7 +7,7 @@ use std::{
     thread, time,
 };
 
-use rand::Rng;
+use rand::RngExt;
 
 use chain_gang::{
     messages::{Version, NODE_BITCOIN_CASH, PROTOCOL_VERSION},
