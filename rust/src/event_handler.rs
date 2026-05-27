@@ -31,24 +31,28 @@ impl EventHandler {
     }
 
     pub fn get_elapsed_time(&self) -> f64 {
-        // Return how much time has passed since last message
-        let x = self.last_event.lock().unwrap();
+        let x = self.last_event.lock().unwrap_or_else(|e| e.into_inner());
         x.elapsed().as_secs_f64()
     }
 
     pub fn set_connected(&self, connected: bool) {
-        let mut connected_to_peer = self.connected_to_peer.lock().unwrap();
+        let mut connected_to_peer = self
+            .connected_to_peer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *connected_to_peer = connected;
     }
 
     pub fn get_connected(&self) -> bool {
-        let connected_to_peer = self.connected_to_peer.lock().unwrap();
+        let connected_to_peer = self
+            .connected_to_peer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *connected_to_peer
     }
 
     fn update_timer(&self) {
-        // Update the last message event timer, this is called whenever a event is received
-        let mut x = self.last_event.lock().unwrap();
+        let mut x = self.last_event.lock().unwrap_or_else(|e| e.into_inner());
         *x = time::Instant::now();
     }
 
@@ -142,16 +146,20 @@ impl Observer<PeerConnected> for EventHandler {
         // On connected
         self.update_timer();
 
-        let version = event.peer.version().expect("failed to get version!");
-        self.set_connected(true);
+        let detail = match event.peer.version() {
+            Ok(version) => format!(
+                "user_agent={}, services={:x} ({:?})",
+                version.user_agent,
+                version.tx_addr.services,
+                decode_services(version.tx_addr.services)
+            ),
+            Err(err) => {
+                log::warn!("Failed to get peer version from {}: {err:?}", event.peer.ip);
+                format!("peer={}", event.peer.ip)
+            }
+        };
 
-        // dbg!(&version);
-        let detail = format!(
-            "user_agent={}, services={:x} ({:?})",
-            version.user_agent,
-            version.tx_addr.services,
-            decode_services(version.tx_addr.services)
-        );
+        self.set_connected(true);
 
         let msg = PeerEventMessage {
             time: time::SystemTime::now(),

@@ -1,6 +1,6 @@
 use std::{sync::mpsc, thread};
 
-use mysql::Pool;
+use mysql::{Pool, PooledConn};
 
 use chain_gang::{
     messages::{Addr, Block, BlockLocator, Headers, Inv, InvVect, Message, Tx},
@@ -57,13 +57,22 @@ pub struct Logic {
 }
 
 impl Logic {
+    fn pool_conn(pool: &Pool, label: &str) -> PooledConn {
+        match pool.get_conn() {
+            Ok(conn) => conn,
+            Err(err) => {
+                log::error!("Unable to get {label} database connection: {err:?}");
+                panic!("Unable to get {label} database connection");
+            }
+        }
+    }
+
     pub fn new(config: &Config, pool: Pool) -> Self {
         // Set up database connections for the components
-
-        let block_conn = pool.get_conn().unwrap();
-        let addr_conn = pool.get_conn().unwrap();
-        let connection_conn = pool.get_conn().unwrap();
-        let db_conn = pool.get_conn().unwrap();
+        let block_conn = Self::pool_conn(&pool, "block");
+        let addr_conn = Self::pool_conn(&pool, "address");
+        let connection_conn = Self::pool_conn(&pool, "connection");
+        let db_conn = Self::pool_conn(&pool, "database writer");
 
         // Channel for database writes
         let (tx, rx) = mpsc::channel();

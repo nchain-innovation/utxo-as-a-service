@@ -55,9 +55,15 @@ async fn main() {
     // Setup web server data
     let (tx_rest, rx_rest) = mpsc::channel();
 
-    let db_pool = Pool::new(config.get_mysql_url()).expect(
-        "Problem connecting to database. Check database is connected and database connection configuration is correct.\n",
-    );
+    let db_pool = match Pool::new(config.get_mysql_url()) {
+        Ok(pool) => pool,
+        Err(err) => {
+            log::error!(
+                "Problem connecting to database. Check database is connected and configuration is correct: {err:?}"
+            );
+            panic!("Problem connecting to database. Check database is connected and database connection configuration is correct.");
+        }
+    };
 
     let app_state = AppState {
         msg_from_rest_api: tx_rest,
