@@ -2,6 +2,7 @@ from fastapi import FastAPI, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Any, Dict
+import logging
 import requests
 from io import BytesIO
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -27,6 +28,7 @@ from validation import (
 
 RUST_REQUEST_TIMEOUT = 30  # seconds
 API_KEY_HEADER = "X-API-Key"
+LOGGER = logging.getLogger(__name__)
 
 tags_metadata = [
     {
@@ -222,7 +224,7 @@ def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
     assert isinstance(hash, str)
     # CTransaction
     if tx_analyser.tx_exist(hash):
-        print(f" Transaction {hash} already exists.")
+        LOGGER.info("Transaction %s already exists", hash)
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {"failure": f" Transaction {hash} already exists."}
     try:
@@ -235,14 +237,17 @@ def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
         return {"failure": "Rust service request timed out"}
     except requests.exceptions.ConnectionError as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        print(f"failure = {str(e)}")
+        LOGGER.warning("Unable to connect to Rust service at %s: %s", rust_url, e)
         return {"failure": "Unable to connect with Rust service"}
     except requests.exceptions.RequestException as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {"failure": str(e)}
     else:
-        print(result.status_code)
-        print(result.text)
+        LOGGER.debug(
+            "Rust broadcast response: status=%s body=%s",
+            result.status_code,
+            result.text,
+        )
         if result.status_code == 200:
             return result.json()
         else:
@@ -355,7 +360,7 @@ def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
             "failed": f"Monitor is invalid '{monitor}'",
         }
     data = monitor.model_dump(mode='json')
-    print("data=", data)
+    LOGGER.debug("Adding collection monitor: %s", data)
     try:
         result = requests.post(
             rust_url + "/collection/monitor", json=data, timeout=RUST_REQUEST_TIMEOUT,
@@ -366,7 +371,7 @@ def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
         return {"failure": "Rust service request timed out"}
     except requests.exceptions.ConnectionError as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        print(f"failure = {str(e)}")
+        LOGGER.warning("Unable to connect to Rust service at %s: %s", rust_url, e)
         return {"failure": "Unable to connect with Rust service"}
     except requests.exceptions.RequestException as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -401,7 +406,7 @@ def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
     if not collection.is_valid_dynamic_collection(monitor_name):
         response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         return {
-            "failed": f"Monitor name is not a valid dynmatic monitor '{monitor_name}'",
+            "failed": f"Monitor name is not a valid dynamic monitor '{monitor_name}'",
         }
 
     # call uaas backend
@@ -416,7 +421,7 @@ def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
         return {"failure": "Rust service request timed out"}
     except requests.exceptions.ConnectionError as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        print(f"failure = {str(e)}")
+        LOGGER.warning("Unable to connect to Rust service at %s: %s", rust_url, e)
         return {"failure": "Unable to connect with Rust service"}
     except requests.exceptions.RequestException as e:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
