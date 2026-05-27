@@ -64,6 +64,10 @@ impl AddressManager {
     }
 
     pub fn on_addr(&mut self, addr: Addr) {
+        if addr.addrs.is_empty() {
+            return;
+        }
+
         let addr_insert = match self
             .conn
             .prep("INSERT INTO addr (ip, services, port) VALUES (:ip, :services, :port)")

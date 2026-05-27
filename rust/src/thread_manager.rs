@@ -49,14 +49,21 @@ impl ThreadManager {
         let local_running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
         let peer_running = local_running.clone();
 
-        // Read config
-        // Config is validated in main before peer threads are started.
-        let timeout_period = config
-            .get_network_settings()
-            .expect("config must pass validate_startup before peer connections")
-            .timeout_period;
+        let timeout_period = match config.get_network_settings() {
+            Ok(settings) => settings.timeout_period,
+            Err(err) => {
+                log::error!("Invalid network settings when creating peer thread: {err}");
+                return;
+            }
+        };
 
-        let peer_connection = PeerConnection::new(ip, &local_config, local_tx);
+        let peer_connection = match PeerConnection::new(ip, &local_config, local_tx) {
+            Ok(peer_connection) => peer_connection,
+            Err(err) => {
+                log::error!("Unable to create peer connection for {ip}: {err}");
+                return;
+            }
+        };
         let peer = peer_connection.peer.clone();
         let peer_thread = PeerThread {
             thread: Some(thread::spawn(move || {
