@@ -2,7 +2,7 @@ use std::io::Cursor;
 use std::sync::mpsc;
 
 use actix_web::{
-    delete, get, http::header::ContentType, post, web, HttpResponse, Responder, Result,
+    delete, get, http::header::ContentType, post, web, HttpRequest, HttpResponse, Responder, Result,
 };
 use serde::Serialize;
 
@@ -23,6 +23,25 @@ pub enum RestEventMessage {
 // web interface state
 pub struct AppState {
     pub msg_from_rest_api: mpsc::Sender<RestEventMessage>,
+    pub api_key: Option<String>,
+}
+
+const API_KEY_HEADER: &str = "X-API-Key";
+
+fn authorize(req: &HttpRequest, api_key: &Option<String>) -> Option<HttpResponse> {
+    let expected = api_key.as_ref()?;
+    let authorized = req
+        .headers()
+        .get(API_KEY_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|provided| provided == expected);
+    if authorized {
+        None
+    } else {
+        Some(HttpResponse::Unauthorized().json(serde_json::json!({
+            "failure": "Unauthorized",
+        })))
+    }
 }
 
 #[derive(Serialize)]
@@ -60,27 +79,33 @@ async fn version(_data: web::Data<AppState>) -> impl Responder {
 // to test
 // curl -X POST -d 'txt=txt' 127.0.0.1:8080/echo
 #[post("/tx/raw")]
-async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl Responder> {
+async fn broadcast_tx(
+    hexstr: String,
+    req: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    if let Some(response) = authorize(&req, &data.api_key) {
+        return Ok(response);
+    }
+
     // decode the hexstr to tx
     let bytes = match decode_hexstr(&hexstr) {
         Ok(b) => b,
         Err(_) => {
-            let response = BroadcastTxResponse {
+            return Ok(HttpResponse::Ok().json(BroadcastTxResponse {
                 status: "Failed".to_string(),
                 detail: "Failed to decode hex".to_string(),
-            };
-            return Ok(web::Json(response));
+            }));
         }
     };
 
     let tx = match Tx::read(&mut Cursor::new(&bytes)) {
         Ok(tx) => tx,
         Err(_) => {
-            let response = BroadcastTxResponse {
+            return Ok(HttpResponse::Ok().json(BroadcastTxResponse {
                 status: "Failed".to_string(),
                 detail: "Failed to convert hex to tx".to_string(),
-            };
-            return Ok(web::Json(response));
+            }));
         }
     };
 
@@ -93,27 +118,29 @@ async fn broadcast_tx(hexstr: String, data: web::Data<AppState>) -> Result<impl 
         .is_err()
     {
         log::error!("REST API channel closed; cannot broadcast transaction");
-        let response = BroadcastTxResponse {
+        return Ok(HttpResponse::Ok().json(BroadcastTxResponse {
             status: "Failed".to_string(),
             detail: "Service unavailable".to_string(),
-        };
-        return Ok(web::Json(response));
+        }));
     }
 
     // Return hash as hex_str, if successful
-    let response = BroadcastTxResponse {
+    Ok(HttpResponse::Ok().json(BroadcastTxResponse {
         status: "Success".to_string(),
         detail: hash,
-    };
-
-    Ok(web::Json(response))
+    }))
 }
 
 #[post("/collection/monitor")]
 async fn add_monitor(
     monitor: web::Json<CollectionConfig>,
+    req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
+    if let Some(response) = authorize(&req, &data.api_key) {
+        return Ok(response);
+    }
+
     log::info!("add_monitor");
 
     let cc = monitor.into_inner();
@@ -133,8 +160,13 @@ async fn add_monitor(
 #[delete("/collection/monitor/{monitor_name}")]
 async fn delete_monitor(
     monitor_name: web::Path<String>,
+    req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<impl Responder> {
+    if let Some(response) = authorize(&req, &data.api_key) {
+        return Ok(response);
+    }
+
     log::info!("delete_monitor '{}'", &monitor_name);
 
     if data

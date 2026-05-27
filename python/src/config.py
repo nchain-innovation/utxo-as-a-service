@@ -45,6 +45,12 @@ def _validate_config(config: ConfigType, filename: str) -> None:
     for key in ("address", "log_level", "reload", "rust_url"):
         _require_key(web_interface, "web_interface", key, filename)
 
+    api_key = web_interface.get("api_key")
+    if api_key is not None and (not isinstance(api_key, str) or not api_key.strip()):
+        raise ConfigError(
+            f"Config '{filename}' section [web_interface] 'api_key' must be a non-empty string when set."
+        )
+
 
 def load_config(filename: str) -> ConfigType:
     """Load and validate config from the provided TOML file."""

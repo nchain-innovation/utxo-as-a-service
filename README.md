@@ -108,6 +108,10 @@ This is read when the service starts up.
 
 For more details about the configuration file see [here](docs/Configuration.md).
 
+## Security
+
+The REST APIs have no authentication by default and can broadcast transactions or modify collection monitors. For local development, bind to `127.0.0.1` and keep ports off the public internet. For shared or production use, set `api_key` in `[web_interface]` and read [docs/Security.md](docs/Security.md).
+
 
 ## Directories
 The following directories exist in this project:

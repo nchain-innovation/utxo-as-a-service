@@ -54,6 +54,12 @@ pub struct DynamicConfigConfig {
     pub filename: String,
 }
 
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct WebInterfaceConfig {
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub service: Service,
@@ -63,6 +69,9 @@ pub struct Config {
     pub orphan: OrphanConfig,
     pub logging: LoggingConfig,
     pub dynamic_config: DynamicConfigConfig,
+
+    #[serde(default)]
+    pub web_interface: WebInterfaceConfig,
 
     pub collection: Vec<CollectionConfig>,
 }
