@@ -26,6 +26,11 @@ pub struct AppState {
     pub msg_from_rest_api: mpsc::Sender<RestEventMessage>,
     pub api_key: Option<String>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub max_broadcast_tx_bytes: usize,
+}
+
+fn tx_hex_exceeds_limit(hex_len: usize, max_tx_bytes: usize) -> bool {
+    hex_len / 2 > max_tx_bytes
 }
 
 const API_KEY_HEADER: &str = "X-API-Key";
@@ -105,6 +110,16 @@ async fn broadcast_tx(
     }
     if let Some(response) = authorize(&req, &data.api_key) {
         return Ok(response);
+    }
+
+    if tx_hex_exceeds_limit(hexstr.len(), data.max_broadcast_tx_bytes) {
+        return Ok(HttpResponse::Ok().json(BroadcastTxResponse {
+            status: "Failed".to_string(),
+            detail: format!(
+                "Transaction exceeds maximum broadcast size of {} bytes",
+                data.max_broadcast_tx_bytes
+            ),
+        }));
     }
 
     // decode the hexstr to tx
@@ -204,4 +219,24 @@ async fn delete_monitor(
     }
 
     Ok(HttpResponse::Ok().finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tx_hex_exceeds_limit;
+
+    #[test]
+    fn tx_hex_within_limit() {
+        assert!(!tx_hex_exceeds_limit(1_999_998, 1_000_000));
+    }
+
+    #[test]
+    fn tx_hex_at_limit() {
+        assert!(!tx_hex_exceeds_limit(2_000_000, 1_000_000));
+    }
+
+    #[test]
+    fn tx_hex_over_limit() {
+        assert!(tx_hex_exceeds_limit(2_000_002, 1_000_000));
+    }
 }

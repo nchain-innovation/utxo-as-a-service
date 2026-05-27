@@ -172,6 +172,9 @@ cors_allow_credentials = false
 # Per-client request limit per minute (0 = disabled)
 # rate_limit_per_minute = 120
 
+# Maximum decoded transaction size accepted by POST /tx/hex (default: 1000000)
+# max_broadcast_tx_bytes = 1000000
+
 
 [dynamic_config]
 filename = "../data/dynamic.toml"

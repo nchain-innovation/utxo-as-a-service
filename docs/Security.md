@@ -50,7 +50,7 @@ Set `rate_limit_per_minute` under `[web_interface]` to cap requests per client I
 
 Even with an API key, treat the service as privileged infrastructure:
 
-- **Broadcast** (`POST /tx/hex`) relays transactions to the BSV network.
+- **Broadcast** (`POST /tx/hex`) relays transactions to the BSV network. Payload size is capped by `max_broadcast_tx_bytes` in `[web_interface]` (default 1 MiB) on both the Python and Rust APIs.
 - **Collection monitors** can capture and store arbitrary matching transactions.
 - **UTXO queries** reveal balance and transaction data for queried addresses.
 

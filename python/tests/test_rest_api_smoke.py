@@ -68,6 +68,13 @@ class TestRestApiSmoke:
             rest_api.rate_limit_per_minute = original_limit
             rest_api.rate_limiter = original_limiter
 
+    def test_oversized_broadcast_tx_returns_422(self, client: TestClient) -> None:
+        import rest_api
+
+        hexstr = "00" * (rest_api.max_broadcast_tx_bytes + 1)
+        response = client.post("/tx/hex", json={"tx": hexstr})
+        assert response.status_code == 422
+
     def test_delete_monitor_rejects_static_collection(self, client: TestClient) -> None:
         import rest_api
 
