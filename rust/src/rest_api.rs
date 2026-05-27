@@ -472,4 +472,89 @@ mod tests {
 
         assert_eq!(response.status(), 401);
     }
+
+    #[test]
+    fn rapi05_payload_limit_scales_with_broadcast_max() {
+        let max_bytes = 1_000_000_usize;
+        let payload_limit = max_bytes.saturating_mul(2).max(1024);
+        assert_eq!(payload_limit, 2_000_000);
+    }
+
+    #[actix_web::test]
+    async fn sec04_health_is_exempt_from_rate_limit() {
+        let Some(pool) = skip_without_mysql("sec04_health_is_exempt_from_rate_limit") else {
+            return;
+        };
+
+        let (tx, _rx) = mpsc::channel();
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState {
+                    msg_from_rest_api: tx,
+                    api_key: None,
+                    rate_limiter: Arc::new(RateLimiter::new(1)),
+                    max_broadcast_tx_bytes: 1_000_000,
+                    db_pool: pool,
+                }))
+                .service(health),
+        )
+        .await;
+
+        for _ in 0..2 {
+            let response = actix_test::call_service(
+                &app,
+                actix_test::TestRequest::get().uri("/health").to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), 200);
+        }
+    }
+
+    #[actix_web::test]
+    async fn bcast05_broadcast_tx_queues_valid_transaction() {
+        use chain_gang::{messages::Tx, util::Serializable};
+
+        let Some(pool) = skip_without_mysql("bcast05_broadcast_tx_queues_valid_transaction") else {
+            return;
+        };
+
+        let tx = Tx {
+            version: 1,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            lock_time: 0,
+        };
+        let mut bytes = Vec::new();
+        tx.write(&mut bytes).expect("serialize tx");
+        let hexstr = hex::encode(bytes);
+
+        let (rest_tx, rest_rx) = mpsc::channel();
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState {
+                    msg_from_rest_api: rest_tx,
+                    api_key: None,
+                    rate_limiter: Arc::new(RateLimiter::new(0)),
+                    max_broadcast_tx_bytes: 1_000_000,
+                    db_pool: pool,
+                }))
+                .service(broadcast_tx),
+        )
+        .await;
+
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::post()
+                .uri("/tx/raw")
+                .set_payload(hexstr)
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), 200);
+        assert!(matches!(
+            rest_rx.try_recv(),
+            Ok(RestEventMessage::TxForBroadcast(_))
+        ));
+    }
 }

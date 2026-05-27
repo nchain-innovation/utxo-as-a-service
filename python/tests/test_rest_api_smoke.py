@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 VALID_HASH = "a" * 64
 TESTNET_ADDRESS = "mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5"
+MINIMAL_TX_HEX = "0100000001"
 
 
 class TestRestApiSmoke:
@@ -260,3 +261,61 @@ class TestRestApiSmoke:
             )
         assert response.status_code == 422
         assert "dynamic monitor" in response.json()["failed"]
+
+    def test_bcast03_rejects_duplicate_transaction(self, client: TestClient) -> None:
+        import rest_api
+
+        mock_tx = MagicMock()
+        mock_tx.hash = VALID_HASH
+        with patch.object(rest_api, "CTransaction", return_value=mock_tx), patch.object(
+            rest_api.tx_analyser,
+            "tx_exist",
+            return_value=True,
+        ):
+            response = client.post("/tx/hex", json={"tx": MINIMAL_TX_HEX})
+        assert response.status_code == 422
+        assert "already exists" in response.json()["failure"]
+
+    def test_bcast04_proxies_valid_transaction_to_rust(self, client: TestClient) -> None:
+        import rest_api
+
+        mock_tx = MagicMock()
+        mock_tx.hash = VALID_HASH
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "Success", "detail": VALID_HASH}
+        with patch.object(rest_api, "CTransaction", return_value=mock_tx), patch.object(
+            rest_api.tx_analyser,
+            "tx_exist",
+            return_value=False,
+        ), patch.object(rest_api.requests, "post", return_value=mock_response) as post:
+            response = client.post("/tx/hex", json={"tx": MINIMAL_TX_HEX})
+        assert response.status_code == 200
+        assert response.json()["status"] == "Success"
+        post.assert_called_once()
+        assert post.call_args.args[0].endswith("/tx/raw")
+
+    def test_mon01_adds_dynamic_monitor_via_rust(self, client: TestClient) -> None:
+        import rest_api
+
+        monitor = {
+            "name": "new-monitor",
+            "track_descendants": False,
+            "address": TESTNET_ADDRESS,
+            "locking_script_pattern": None,
+        }
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        with patch.object(rest_api.collection, "is_valid_collection", return_value=False), patch.object(
+            rest_api.collection,
+            "add_monitor",
+        ) as add_monitor, patch.object(
+            rest_api.requests,
+            "post",
+            return_value=mock_response,
+        ) as post:
+            response = client.post("/collection/monitor", json=monitor)
+        assert response.status_code == 200
+        post.assert_called_once()
+        assert post.call_args.args[0].endswith("/collection/monitor")
+        add_monitor.assert_called_once()

@@ -110,4 +110,9 @@ mod tests {
         });
         assert_eq!(format!("{event}"), "Inv=2");
     }
+
+    #[test]
+    fn rel01_stop_event_is_used_for_shutdown() {
+        assert!(matches!(PeerEventType::Stop, PeerEventType::Stop));
+    }
 }

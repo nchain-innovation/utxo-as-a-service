@@ -230,6 +230,7 @@ def clear_blocks(mysql_url: str) -> None:
     )
     cursor = connection.cursor()
     try:
+        cursor.execute("DELETE FROM tx")
         cursor.execute("DELETE FROM blocks")
         connection.commit()
     finally:

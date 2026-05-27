@@ -91,6 +91,7 @@ pub struct Config {
     #[serde(default)]
     pub web_interface: WebInterfaceConfig,
 
+    #[serde(default)]
     pub collection: Vec<CollectionConfig>,
 }
 
@@ -187,5 +188,173 @@ pub fn get_config(env_var: &str, filename: &str) -> Result<Config, String> {
                 .map_err(|err| format!("error parsing JSON environment variable {env_var}: {err}"))
         }
         None => read_config(filename).map_err(|err| format!("error reading config file: {err}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    fn sample_config() -> Config {
+        let content = r#"
+            [service]
+            user_agent = "/Bitcoin SV:1.0.11/"
+            network = "testnet"
+            rust_address = "127.0.0.1:8081"
+
+            [mainnet]
+            ip = ["127.0.0.1"]
+            port = 8333
+            start_block_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            start_block_height = 1
+            timeout_period = 60.0
+            startup_load_from_database = true
+            block_file = "../data/main-block.dat"
+            save_blocks = false
+            save_txs = false
+
+            [testnet]
+            ip = ["127.0.0.1", "127.0.0.2"]
+            port = 18333
+            start_block_hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            start_block_height = 1
+            timeout_period = 60.0
+            startup_load_from_database = false
+            block_file = "../data/test-net.dat"
+            save_blocks = false
+            save_txs = false
+
+            [database]
+            mysql_url = "mysql://local"
+            mysql_url_docker = "mysql://docker"
+            ms_delay = 300
+            retries = 3
+
+            [orphan]
+            detect = false
+            threshold = 100
+
+            [logging]
+            level = "info"
+
+            [dynamic_config]
+            filename = "../data/dynamic.toml"
+
+            [[collection]]
+            name = "demo"
+            track_descendants = false
+            address = "mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5"
+
+            [utxo]
+            complete = 6
+        "#;
+        toml::from_str(content).expect("sample config should parse")
+    }
+
+    #[test]
+    fn cfg01_reads_config_from_toml_file() {
+        let content = r#"
+[service]
+user_agent = "/Bitcoin SV:1.0.11/"
+network = "testnet"
+rust_address = "127.0.0.1:8081"
+
+[mainnet]
+ip = ["127.0.0.1"]
+port = 8333
+start_block_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+start_block_height = 1
+timeout_period = 60.0
+startup_load_from_database = true
+block_file = "../data/main-block.dat"
+save_blocks = false
+save_txs = false
+
+[testnet]
+ip = ["127.0.0.1"]
+port = 18333
+start_block_hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+start_block_height = 1
+timeout_period = 60.0
+startup_load_from_database = false
+block_file = "../data/test-net.dat"
+save_blocks = false
+save_txs = false
+
+[database]
+mysql_url = "mysql://local"
+mysql_url_docker = "mysql://docker"
+ms_delay = 300
+retries = 3
+
+[orphan]
+detect = false
+threshold = 100
+
+[logging]
+level = "info"
+
+[dynamic_config]
+filename = "../data/dynamic.toml"
+"#;
+        toml::from_str::<Config>(content).expect("inline config should parse");
+        let dir = std::env::temp_dir().join(format!("uaas_config_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("uaasr.toml");
+        std::fs::write(&path, content).expect("write temp config");
+        let config = read_config(path.to_str().unwrap()).expect("config should load from file");
+        assert_eq!(config.service.network, "testnet");
+    }
+
+    #[test]
+    fn cfg03_uses_docker_mysql_url_when_app_env_set() {
+        let config = sample_config();
+        unsafe {
+            std::env::set_var("APP_ENV", "docker");
+        }
+        assert_eq!(config.get_mysql_url(), "mysql://docker");
+        unsafe {
+            std::env::remove_var("APP_ENV");
+        }
+    }
+
+    #[test]
+    fn cfg04_reads_active_network_port_and_ips() {
+        let config = sample_config();
+        let settings = config.get_network_settings().expect("testnet settings");
+        assert_eq!(settings.port, 18333);
+        let ips = config.get_ips().expect("ip list");
+        assert_eq!(
+            ips,
+            vec![
+                "127.0.0.1".parse::<IpAddr>().unwrap(),
+                "127.0.0.2".parse::<IpAddr>().unwrap(),
+            ]
+        );
+        assert!(!settings.startup_load_from_database);
+    }
+
+    #[test]
+    fn rel03_validate_startup_rejects_empty_ip_list() {
+        let mut config = sample_config();
+        config.testnet.ip.clear();
+        let err = config
+            .validate_startup()
+            .expect_err("empty ip list should fail");
+        assert!(err.contains("ip list must not be empty"));
+    }
+
+    #[test]
+    fn sync02_config_provides_multiple_peer_ips_for_failover() {
+        let config = sample_config();
+        assert!(config.get_ips().expect("ips").len() >= 2);
+    }
+
+    #[test]
+    fn sync08_startup_load_flag_available_per_network() {
+        let config = sample_config();
+        assert!(!config.testnet.startup_load_from_database);
+        assert!(config.mainnet.startup_load_from_database);
     }
 }

@@ -330,3 +330,15 @@ impl Logic {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ServerStateType;
+
+    #[test]
+    fn sync06_ready_state_reports_caught_up() {
+        assert!(ServerStateType::Ready.is_ready());
+        assert!(!ServerStateType::Connected.is_ready());
+        assert!(!ServerStateType::Starting.is_ready());
+    }
+}
