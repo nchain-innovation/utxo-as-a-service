@@ -9,6 +9,25 @@ from config import ConfigType
 from mysql.connector.errors import ProgrammingError
 
 
+_TX_EXIST_QUERY = """
+SELECT 1 FROM (
+    SELECT hash FROM tx WHERE hash = %s
+    UNION ALL
+    SELECT hash FROM mempool WHERE hash = %s
+    UNION ALL
+    SELECT hash FROM collection WHERE hash = %s
+) AS matches LIMIT 1
+"""
+
+_TX_EXIST_WITHOUT_TX_TABLE_QUERY = """
+SELECT 1 FROM (
+    SELECT hash FROM mempool WHERE hash = %s
+    UNION ALL
+    SELECT hash FROM collection WHERE hash = %s
+) AS matches LIMIT 1
+"""
+
+
 class TxAnalyser:
     def __init__(self):
         self.complete = 6
@@ -172,22 +191,13 @@ class TxAnalyser:
         }
 
     def tx_exist(self, hash: str) -> bool:
-        # Return true if txid is in txs or mempool or collection
-        # self.txs.contains_key(&hash) || self.mempool.contains_key(&hash)
+        # Return true if txid is in txs, mempool, or collection (single round trip).
         try:
-            txs = database.query("SELECT * FROM tx WHERE hash = %s;", (hash,))
+            result = database.query(_TX_EXIST_QUERY, (hash, hash, hash))
         except ProgrammingError as e:
             print(f"MySQL ProgrammingError {e}")
-        else:
-            if len(txs) > 0:
-                return True
-        mempool = database.query("SELECT * FROM mempool WHERE hash = %s;", (hash,))
-        if len(mempool) > 0:
-            return True
-        collection = database.query("SELECT * FROM collection WHERE hash = %s;", (hash,))
-        if len(collection) > 0:
-            return True
-        return False
+            result = database.query(_TX_EXIST_WITHOUT_TX_TABLE_QUERY, (hash, hash))
+        return len(result) > 0
 
     def get_tx_merkle_proof(self, hash: str) -> Dict[str, Any]:
         # Given the txid return the merkle branch proof for a confirmed transaction
