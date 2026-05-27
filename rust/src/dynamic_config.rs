@@ -26,7 +26,8 @@ fn save_dynamic_config(filename: &str, clients: &[CollectionConfig]) -> std::io:
     let config = DynamicConfigConfig {
         collection: clients.to_vec(),
     };
-    let content = toml::to_string(&config).unwrap();
+    let content =
+        toml::to_string(&config).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     std::fs::write(filename, content)?;
     Ok(())
 }
@@ -66,6 +67,11 @@ impl DynamicConfig {
     }
 
     fn save(&self) {
-        save_dynamic_config(&self.filename, &self.collection).unwrap();
+        if let Err(err) = save_dynamic_config(&self.filename, &self.collection) {
+            log::error!(
+                "Unable to save dynamic config to {}: {err:?}",
+                self.filename
+            );
+        }
     }
 }

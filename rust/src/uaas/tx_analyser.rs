@@ -54,17 +54,30 @@ pub struct TxAnalyser {
 }
 
 impl TxAnalyser {
+    fn pool_conn(pool: &Pool, label: &str) -> PooledConn {
+        match pool.get_conn() {
+            Ok(conn) => conn,
+            Err(err) => {
+                log::error!("Unable to get {label} database connection: {err:?}");
+                panic!("Unable to get {label} database connection");
+            }
+        }
+    }
+
     pub fn new(config: &Config, pool: Pool, tx: mpsc::Sender<DBOperationType>) -> Self {
-        // database connections
-        let tx_conn = pool.get_conn().unwrap();
-        let utxo_conn = pool.get_conn().unwrap();
-        let txdb_conn = pool.get_conn().unwrap();
-        let collection_conn = pool.get_conn().unwrap();
+        let tx_conn = Self::pool_conn(&pool, "tx analyser");
+        let utxo_conn = Self::pool_conn(&pool, "utxo");
+        let txdb_conn = Self::pool_conn(&pool, "txdb");
+        let collection_conn = Self::pool_conn(&pool, "collection");
 
         let save_txs = config.get_network_settings().save_txs;
-        let network = config
-            .get_network()
-            .expect("invalid network in config; expected mainnet, testnet, or stn");
+        let network = match config.get_network() {
+            Ok(network) => network,
+            Err(err) => {
+                log::error!("Invalid network in config: {err}");
+                panic!("invalid network in config; expected mainnet, testnet, or stn");
+            }
+        };
         let dynamic_config = DynamicConfig::new(config);
         let mut collection: Vec<WorkingCollection> = Vec::new();
 
@@ -100,14 +113,15 @@ impl TxAnalyser {
     }
 
     fn create_tables(&mut self) {
-        // Create tables, if required
-        // Check for the tables
-        let tables: Vec<String> = self
-            .conn
-            .query(
-                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
-            )
-            .unwrap();
+        let tables: Vec<String> = match self.conn.query(
+            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
+        ) {
+            Ok(tables) => tables,
+            Err(err) => {
+                log::error!("Unable to list database tables for tx analyser: {err:?}");
+                return;
+            }
+        };
 
         if self.save_txs && !tables.iter().any(|x| x.as_str() == "tx") {
             self.txdb.create_tx_table();

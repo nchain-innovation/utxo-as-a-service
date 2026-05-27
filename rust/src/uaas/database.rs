@@ -108,6 +108,10 @@ impl Database {
         }
     }
 
+    fn log_write_error(operation: &str, err: impl std::fmt::Debug) {
+        log::error!("Database write failed during {operation}: {err:?}");
+    }
+
     fn utxo_batch_write(&mut self, utxo_entries: Vec<UtxoEntryDB>) {
         // bulk/batch write tx output to utxo table
 
@@ -125,7 +129,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("utxo batch write", err);
+        }
     }
 
     fn utxo_batch_delete(&mut self, utxo_deletes: Vec<OutPoint>) {
@@ -141,7 +147,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("utxo batch delete", err);
+        }
     }
 
     fn tx_batch_write(&mut self, tx_entries: Vec<TxEntryWriteDB>) {
@@ -157,7 +165,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("tx batch write", err);
+        }
     }
 
     fn mempool_write(&mut self, mempool_entry: MempoolEntryDB) {
@@ -183,7 +193,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("mempool write", err);
+        }
     }
 
     fn mempool_batch_delete(&mut self, mempool_hashes: Vec<Hash256>) {
@@ -198,7 +210,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("mempool batch delete", err);
+        }
     }
 
     fn block_header_write(&mut self, block_header: BlockHeaderWriteDB) {
@@ -237,7 +251,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("block header write", err);
+        }
     }
 
     fn block_header_delete(&mut self, hash: &Hash256) {
@@ -251,7 +267,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("block header delete", err);
+        }
     }
 
     fn tx_delete_at_height(&mut self, height: u32) {
@@ -264,7 +282,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("tx delete at height", err);
+        }
     }
 
     fn utxo_delete_at_height(&mut self, height: u32) {
@@ -277,7 +297,9 @@ impl Database {
                 )
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("utxo delete at height", err);
+        }
     }
 
     fn orphan_block_header_write(&mut self, block_header: OrphanBlockHeaderWriteDB) {
@@ -300,7 +322,9 @@ impl Database {
                     })
             },
         );
-        result.unwrap();
+        if let Err(err) = result {
+            Self::log_write_error("orphan block header write", err);
+        }
     }
 
     pub fn perform_db_operations(&mut self) {
