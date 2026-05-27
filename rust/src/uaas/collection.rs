@@ -63,11 +63,14 @@ impl CollectionDatabase {
     pub fn load_txs(&mut self, collection_name: &str) -> Vec<Hash256> {
         // load txs- tx hash from database
         let start = Instant::now();
-        let table = format!(
-            "SELECT hash FROM collection WHERE name = '{}';",
-            collection_name
-        );
-        let txs: Vec<String> = self.conn.query_map(table, |hash| hash).unwrap();
+        let txs: Vec<String> = self
+            .conn
+            .exec_map(
+                "SELECT hash FROM collection WHERE name = :name",
+                params! { "name" => collection_name },
+                |hash| hash,
+            )
+            .unwrap();
 
         let retval: Vec<Hash256> = txs.iter().map(|x| Hash256::decode(x).unwrap()).collect();
 
@@ -87,14 +90,18 @@ impl CollectionDatabase {
         tx.write(&mut b).unwrap();
         let tx_hex = format!("{}", HexSlice::new(&b));
 
-        let collection_insert = format!(
-            "INSERT INTO collection VALUES ('{}', '{}', '{}');",
-            &hash, collection_name, tx_hex,
-        );
-
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || self.conn.exec_drop(&collection_insert, Params::Empty),
+            || {
+                self.conn.exec_drop(
+                    "INSERT INTO collection (hash, name, tx) VALUES (:hash, :name, :tx)",
+                    params! {
+                        "hash" => hash.as_str(),
+                        "name" => collection_name,
+                        "tx" => tx_hex.as_str(),
+                    },
+                )
+            },
         );
         result.unwrap();
     }
