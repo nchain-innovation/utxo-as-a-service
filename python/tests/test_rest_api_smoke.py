@@ -34,3 +34,18 @@ class TestRestApiSmoke:
         response = client.get("/block/height", params={"height": -1})
         assert response.status_code == 422
         assert "failure" in response.json()
+
+    def test_delete_monitor_rejects_static_collection(self, client: TestClient) -> None:
+        import rest_api
+
+        with patch.object(rest_api.collection, "is_valid_collection", return_value=True), patch.object(
+            rest_api.collection,
+            "is_valid_dynamic_collection",
+            return_value=False,
+        ):
+            response = client.delete(
+                "/collection/monitor",
+                params={"monitor_name": "CoCv1"},
+            )
+        assert response.status_code == 422
+        assert "dynamic monitor" in response.json()["failed"]
