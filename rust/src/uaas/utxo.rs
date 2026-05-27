@@ -85,9 +85,16 @@ impl Utxo {
 
         if let Err(err) = self
             .conn
-            .query_drop(r"CREATE INDEX speed_key ON utxo (pubkeyhash);")
+            .query_drop(r"CREATE INDEX IF NOT EXISTS speed_key ON utxo (pubkeyhash);")
         {
             log::error!("Unable to create utxo pubkeyhash index: {err:?}");
+        }
+
+        if let Err(err) = self
+            .conn
+            .query_drop(r"CREATE INDEX IF NOT EXISTS idx_utxo_height ON utxo (height);")
+        {
+            log::error!("Unable to create utxo height index: {err:?}");
         }
     }
 
