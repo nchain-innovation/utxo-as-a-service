@@ -4,6 +4,28 @@ from mysql.connector.pooling import MySQLConnectionPool
 
 from config import ConfigType
 
+_WRITE_PREFIXES = (
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "REPLACE",
+    "CREATE",
+    "DROP",
+    "ALTER",
+    "TRUNCATE",
+    "GRANT",
+    "REVOKE",
+)
+
+
+def _requires_commit(query_string: str) -> bool:
+    """Return True when the statement mutates database state."""
+    normalized = query_string.lstrip()
+    if not normalized:
+        return False
+    first_token = normalized.split(None, 1)[0].upper()
+    return first_token in _WRITE_PREFIXES
+
 
 class Database:
     def __init__(self):
@@ -40,7 +62,8 @@ class Database:
             try:
                 cursor.execute(query_string, params or ())
                 retval = list(cursor.fetchall())
-                connection.commit()
+                if _requires_commit(query_string):
+                    connection.commit()
                 return retval
             finally:
                 cursor.close()
