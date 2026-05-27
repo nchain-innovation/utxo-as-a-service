@@ -40,6 +40,22 @@ pub struct Utxo {
 }
 
 impl Utxo {
+    fn send_db_op(&self, op: DBOperationType) {
+        if self.tx.send(op).is_err() {
+            log::error!("Failed to send utxo database operation; channel closed");
+        }
+    }
+
+    fn decode_stored_hash(value: &str) -> Option<Hash256> {
+        match Hash256::decode(value) {
+            Ok(hash) => Some(hash),
+            Err(err) => {
+                log::error!("Invalid stored utxo hash {value}: {err:?}");
+                None
+            }
+        }
+    }
+
     pub fn new(conn: PooledConn, tx: mpsc::Sender<DBOperationType>) -> Self {
         Utxo {
             utxo: HashMap::new(),
@@ -54,44 +70,53 @@ impl Utxo {
         // Create Utxo table
         // utxo
         log::info!("Table utxo not found - creating");
-        self.conn
-            .query_drop(
-                r"CREATE TABLE utxo (
+        if let Err(err) = self.conn.query_drop(
+            r"CREATE TABLE utxo (
                 hash varchar(64) not null,
                 pos int unsigned not null,
                 satoshis bigint unsigned not null,
                 height int not null,
                 pubkeyhash varchar(64),
                 CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
-            )
-            .unwrap();
+        ) {
+            log::error!("Unable to create utxo table: {err:?}");
+            return;
+        }
 
-        self.conn
+        if let Err(err) = self
+            .conn
             .query_drop(r"CREATE INDEX speed_key ON utxo (pubkeyhash);")
-            .unwrap();
+        {
+            log::error!("Unable to create utxo pubkeyhash index: {err:?}");
+        }
     }
 
     pub fn load_utxo(&mut self) {
         // load outpoints from database
         let start = Instant::now();
 
-        let txs: Vec<UtxoEntryDB> = self
-            .conn
-            .query_map(
-                "SELECT * FROM utxo",
-                |(hash, pos, satoshis, height, pubkeyhash)| UtxoEntryDB {
-                    hash,
-                    pos,
-                    satoshis,
-                    height,
-                    pubkeyhash,
-                },
-            )
-            .unwrap();
+        let txs: Vec<UtxoEntryDB> = match self.conn.query_map(
+            "SELECT * FROM utxo",
+            |(hash, pos, satoshis, height, pubkeyhash)| UtxoEntryDB {
+                hash,
+                pos,
+                satoshis,
+                height,
+                pubkeyhash,
+            },
+        ) {
+            Ok(txs) => txs,
+            Err(err) => {
+                log::error!("Unable to load utxo from database: {err:?}");
+                return;
+            }
+        };
 
         // Load entries into utxo struct
         for entry in txs {
-            let hash = Hash256::decode(&entry.hash).unwrap();
+            let Some(hash) = Self::decode_stored_hash(&entry.hash) else {
+                continue;
+            };
 
             let outpoint = OutPoint {
                 hash,
@@ -122,10 +147,18 @@ impl Utxo {
         height: i32,
         pubkeyhash: &str,
     ) {
+        let index_u32 = match index.try_into() {
+            Ok(value) => value,
+            Err(_) => {
+                log::error!("UTXO output index {index} out of range for tx {hash:?}");
+                return;
+            }
+        };
+
         // add a utxo outpoint, prepare a record to be written to database
         let outpoint = OutPoint {
             hash,
-            index: index.try_into().unwrap(),
+            index: index_u32,
         };
 
         let new_entry = UtxoEntry {
@@ -140,7 +173,7 @@ impl Utxo {
         // Record for batch write to utxo table
         let utxo_entry = UtxoEntryDB {
             hash: hash.encode(),
-            pos: index.try_into().unwrap(),
+            pos: index_u32,
             satoshis,
             height,
             pubkeyhash: pubkeyhash.to_string(),
@@ -166,23 +199,22 @@ impl Utxo {
     pub fn update_db(&mut self) {
         // bulk/batch write tx output to utxo table
         let request: Vec<UtxoEntryDB> = self.utxo_entries.clone().into_values().collect();
-        self.tx
-            .send(DBOperationType::UtxoBatchWrite(request))
-            .unwrap();
+        self.send_db_op(DBOperationType::UtxoBatchWrite(request));
         self.utxo_entries.clear();
 
         // bulk/batch delete utxo table entries
-        self.tx
-            .send(DBOperationType::UtxoBatchDelete(self.utxo_deletes.clone()))
-            .unwrap();
+        self.send_db_op(DBOperationType::UtxoBatchDelete(self.utxo_deletes.clone()));
         self.utxo_deletes.clear();
     }
 
     pub fn handle_orphan_block(&mut self, height: u32) {
         // Remove utxo of this block height
-        self.tx.send(DBOperationType::UtxoDelete(height)).unwrap();
+        self.send_db_op(DBOperationType::UtxoDelete(height));
 
-        let height_as_i32: i32 = height.try_into().unwrap();
+        let Ok(height_as_i32) = i32::try_from(height) else {
+            log::error!("Block height {height} out of range while pruning utxo set");
+            return;
+        };
         // Remove transactions at this height
         self.utxo
             .retain(|_outpoint, entry| entry.height != height_as_i32);
