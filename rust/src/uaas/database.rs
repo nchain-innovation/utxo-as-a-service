@@ -369,13 +369,10 @@ mod test {
             return;
         };
 
-        let pool = Pool::new(url.as_str()).unwrap_or_else(|err| {
-            panic!(
-                "Problem connecting to database at {url}. \
-                 Check database is connected and database connection configuration is correct.\n: {err}"
-            );
-        });
-        let conn = pool.get_conn().unwrap();
+        let pool = Pool::new(url.as_str()).expect("connect to UAAS_TEST_MYSQL_URL");
+        let conn = pool
+            .get_conn()
+            .expect("get connection for database integration test");
         let (_tx, rx) = mpsc::channel();
         let mut database = Database {
             conn,

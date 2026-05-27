@@ -20,6 +20,7 @@ mod rest_api;
 mod services;
 mod thread_manager;
 mod thread_tracker;
+mod thread_util;
 mod uaas;
 
 use crate::{
@@ -28,26 +29,32 @@ use crate::{
     rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
     thread_manager::ThreadManager,
     thread_tracker::ThreadTracker,
+    thread_util::catch_unwind_logged,
     uaas::logic::Logic,
 };
 
 #[actix_web::main]
 async fn main() {
-    // Hook in our own panic handler
+    if let Err(err) = run().await {
+        eprintln!("Fatal startup error: {err}");
+        process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), String> {
+    // Log panics without terminating unrelated threads (for example the web server).
     let orig_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
-        // invoke the default handler and exit the process
+        log::error!("Thread panic: {panic_info}");
         orig_hook(panic_info);
-        process::exit(1);
     }));
 
-    // Read the config
-    let config = match get_config("UAASR_CONFIG", "../data/uaasr.toml") {
-        Some(config) => config,
-        None => panic!("Unable to read config"),
-    };
+    let config = get_config("UAASR_CONFIG", "../data/uaasr.toml")?;
 
-    simple_logger::init_with_level(config.get_log_level()).unwrap();
+    simple_logger::init_with_level(config.get_log_level())
+        .map_err(|err| format!("failed to initialize logger: {err}"))?;
+
+    config.validate_startup()?;
 
     // Get web server address from config
     let server_address = config.service.rust_address.clone();
@@ -65,7 +72,7 @@ async fn main() {
     let web_state = web::Data::new(app_state);
 
     // Setup logic
-    let mut logic = Logic::new(&config);
+    let mut logic = Logic::new(&config)?;
     logic.setup();
 
     // Used to track peer connection threads
@@ -73,21 +80,19 @@ async fn main() {
     let mut manager = ThreadManager::new(rx_rest);
     let tx = manager.get_tx();
 
-    // Decode config
-    let ips: Vec<IpAddr> = config
-        .get_ips()
-        .expect("Error decoding config ip addresses");
+    let ips = config.get_ips()?;
 
     // Start the peer threads
-    let handle = thread::spawn(move ||
-        // Cycle around all the IP addresses
-        for ip in ips.into_iter().cycle() {
-            manager.create_thread(ip, &mut children, &config);
-            if manager.process_messages(&mut children, &mut logic) {
-                break;
-            };
-        }
-    );
+    let handle = thread::spawn(move || {
+        catch_unwind_logged("peer manager", || {
+            for ip in ips.into_iter().cycle() {
+                manager.create_thread(ip, &mut children, &config);
+                if manager.process_messages(&mut children, &mut logic) {
+                    break;
+                }
+            }
+        });
+    });
 
     // Start webserver
     let server = HttpServer::new(move || {
@@ -101,8 +106,8 @@ async fn main() {
             .service(delete_monitor)
     })
     .workers(1)
-    .bind(server_address)
-    .unwrap()
+    .bind(&server_address)
+    .map_err(|err| format!("failed to bind web server to {server_address}: {err}"))?
     .run();
 
     let server_handle = server.handle();
@@ -122,27 +127,36 @@ async fn main() {
         server_handle.stop(true).await;
     });
 
-    server.await.unwrap();
+    server
+        .await
+        .map_err(|err| format!("web server error: {err}"))?;
 
     // Wait for peer threads
-    if let Err(e) = handle.join() {
-        log::error!("Peer manager thread panicked during shutdown: {:?}", e);
+    if handle.join().is_err() {
+        log::error!("Peer manager thread panicked during shutdown");
     }
+
+    Ok(())
 }
 
 async fn wait_for_shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(err) = signal::ctrl_c().await {
+            log::error!("failed to install Ctrl+C handler: {err}");
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(err) => {
+                log::error!("failed to install SIGTERM handler: {err}");
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]

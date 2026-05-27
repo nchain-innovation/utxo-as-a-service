@@ -90,26 +90,32 @@ impl BlockManager {
         }
     }
 
-    pub fn new(config: &Config, conn: PooledConn, tx: mpsc::Sender<DBOperationType>) -> Self {
-        let start_block_hash = config.get_network_settings().start_block_hash.clone();
-        let last_hash_processed = Hash256::decode(&start_block_hash).unwrap_or_else(|err| {
-            panic!("Invalid start_block_hash '{start_block_hash}': {err:?}");
-        });
+    pub fn new(
+        config: &Config,
+        conn: PooledConn,
+        tx: mpsc::Sender<DBOperationType>,
+    ) -> Result<Self, String> {
+        let settings = config
+            .get_network_settings()
+            .map_err(|err| err.to_string())?;
+        let start_block_hash = settings.start_block_hash.clone();
+        let last_hash_processed = Hash256::decode(&start_block_hash)
+            .map_err(|err| format!("Invalid start_block_hash '{start_block_hash}': {err:?}"))?;
 
-        BlockManager {
+        Ok(BlockManager {
             start_block_hash,
-            startup_load_from_database: config.get_network_settings().startup_load_from_database,
-            block_file: config.get_network_settings().block_file.clone(),
-            save_blocks: config.get_network_settings().save_blocks,
+            startup_load_from_database: settings.startup_load_from_database,
+            block_file: settings.block_file.clone(),
+            save_blocks: settings.save_blocks,
             block_headers: Vec::new(),
             hash_to_index: HashMap::new(),
-            height: config.get_network_settings().start_block_height + 1,
+            height: settings.start_block_height + 1,
             last_hash_processed,
             block_queue: HashMap::new(),
             conn,
             tx,
             threshold: config.orphan.threshold,
-        }
+        })
     }
 
     fn create_tables(&mut self) {
@@ -413,11 +419,28 @@ impl BlockManager {
         // Read blocks from a file
         match OpenOptions::new().read(true).open(&self.block_file) {
             Ok(mut file) => {
-                let mut position = file.stream_position().unwrap_or(0);
-                // Success - read blocks
+                let mut position = match file.stream_position() {
+                    Ok(pos) => pos,
+                    Err(err) => {
+                        log::warn!(
+                            "Unable to read block file stream position for {}: {err}",
+                            &self.block_file
+                        );
+                        0
+                    }
+                };
                 while let Ok(block) = Block::read(&mut file) {
                     self.process_read_block(block, tx_analyser, position);
-                    position = file.stream_position().unwrap_or(position);
+                    position = match file.stream_position() {
+                        Ok(pos) => pos,
+                        Err(err) => {
+                            log::warn!(
+                                "Unable to read block file stream position for {}: {err}",
+                                &self.block_file
+                            );
+                            position
+                        }
+                    };
                 }
             }
             Err(e) => log::info!("Unable to open block file {} - {}", &self.block_file, &e),
