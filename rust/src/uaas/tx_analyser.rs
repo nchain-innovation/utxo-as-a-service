@@ -4,6 +4,7 @@ use mysql::{prelude::*, Pool, PooledConn};
 
 use chain_gang::{
     messages::{Block, Tx, TxOut},
+    network::Network,
     script::Script,
     util::Hash256,
 };
@@ -49,6 +50,7 @@ pub struct TxAnalyser {
     collection: Vec<WorkingCollection>,
     collection_db: CollectionDatabase,
     dynamic_config: DynamicConfig,
+    network: Network,
 }
 
 impl TxAnalyser {
@@ -60,19 +62,22 @@ impl TxAnalyser {
         let collection_conn = pool.get_conn().unwrap();
 
         let save_txs = config.get_network_settings().save_txs;
+        let network = config
+            .get_network()
+            .expect("invalid network in config; expected mainnet, testnet, or stn");
         let dynamic_config = DynamicConfig::new(config);
         let mut collection: Vec<WorkingCollection> = Vec::new();
 
         // Load the collections
         for c in &config.collection {
-            match WorkingCollection::new(c.clone()) {
+            match WorkingCollection::new(c.clone(), network) {
                 Ok(wc) => collection.push(wc),
                 Err(e) => println!("Error parsing collection {:?}", e),
             }
         }
         // load the dynamic collection
         for c in &dynamic_config.collection {
-            match WorkingCollection::new(c.clone()) {
+            match WorkingCollection::new(c.clone(), network) {
                 Ok(wc) => collection.push(wc),
                 Err(e) => println!("Error parsing collection {:?}", e),
             }
@@ -90,6 +95,7 @@ impl TxAnalyser {
             collection,
             collection_db: CollectionDatabase::new(collection_conn, config),
             dynamic_config: dynamic_config.clone(),
+            network,
         }
     }
 
@@ -317,7 +323,7 @@ impl TxAnalyser {
         // Check name is not in collection
         if !self.is_name_in_collection(&monitor.name) {
             // add to collection
-            match WorkingCollection::new(monitor.clone()) {
+            match WorkingCollection::new(monitor.clone(), self.network) {
                 Ok(wc) => {
                     self.collection.push(wc);
                     // add to dynamic config

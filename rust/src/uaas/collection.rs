@@ -18,9 +18,13 @@ use regex::Regex;
 use retry::{delay, retry};
 
 /// Given an address return a locking script in hexstr format
-fn address_to_lock_script(address: &str) -> Result<String> {
-    let (hash160, address_type) = addr_decode(address, Network::BSV_Testnet)?;
-    assert!(address_type == AddressType::P2PKH);
+fn address_to_lock_script(address: &str, network: Network) -> Result<String> {
+    let (hash160, address_type) = addr_decode(address, network)?;
+    if address_type != AddressType::P2PKH {
+        return Err(anyhow!(
+            "Unsupported address type for collection monitor: only P2PKH addresses are supported"
+        ));
+    }
     let script = p2pkh::create_lock_script(&hash160);
     Ok(hex::encode(script.0))
 }
@@ -106,10 +110,10 @@ pub struct WorkingCollection {
 }
 
 impl WorkingCollection {
-    pub fn new(collection: CollectionConfig) -> Result<Self> {
+    pub fn new(collection: CollectionConfig, network: Network) -> Result<Self> {
         if let Some(ref addr) = collection.address {
             // address -> regex locking script
-            let pattern = address_to_lock_script(addr)?;
+            let pattern = address_to_lock_script(addr, network)?;
             let locking_script_regex = Regex::new(&pattern)?;
             return Ok(WorkingCollection {
                 collection: collection.clone(),
