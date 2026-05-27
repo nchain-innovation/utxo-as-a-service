@@ -152,6 +152,8 @@ The only constraint is that the blocks must be processed in order. This is achie
 
 Project development details can be found [here](docs/Development.md).
 
+Systems requirements and verification traceability are documented [here](docs/SystemsRequirements.md).
+
 Project status notes can be found [here](docs/Project.md).
 
 ## Building and Publishing Docker Images

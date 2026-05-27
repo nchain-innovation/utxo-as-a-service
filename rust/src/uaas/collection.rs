@@ -230,3 +230,37 @@ impl WorkingCollection {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chain_gang::{
+        messages::{Tx, TxOut},
+        network::Network,
+        script::Script,
+    };
+
+    #[test]
+    fn sync10_matches_locking_script_pattern() {
+        let collection = CollectionConfig {
+            name: "pattern".to_string(),
+            track_descendants: false,
+            address: None,
+            locking_script_pattern: Some("76a914".to_string()),
+        };
+        let working = WorkingCollection::new(collection, Network::BSV_Testnet).expect("collection");
+        let script = Script(
+            hex::decode("76a9147c78584493557fac782023a4ad591b64545929d988ac").expect("script hex"),
+        );
+        let tx = Tx {
+            version: 1,
+            inputs: Vec::new(),
+            outputs: vec![TxOut {
+                satoshis: 1000,
+                lock_script: script,
+            }],
+            lock_time: 0,
+        };
+        assert!(working.match_any_locking_script(&tx));
+    }
+}
