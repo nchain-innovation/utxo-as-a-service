@@ -20,7 +20,7 @@ regex = "1.12.3"
 retry = "2.2.0"
 actix-web = { version = "4.13.0", features = ["macros"] }
 tokio = { version = "1.52", features = ["signal", "macros"] }
-log = { version = "0.4.30", features = ["max_level_trace", "release_max_level_warn"] }
+log = { version = "0.4.32", features = ["max_level_trace", "release_max_level_warn"] }
 simple_logger = "5.2.0"
 anyhow = "1.0.102"
 
