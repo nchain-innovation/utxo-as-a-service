@@ -124,6 +124,18 @@ To start the MySQL database in the docker container:
 docker start my-sql
 ```
 
+## Docker Compose MariaDB tuning
+
+`docker-compose up` mounts `docker/mariadb/99-uaas.cnf` into the MariaDB container. It sets InnoDB options tuned for UaaS sync and REST workloads:
+
+* `innodb_buffer_pool_size = 512M` — increase on dedicated hosts (typically 50–70% of RAM)
+* `innodb_flush_log_at_trx_commit = 2` — faster writes with a small durability trade-off (appropriate for an indexer)
+* `innodb_io_capacity` — raised for SSD-backed storage
+
+Store `./data/mysql` on local SSD rather than network storage when possible.
+
+For production, consider also raising `innodb_log_file_size` (requires a fresh datadir or removing `ib_logfile*` while MariaDB is stopped).
+
 # MySQL Workbench (Optional)
 MySQL Workbench provides a simple GUI for browsing the database.
 
