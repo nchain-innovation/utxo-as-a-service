@@ -21,3 +21,6 @@ python/data
 
 out.txt
 .vscode
+
+# macOS
+.DS_Store
