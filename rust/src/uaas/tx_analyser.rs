@@ -83,14 +83,14 @@ impl TxAnalyser {
         for c in &config.collection {
             match WorkingCollection::new(c.clone(), network) {
                 Ok(wc) => collection.push(wc),
-                Err(e) => println!("Error parsing collection {:?}", e),
+                Err(e) => log::error!("Error parsing collection {:?}", e),
             }
         }
         // load the dynamic collection
         for c in &dynamic_config.collection {
             match WorkingCollection::new(c.clone(), network) {
                 Ok(wc) => collection.push(wc),
-                Err(e) => println!("Error parsing collection {:?}", e),
+                Err(e) => log::error!("Error parsing collection {:?}", e),
             }
         }
         // Create a collection for broadcast txs
@@ -344,7 +344,7 @@ impl TxAnalyser {
                     // add to dynamic config
                     self.dynamic_config.add(&monitor);
                 }
-                Err(e) => println!("Error parsing collection {:?}", e),
+                Err(e) => log::error!("Error parsing collection {:?}", e),
             }
         }
     }
@@ -362,7 +362,7 @@ impl TxAnalyser {
                 Some(index) => {
                     self.collection.remove(index);
                 }
-                None => println!("Error indexing collection {}", monitor_name),
+                None => log::error!("Error indexing collection {}", monitor_name),
             }
             // Delete from dynamic config
             self.dynamic_config.delete(monitor_name);
