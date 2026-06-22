@@ -114,7 +114,7 @@ def _rust_headers() -> Dict[str, str]:
 
 
 def _invalid_input(response: Response, message: str) -> Dict[str, str]:
-    response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     return {"failure": message}
 
 
@@ -196,7 +196,7 @@ else:
             hexstr = result[0][0]
             return hexstr_to_tx(hash, hexstr)
         else:
-            response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
             return {
                 "failed": f"Unknown txid {hash}",
             }
@@ -212,7 +212,7 @@ else:
         if len(result) > 0:
             return {"result": result[0][0]}
         else:
-            response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
             return {
                 "failed": f"Unknown txid {hash}",
             }
@@ -251,7 +251,7 @@ def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
     # CTransaction
     if tx_analyser.tx_exist(hash):
         LOGGER.info("Transaction %s already exists", hash)
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {"failure": f" Transaction {hash} already exists."}
     try:
         result = requests.post(
@@ -290,7 +290,7 @@ def get_utxo(address: str, response: Response) -> Dict[str, Any]:
     try:
         pubkeyhash = address_to_public_key_hash(address).hex()
     except ValueError as e:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {"failure": f"Unable to decode address {address}.\n{e}."}
     else:
         return tx_analyser.get_utxo(pubkeyhash)
@@ -303,7 +303,7 @@ def get_balance(address: str, response: Response) -> Dict[str, Any]:
     try:
         pubkeyhash = address_to_public_key_hash(address).hex()
     except ValueError as e:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {"failure": f"Unable to decode address {address}.\n{e}."}
     else:
         height = block_manager.get_block_height()
@@ -371,17 +371,17 @@ def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
     """ This endpoint can accept an address monitor or locking script monitor
     """
     if monitor.address is None and monitor.locking_script_pattern is None:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {
             "failed": f"Invalid monitor {monitor}",
         }
     if collection.is_valid_collection(monitor.name):
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {
             "failed": f"Monitor name '{monitor.name}' already exists ",
         }
     if monitor.address is None and monitor.locking_script_pattern is None:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {
             "failed": f"Monitor is invalid '{monitor}'",
         }
@@ -424,13 +424,13 @@ def delete_monitor(monitor_name: str, response: Response) -> Dict[str, Any]:
         return _invalid_input(response, str(e))
 
     if not collection.is_valid_collection(monitor_name):
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {
             "failed": f"Monitor name does not exist '{monitor_name}'",
         }
 
     if not collection.is_valid_dynamic_collection(monitor_name):
-        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {
             "failed": f"Monitor name is not a valid dynamic monitor '{monitor_name}'",
         }
