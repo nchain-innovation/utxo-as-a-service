@@ -17,7 +17,7 @@ dev = [
     "flake8==7.3.0",
     "mypy==2.1.0",
     "docker==7.1.0",
-    "pytest==9.0.3",
+    "pytest==9.1.0",
     "httpx==0.28.1",
     "types-toml==0.10.8.20260518",
     "types-requests==2.33.0.20260518",
