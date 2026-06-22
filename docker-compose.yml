@@ -17,7 +17,9 @@ services:
     networks:
       - uaas_network
     environment:
-        MARIADB_ROOT_PASSWORD: mysql
+        # Sourced from a local .env file (see .env.example); falls back to the
+        # historical default so existing dev setups keep working.
+        MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-mysql}
         MARIADB_DATABASE: db
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]

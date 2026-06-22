@@ -21,3 +21,14 @@ python/data
 
 out.txt
 .vscode
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# macOS
+.DS_Store
