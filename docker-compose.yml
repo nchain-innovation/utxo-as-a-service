@@ -30,6 +30,7 @@ services:
     volumes:
         - ./data/mysql:/var/lib/mysql
         - ./init_database:/docker-entrypoint-initdb.d/:ro
+        - ./docker/mariadb/99-uaas.cnf:/etc/mysql/mariadb.conf.d/99-uaas.cnf:ro
 
   # Basic GUI for interacting with database
   adminer:
