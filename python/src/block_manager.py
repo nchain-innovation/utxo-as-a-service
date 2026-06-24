@@ -1,9 +1,12 @@
 from typing import List, Dict, Any, Optional
+import logging
 import time
 from database import database
 from p2p_framework.object import CBlockHeader
 import datetime
 from mysql.connector.errors import ProgrammingError
+
+LOGGER = logging.getLogger(__name__)
 
 
 class BlockManager:
@@ -94,7 +97,7 @@ class BlockManager:
             )
             return [x[0] for x in result]
         except ProgrammingError as e:
-            print(f"MySQL ProgrammingError {e}")
+            LOGGER.error("MySQL ProgrammingError: %s", e)
             return []
 
     def _read_last_block(self) -> None | Dict[str, Any]:

@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import List, Dict, Any, Optional
 
 from database import database
@@ -7,6 +8,8 @@ from merkle import create_merkle_branch
 from p2p_framework.object import CTransaction
 from config import ConfigType
 from mysql.connector.errors import ProgrammingError
+
+LOGGER = logging.getLogger(__name__)
 
 
 _TX_EXIST_QUERY = """
@@ -126,7 +129,7 @@ class TxAnalyser:
                 (hash,),
             )
         except ProgrammingError as e:
-            print(f"MySQL ProgrammingError {e}")
+            LOGGER.error("MySQL ProgrammingError: %s", e)
             return None
         try:
             return result[0]
@@ -195,7 +198,7 @@ class TxAnalyser:
         try:
             result = database.query(_TX_EXIST_QUERY, (hash, hash, hash))
         except ProgrammingError as e:
-            print(f"MySQL ProgrammingError {e}")
+            LOGGER.error("MySQL ProgrammingError: %s", e)
             result = database.query(_TX_EXIST_WITHOUT_TX_TABLE_QUERY, (hash, hash))
         return len(result) > 0
 
@@ -223,7 +226,7 @@ class TxAnalyser:
             )
             txs = [x[0] for x in result]
         except ProgrammingError as e:
-            print(f"MySQL ProgrammingError {e}")
+            LOGGER.error("MySQL ProgrammingError: %s", e)
             txs = []
 
         # Create merkle proof

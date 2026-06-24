@@ -39,7 +39,7 @@ impl DynamicConfig {
         let collection = match read_dynamic_config(&filename) {
             Ok(clients) => clients,
             Err(e) => {
-                println!("Error reading dynamic config file {:?}", e);
+                log::error!("Error reading dynamic config file {:?}", e);
                 Vec::new()
             }
         };
