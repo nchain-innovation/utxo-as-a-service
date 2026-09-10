@@ -192,11 +192,11 @@ pub fn get_config(env_var: &str, filename: &str) -> Result<Config, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::net::IpAddr;
 
-    fn sample_config() -> Config {
+    pub(crate) fn sample_config() -> Config {
         let content = r#"
             [service]
             user_agent = "/Bitcoin SV:1.0.11/"
