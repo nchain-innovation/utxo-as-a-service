@@ -1,0 +1,16 @@
+# Pins the toolchain for local builds and CI alike.
+#
+# rustup searches upward from the working directory, so this covers `cargo`
+# invoked from rust/, and actions-rust-lang/setup-rust-toolchain reads it from
+# the repository root when its `toolchain` input is unset. One source of truth.
+#
+# Why pin: CI resolved `stable` fresh on every run. Between 2026-06-24 and
+# 2026-09-10 nothing ran, stable moved 1.9x -> 1.98.1, and clippy's new
+# useless_borrows_in_formatting turned main red on the next unrelated PR.
+# A pin means new lints arrive when someone bumps this file deliberately.
+#
+# "1.98" tracks patch releases (bug fixes, no new lints) but never 1.99.
+# Bump the minor deliberately, with the lint fixes in the same commit.
+[toolchain]
+channel = "1.98"
+components = ["rustfmt", "clippy"]
