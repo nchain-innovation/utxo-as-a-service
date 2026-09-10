@@ -234,7 +234,7 @@ impl TxDB {
                 self.save_tx(tx, hash, blockindex_u32, height_usize);
                 if self.txs.insert(hash, height_u32).is_some() {
                     // We must have already processed this tx in a block
-                    log::warn!("Should not get here, as it indicates that we have processed the same tx twice in a block. {:?}", &hash);
+                    log::warn!("Should not get here, as it indicates that we have processed the same tx twice in a block. {:?}", hash);
                 }
             }
         }

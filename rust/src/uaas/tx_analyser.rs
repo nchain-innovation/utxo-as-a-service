@@ -334,7 +334,7 @@ impl TxAnalyser {
     }
 
     pub fn add_monitor(&mut self, monitor: CollectionConfig) {
-        log::info!("add_monitor {:?}", &monitor);
+        log::info!("add_monitor {:?}", monitor);
         // Check name is not in collection
         if !self.is_name_in_collection(&monitor.name) {
             // add to collection
@@ -383,7 +383,7 @@ mod tests {
             .expect("valid test locking script hex");
         let locking_script = Script(encoded_script);
         let result = script_to_pubkeyhash(&locking_script);
-        println!("{}", &result);
+        println!("{}", result);
 
         assert_eq!(&result, "7c78584493557fac782023a4ad591b64545929d9");
     }

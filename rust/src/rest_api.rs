@@ -236,7 +236,7 @@ async fn delete_monitor(
         return Ok(response);
     }
 
-    log::info!("delete_monitor '{}'", &monitor_name);
+    log::info!("delete_monitor '{}'", monitor_name);
 
     if data
         .msg_from_rest_api
