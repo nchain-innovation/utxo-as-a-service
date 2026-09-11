@@ -117,7 +117,7 @@ impl Logic {
 
     pub fn set_state(&mut self, state: ServerStateType) {
         // Handles state changes
-        log::info!("set_state({:?})", &state);
+        log::info!("set_state({:?})", state);
         if state == ServerStateType::Connected {
             // Reset the request time on connection/reconnection
             self.request_next_block(None);
@@ -244,7 +244,7 @@ impl Logic {
 
     fn request_next_block(&mut self, hash: Option<Hash256>) {
         // Remove the received hash from the inventory
-        log::info!("request_next_block {:?}", &hash);
+        log::info!("request_next_block {:?}", hash);
         if let Some(hash) = hash {
             if let Some(entries) = self.block_inventory.first_mut() {
                 entries.retain(|block| block.hash != hash);
@@ -269,7 +269,7 @@ impl Logic {
         // if no block_inventory left, we need to request more with GetBlocks
         if self.block_inventory.is_empty() {
             let hash = self.get_last_known_block_hash();
-            log::info!("Requesting more blocks from hash = {}", &hash);
+            log::info!("Requesting more blocks from hash = {}", hash);
 
             // Build getblocks message - this results in an inv message
             let mut locator = BlockLocator::default();

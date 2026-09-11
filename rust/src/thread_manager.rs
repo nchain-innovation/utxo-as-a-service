@@ -177,12 +177,12 @@ impl ThreadManager {
                 });
             }
             if let Ok(event) = self.rx_rest.try_recv() {
-                log::info!("{:?}", &event);
+                log::info!("{:?}", event);
 
                 match event {
                     RestEventMessage::TxForBroadcast(tx) => {
                         if logic.tx_exists(tx.hash()) {
-                            log::info!("Broadcast Tx already exists {}", &tx.hash().encode());
+                            log::info!("Broadcast Tx already exists {}", tx.hash().encode());
                             continue;
                         }
                         if let Some(peer) = thread_tracker.get_connected_peer() {

@@ -51,7 +51,7 @@ impl DynamicConfig {
     }
 
     pub fn add(&mut self, monitor: &CollectionConfig) {
-        log::info!("add monitor {:?}", &monitor);
+        log::info!("add monitor {:?}", monitor);
 
         self.collection.push(monitor.clone());
         self.save();

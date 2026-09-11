@@ -258,7 +258,7 @@ impl BlockManager {
         let hash = block.header.hash();
         log::info!(
             "process_block = {} {}",
-            &hash.encode(),
+            hash.encode(),
             timestamp_as_string(block.header.timestamp)
         );
 
@@ -372,7 +372,7 @@ impl BlockManager {
             log::info!("self.block_queue.len() = {}", self.block_queue.len());
             if self.block_queue.len() < 5 {
                 // print all block_queue entries
-                for (_k, v) in self.block_queue.iter() {
+                for v in self.block_queue.values() {
                     log::info!(
                         "q_block = {} {}",
                         v.block.header.hash().encode(),
@@ -424,7 +424,7 @@ impl BlockManager {
                     Err(err) => {
                         log::warn!(
                             "Unable to read block file stream position for {}: {err}",
-                            &self.block_file
+                            self.block_file
                         );
                         0
                     }
@@ -436,14 +436,14 @@ impl BlockManager {
                         Err(err) => {
                             log::warn!(
                                 "Unable to read block file stream position for {}: {err}",
-                                &self.block_file
+                                self.block_file
                             );
                             position
                         }
                     };
                 }
             }
-            Err(e) => log::info!("Unable to open block file {} - {}", &self.block_file, &e),
+            Err(e) => log::info!("Unable to open block file {} - {}", self.block_file, e),
         }
         // Print blocks read
         let elapsed_time = start.elapsed().as_millis() as f64;

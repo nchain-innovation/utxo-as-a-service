@@ -165,7 +165,7 @@ impl WorkingCollection {
         }
         Err(anyhow!(
             "Incorrect Collection configuration {:?}",
-            &collection
+            collection
         ))
     }
 
