@@ -11,6 +11,7 @@ use chain_gang::{messages::Tx, util::Serializable};
 
 use crate::config::CollectionConfig;
 use crate::rate_limit::RateLimiter;
+use crate::uaas::tx_bounds::validate_tx_bytes;
 use crate::uaas::util::decode_hexstr;
 
 // RestEventMessage - used for sending messages from REST API to main event processing loop
@@ -161,6 +162,17 @@ async fn broadcast_tx(
             }));
         }
     };
+
+    // Bounds check before Tx::read. The deserialiser sizes its allocations from
+    // varints in these bytes, and an oversized allocation aborts the process
+    // rather than panicking, so there is nothing to catch downstream.
+    if let Err(err) = validate_tx_bytes(&bytes) {
+        log::warn!("Rejected malformed broadcast transaction: {err}");
+        return Ok(HttpResponse::Ok().json(BroadcastTxResponse {
+            status: "Failed".to_string(),
+            detail: format!("Malformed transaction: {err}"),
+        }));
+    }
 
     let tx = match Tx::read(&mut Cursor::new(&bytes)) {
         Ok(tx) => tx,
@@ -556,5 +568,68 @@ mod tests {
             rest_rx.try_recv(),
             Ok(RestEventMessage::TxForBroadcast(_))
         ));
+    }
+
+    // The 27-byte reproduction, over the real endpoint. If the bounds check is
+    // removed this does not fail, it aborts the whole test binary with SIGABRT
+    // on an allocation of 281474976710656 bytes.
+    #[actix_web::test]
+    async fn bcast06_malformed_tx_is_rejected_without_reaching_the_deserialiser() {
+        let Some(pool) = skip_without_mysql(
+            "bcast06_malformed_tx_is_rejected_without_reaching_the_deserialiser",
+        ) else {
+            return;
+        };
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // version
+        bytes.push(0x00); // no inputs
+        bytes.push(0x01); // one output
+        bytes.extend_from_slice(&0i64.to_le_bytes()); // satoshis
+        bytes.push(0xff); // varint: 8-byte length follows
+        bytes.extend_from_slice(&(1u64 << 48).to_le_bytes()); // 2^48 byte script
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // lock_time
+        assert_eq!(bytes.len(), 27);
+
+        // Well under max_broadcast_tx_bytes, so the size cap does not catch it.
+        let hexstr = hex::encode(&bytes);
+
+        let (rest_tx, rest_rx) = mpsc::channel();
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(AppState {
+                    msg_from_rest_api: rest_tx,
+                    api_key: None,
+                    rate_limiter: Arc::new(RateLimiter::new(0)),
+                    max_broadcast_tx_bytes: 1_000_000,
+                    db_pool: pool,
+                }))
+                .service(broadcast_tx),
+        )
+        .await;
+
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::post()
+                .uri("/tx/raw")
+                .set_payload(hexstr)
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = actix_test::read_body_json(response).await;
+        assert_eq!(body["status"], "Failed");
+        assert!(
+            body["detail"]
+                .as_str()
+                .is_some_and(|d| d.starts_with("Malformed transaction")),
+            "expected a malformed-transaction detail, got {:?}",
+            body["detail"]
+        );
+        assert!(
+            rest_rx.try_recv().is_err(),
+            "a malformed transaction must not be queued for broadcast"
+        );
     }
 }
