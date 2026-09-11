@@ -7,6 +7,7 @@ mod hexslice;
 pub mod logic;
 mod schema;
 mod tx_analyser;
+pub mod tx_bounds;
 mod txdb;
 pub mod util;
 mod utxo;
