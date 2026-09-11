@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Any
 
 import requests
@@ -7,6 +8,7 @@ from config import ConfigType
 from mysql.connector.errors import ProgrammingError
 
 RUST_REQUEST_TIMEOUT = 30  # seconds
+LOGGER = logging.getLogger(__name__)
 
 
 class Logic:
@@ -24,7 +26,7 @@ class Logic:
             result = database.query(provided_query)
             return result[0][0]
         except ProgrammingError as e:
-            print(f"MySQL ProgrammingError {e}")
+            LOGGER.error("MySQL ProgrammingError: %s", e)
             return 0
 
     def _get_version(self) -> str:
@@ -32,9 +34,9 @@ class Logic:
         try:
             result = requests.get(url, timeout=RUST_REQUEST_TIMEOUT)
         except requests.exceptions.Timeout:
-            print(f"timeout requesting version from {url}")
+            LOGGER.warning("Timeout requesting version from %s", url)
         except requests.exceptions.ConnectionError as e:
-            print(f"failure = {str(e)}, url = {url}")
+            LOGGER.warning("Unable to connect to %s: %s", url, e)
         else:
             if result.status_code == 200:
                 return result.json()["version"]

@@ -102,8 +102,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=cors_allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", API_KEY_HEADER],
 )
 
 
@@ -247,7 +247,9 @@ def broadcast_tx_hex(tx: Tx, response: Response) -> Dict[str, Any]:
     transaction.deserialize(BytesIO(bytes))
     transaction.rehash()
     hash = transaction.hash
-    assert isinstance(hash, str)
+    if not isinstance(hash, str):
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"failure": "Failed to compute transaction hash"}
     # CTransaction
     if tx_analyser.tx_exist(hash):
         LOGGER.info("Transaction %s already exists", hash)
@@ -379,11 +381,6 @@ def add_monitor(monitor: Monitor, response: Response) -> Dict[str, Any]:
         response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
         return {
             "failed": f"Monitor name '{monitor.name}' already exists ",
-        }
-    if monitor.address is None and monitor.locking_script_pattern is None:
-        response.status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
-        return {
-            "failed": f"Monitor is invalid '{monitor}'",
         }
     data = monitor.model_dump(mode='json')
     LOGGER.debug("Adding collection monitor: %s", data)

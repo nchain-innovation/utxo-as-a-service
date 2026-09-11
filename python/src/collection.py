@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Any, List
 from pydantic import BaseModel, field_validator
 import toml
@@ -14,6 +15,8 @@ from database import database
 from tx_analyser import tx_analyser
 from config import ConfigType
 
+LOGGER = logging.getLogger(__name__)
+
 
 def hexstr_to_tx(hash: str, hexstr: str) -> Dict[str, Any]:
     bytes = bytearray.fromhex(hexstr)
@@ -22,7 +25,7 @@ def hexstr_to_tx(hash: str, hexstr: str) -> Dict[str, Any]:
     transaction.rehash()
     # Decode tx
     decode = tx_analyser.decode_tx(hash, transaction)
-    print("decode = ", decode)
+    LOGGER.debug("decode = %s", decode)
     return decode
 
 
@@ -55,7 +58,7 @@ def load_dynamic_config(config: ConfigType) -> List[str]:
         with open(filename, "r") as f:
             config = toml.load(f)
     except FileNotFoundError as e:
-        print(f"load_config - File not found error {e}")
+        LOGGER.warning("load_dynamic_config - file not found: %s", e)
         return []
     else:
         # Read in name fields
@@ -90,19 +93,23 @@ class Collection:
 
     def get_collection_contents(self, monitor_name: str) -> List[Any]:
         """ Return the collection hashes associated with this collection name """
-        assert self.is_valid_collection(monitor_name)
+        if not self.is_valid_collection(monitor_name):
+            raise ValueError(f"Unknown collection '{monitor_name}'")
         return database.query(
             "SELECT hash FROM collection WHERE name = %s;",
             (monitor_name,),
         )
 
     def add_monitor(self, monitor: Monitor):
-        assert not self.is_valid_collection(monitor.name)
+        if self.is_valid_collection(monitor.name):
+            raise ValueError(f"Collection '{monitor.name}' already exists")
         self.dynamic_names.append(monitor.name)
 
     def delete_monitor(self, monitor_name: str):
-        assert self.is_valid_collection(monitor_name)
-        assert self.is_valid_dynamic_collection(monitor_name)
+        if not self.is_valid_collection(monitor_name):
+            raise ValueError(f"Unknown collection '{monitor_name}'")
+        if not self.is_valid_dynamic_collection(monitor_name):
+            raise ValueError(f"Collection '{monitor_name}' is not a dynamic monitor")
         self.dynamic_names.remove(monitor_name)
 
     def is_valid_dynamic_collection(self, monitor_name: str) -> bool:
