@@ -192,10 +192,9 @@ impl TxAnalyser {
         if blockindex == 0 {
             // if is coinbase (blockindex 0)- nothing to process as these won't be in the utxo
         } else {
-            let _ = tx
-                .inputs
-                .iter()
-                .map(|vin| self.utxo.delete(&vin.prev_output));
+            for vin in tx.inputs.iter() {
+                self.utxo.delete(&vin.prev_output);
+            }
         }
     }
 
@@ -251,11 +250,9 @@ impl TxAnalyser {
         self.txdb.process_block(block, height);
 
         // now process Txs...
-        let _ = block
-            .txns
-            .iter()
-            .enumerate()
-            .map(|(blockindex, tx)| self.process_block_tx(tx, height, blockindex));
+        for (blockindex, tx) in block.txns.iter().enumerate() {
+            self.process_block_tx(tx, height, blockindex);
+        }
 
         // Do db writes here
         self.flush_database_cache();
@@ -373,6 +370,171 @@ impl TxAnalyser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::tests::sample_config;
+    use crate::uaas::database::UtxoEntryDB;
+    use chain_gang::messages::{Block, OutPoint, TxIn, TxOut};
+    use std::sync::mpsc::{self, Receiver, TryRecvError};
+
+    // A 25-byte p2pkh locking script. `marker` fills the pubkeyhash so that
+    // otherwise-identical fixture transactions hash to distinct txids.
+    fn p2pkh_script(marker: u8) -> Script {
+        let mut script = Vec::with_capacity(25);
+        script.extend_from_slice(&[0x76, 0xa9, 0x14]);
+        script.extend_from_slice(&[marker; 20]);
+        script.extend_from_slice(&[0x88, 0xac]);
+        Script(script)
+    }
+
+    fn funding_tx(marker: u8) -> Tx {
+        Tx {
+            version: 1,
+            inputs: vec![TxIn::default()],
+            outputs: vec![TxOut {
+                satoshis: 1_000,
+                lock_script: p2pkh_script(marker),
+            }],
+            lock_time: 0,
+        }
+    }
+
+    fn spending_tx(prev_output: OutPoint) -> Tx {
+        Tx {
+            version: 1,
+            inputs: vec![TxIn {
+                prev_output,
+                ..TxIn::default()
+            }],
+            outputs: vec![TxOut {
+                satoshis: 900,
+                lock_script: p2pkh_script(0xee),
+            }],
+            lock_time: 0,
+        }
+    }
+
+    // TxAnalyser::new needs four pooled connections, so these tests need a
+    // reachable server. Same convention as the schema and rest_api tests:
+    // skip when UAAS_TEST_MYSQL_URL is unset rather than fail.
+    fn analyser_with_live_db(test_name: &str) -> Option<(TxAnalyser, Receiver<DBOperationType>)> {
+        let Ok(url) = std::env::var("UAAS_TEST_MYSQL_URL") else {
+            eprintln!("skipping {test_name}: UAAS_TEST_MYSQL_URL not set");
+            return None;
+        };
+        let pool = Pool::new(url.as_str()).expect("connect to UAAS_TEST_MYSQL_URL");
+        let (tx, rx) = mpsc::channel();
+        let analyser = TxAnalyser::new(&sample_config(), pool, tx).expect("construct TxAnalyser");
+        Some((analyser, rx))
+    }
+
+    fn drain(rx: &Receiver<DBOperationType>) -> Vec<DBOperationType> {
+        let mut ops = Vec::new();
+        loop {
+            match rx.try_recv() {
+                Ok(op) => ops.push(op),
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => return ops,
+            }
+        }
+    }
+
+    #[test]
+    fn utxo01_spending_a_block_tx_removes_the_outpoint_and_queues_the_delete() {
+        let Some((mut analyser, rx)) = analyser_with_live_db(
+            "utxo01_spending_a_block_tx_removes_the_outpoint_and_queues_the_delete",
+        ) else {
+            return;
+        };
+
+        // blockindex 0 => treated as coinbase, inputs are not processed.
+        let funding = funding_tx(0x11);
+        analyser.process_block_tx(&funding, 100, 0);
+
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoint),
+            Some(1_000),
+            "funding output should be in the utxo set"
+        );
+
+        analyser.process_block_tx(&spending_tx(outpoint.clone()), 101, 1);
+
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoint),
+            None,
+            "spent outpoint should have been removed from the in-memory utxo set"
+        );
+
+        analyser.utxo.update_db();
+        let deletes: Vec<OutPoint> = drain(&rx)
+            .into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoBatchDelete(outpoints) => Some(outpoints),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        assert!(
+            deletes.contains(&outpoint),
+            "spent outpoint should have been queued for deletion, got {deletes:?}"
+        );
+    }
+
+    #[test]
+    fn utxo02_process_block_visits_every_transaction_and_records_the_height() {
+        let Some((mut analyser, rx)) = analyser_with_live_db(
+            "utxo02_process_block_visits_every_transaction_and_records_the_height",
+        ) else {
+            return;
+        };
+
+        const HEIGHT: i32 = 200;
+        let txns: Vec<Tx> = (0..5u8).map(|i| funding_tx(0x20 + i)).collect();
+        let block = Block {
+            txns: txns.clone(),
+            ..Block::default()
+        };
+
+        analyser.process_block(&block, HEIGHT);
+
+        for (blockindex, tx) in txns.iter().enumerate() {
+            let outpoint = OutPoint {
+                hash: tx.hash(),
+                index: 0,
+            };
+            assert_eq!(
+                analyser.utxo.get_satoshis(&outpoint),
+                Some(1_000),
+                "output of tx at blockindex {blockindex} should be in the utxo set"
+            );
+        }
+
+        // process_block flushes the cache, so the write batch is already on the
+        // channel. Every entry must carry the block height, not NOT_IN_BLOCK.
+        let written: Vec<UtxoEntryDB> = drain(&rx)
+            .into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoBatchWrite(entries) => Some(entries),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        assert_eq!(
+            written.len(),
+            txns.len(),
+            "every transaction in the block should have contributed a utxo row"
+        );
+        for entry in &written {
+            assert_eq!(
+                entry.height, HEIGHT,
+                "utxo row {} should be recorded at the block height, not {}",
+                entry.hash, NOT_IN_BLOCK
+            );
+        }
+    }
 
     #[test]
     fn test_script_to_pubkeyhash() {
