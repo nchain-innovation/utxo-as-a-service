@@ -4,7 +4,7 @@ use mysql::{prelude::*, PooledConn, *};
 
 use crate::{
     config::{CollectionConfig, Config},
-    uaas::hex_pattern,
+    uaas::hex_pattern::ScriptMatcher,
     uaas::hexslice::HexSlice,
 };
 use anyhow::{anyhow, Result};
@@ -15,7 +15,6 @@ use chain_gang::{
     transaction::p2pkh,
     util::{Hash256, Serializable},
 };
-use regex::bytes::Regex;
 use retry::{delay, retry};
 
 /// Given an address return a locking script in hexstr format
@@ -139,7 +138,7 @@ pub struct WorkingCollection {
     pub txs: Vec<Hash256>,
     // No point to the Collection if there is no locking_script_regex
     // Actually there is for is_uaas_broadcast txs
-    locking_script_regex: Option<Regex>,
+    locking_script_regex: Option<ScriptMatcher>,
 }
 
 impl WorkingCollection {
@@ -148,7 +147,7 @@ impl WorkingCollection {
             // address -> locking script, in the same hex notation a pattern
             // would be written in, so both paths compile the same way.
             let pattern = address_to_lock_script(addr, network)?;
-            let locking_script_regex = hex_pattern::compile(&pattern)?;
+            let locking_script_regex = ScriptMatcher::compile(&pattern)?;
             return Ok(WorkingCollection {
                 collection: collection.clone(),
                 txs: Vec::new(),
@@ -157,7 +156,7 @@ impl WorkingCollection {
         }
 
         if let Some(ref pattern) = collection.locking_script_pattern {
-            let locking_script_regex = hex_pattern::compile(pattern)?;
+            let locking_script_regex = ScriptMatcher::compile(pattern)?;
 
             return Ok(WorkingCollection {
                 collection: collection.clone(),

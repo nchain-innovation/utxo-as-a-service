@@ -27,6 +27,7 @@
 //! | `[0-9a-f]*` | any number of bytes | `.*` |
 //! | `[0-9a-f]+` | one or more bytes | `.+` |
 //! | `^` / `$` | start / end of script | `^` / `$` |
+//! | `(?<identifier>…)` | capture the bytes a pattern selects on | `(?<identifier>…)` |
 //!
 //! Anything else is **rejected**, not approximated. A pattern this module
 //! cannot translate faithfully is a configuration error, and failing loudly is
@@ -90,6 +91,7 @@ pub fn compile(pattern: &str) -> Result<Regex, HexPatternError> {
     let chars: Vec<char> = pattern.chars().collect();
     let mut out = String::with_capacity(pattern.len() * 2);
     let mut i = 0usize;
+    let mut depth = 0usize;
 
     while i < chars.len() {
         let c = chars[i];
@@ -142,6 +144,59 @@ pub fn compile(pattern: &str) -> Result<Regex, HexPatternError> {
                 let lo = (pair[1] as char).to_digit(16).expect("checked hex digit");
                 out.push_str(&format!("\\x{:02x}", hi * 16 + lo));
             }
+            continue;
+        }
+
+        if c == '(' {
+            let rest: String = chars[i..].iter().collect();
+            // Only a named group. An unnamed group would be a capture with no
+            // meaning to the caller, and a non-capturing group adds nothing
+            // that this notation can express.
+            let prefix = if rest.starts_with("(?<") {
+                "(?<"
+            } else if rest.starts_with("(?P<") {
+                "(?P<"
+            } else {
+                return Err(HexPatternError::Unsupported {
+                    at: i,
+                    detail: "only a named capture group, (?<name>...), is supported".to_string(),
+                });
+            };
+            i += prefix.chars().count();
+
+            let name_start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let name: String = chars[name_start..i].iter().collect();
+            if name.is_empty() {
+                return Err(HexPatternError::Unsupported {
+                    at: name_start,
+                    detail: "capture group name is empty".to_string(),
+                });
+            }
+            if chars.get(i) != Some(&'>') {
+                return Err(HexPatternError::Unsupported {
+                    at: i,
+                    detail: format!("capture group '{name}' is missing its closing '>'"),
+                });
+            }
+            i += 1;
+            depth += 1;
+            out.push_str(&format!("(?<{name}>"));
+            continue;
+        }
+
+        if c == ')' {
+            if depth == 0 {
+                return Err(HexPatternError::Unsupported {
+                    at: i,
+                    detail: "unbalanced ')'".to_string(),
+                });
+            }
+            depth -= 1;
+            out.push(')');
+            i += 1;
             continue;
         }
 
@@ -220,6 +275,13 @@ pub fn compile(pattern: &str) -> Result<Regex, HexPatternError> {
         });
     }
 
+    if depth != 0 {
+        return Err(HexPatternError::Unsupported {
+            at: pattern.chars().count(),
+            detail: format!("{depth} unclosed capture group(s)"),
+        });
+    }
+
     // unicode(false) makes `.` a single byte rather than a UTF-8 sequence;
     // dot_matches_new_line(true) stops 0x0a being an accidental boundary.
     RegexBuilder::new(&out)
@@ -227,6 +289,79 @@ pub fn compile(pattern: &str) -> Result<Regex, HexPatternError> {
         .dot_matches_new_line(true)
         .build()
         .map_err(|err| HexPatternError::Regex(err.to_string()))
+}
+
+/// The capture group a pattern uses to declare which bytes identify the output
+/// it selects — the value that populates `utxo.identifier`.
+pub const IDENTIFIER_GROUP: &str = "identifier";
+
+/// A compiled locking script matcher.
+///
+/// Standalone by design: the live indexer and the backfill tool must agree
+/// about what matches and what identifier it yields. If they disagree, the
+/// historical and live halves of the same table follow different rules and
+/// nothing downstream can tell which is which.
+#[derive(Debug, Clone)]
+pub struct ScriptMatcher {
+    regex: Regex,
+    declares_identifier: bool,
+}
+
+impl ScriptMatcher {
+    pub fn compile(pattern: &str) -> Result<Self, HexPatternError> {
+        let regex = compile(pattern)?;
+        // Read at compile time, so a pattern that never declared an identifier
+        // is distinguishable from one that declared it and did not capture.
+        let declares_identifier = regex
+            .capture_names()
+            .flatten()
+            .any(|name| name == IDENTIFIER_GROUP);
+        Ok(ScriptMatcher {
+            regex,
+            declares_identifier,
+        })
+    }
+
+    pub fn is_match(&self, script: &[u8]) -> bool {
+        self.regex.is_match(script)
+    }
+
+    // Not called yet: the consumer is the utxo.identifier column introduced by
+    // the PostgreSQL migration, and the backfill tool that shares this matcher.
+    // Kept here rather than deferred because the two must agree about what an
+    // identifier is, and both tests below exercise it.
+    #[allow(dead_code)]
+    /// Whether the pattern asked for an identifier at all.
+    ///
+    /// A `None` from [`identifier`] means "no identifier wanted" when this is
+    /// false, and "wanted but not captured" when it is true — the second is
+    /// worth a warning, the first is not.
+    pub fn declares_identifier(&self) -> bool {
+        self.declares_identifier
+    }
+
+    #[allow(dead_code)]
+    /// The bytes captured by the `identifier` group, if the pattern declared
+    /// one and it participated in the match.
+    pub fn identifier<'a>(&self, script: &'a [u8]) -> Option<&'a [u8]> {
+        if !self.declares_identifier {
+            return None;
+        }
+        let captures = self.regex.captures(script)?;
+        match captures.name(IDENTIFIER_GROUP) {
+            Some(m) => Some(m.as_bytes()),
+            None => {
+                // Declared but did not participate — for example behind an
+                // alternation that took the other branch. Silently writing NULL
+                // here would hide a pattern that does not do what its author
+                // believes.
+                log::warn!(
+                    "locking script pattern declares an '{IDENTIFIER_GROUP}' group but it did not capture"
+                );
+                None
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -470,5 +605,111 @@ mod bench_probe {
             );
         }
         println!();
+    }
+}
+
+#[cfg(test)]
+mod identifier_tests {
+    use super::*;
+
+    // A pattern declares the bytes that identify what it selected. For p2pkh
+    // that is the pubkeyhash, which is what utxo.identifier will hold.
+    #[test]
+    fn ident01_named_group_captures_the_identifier_bytes() {
+        let matcher =
+            ScriptMatcher::compile("76a914(?<identifier>[0-9a-f]{40})88ac").expect("compiles");
+        assert!(matcher.declares_identifier());
+
+        let pubkeyhash = [0x7cu8; 20];
+        let mut script = vec![0x76, 0xa9, 0x14];
+        script.extend_from_slice(&pubkeyhash);
+        script.extend_from_slice(&[0x88, 0xac]);
+
+        assert!(matcher.is_match(&script));
+        assert_eq!(matcher.identifier(&script), Some(&pubkeyhash[..]));
+    }
+
+    #[test]
+    fn ident02_the_p_prefixed_spelling_also_works() {
+        let matcher =
+            ScriptMatcher::compile("76a914(?P<identifier>[0-9a-f]{40})88ac").expect("compiles");
+        assert!(matcher.declares_identifier());
+    }
+
+    // "not declared" must be distinguishable from "declared but absent":
+    // the first is a silent NULL, the second deserves a warning.
+    #[test]
+    fn ident03_undeclared_is_distinguishable_from_uncaptured() {
+        let silent = ScriptMatcher::compile("76a914[0-9a-f]{40}88ac").expect("compiles");
+        assert!(
+            !silent.declares_identifier(),
+            "a pattern with no group wants no identifier"
+        );
+
+        let script = {
+            let mut s = vec![0x76, 0xa9, 0x14];
+            s.extend_from_slice(&[0x11; 20]);
+            s.extend_from_slice(&[0x88, 0xac]);
+            s
+        };
+        assert!(silent.is_match(&script));
+        assert_eq!(silent.identifier(&script), None);
+    }
+
+    #[test]
+    fn ident04_identifier_is_none_when_the_script_does_not_match() {
+        let matcher =
+            ScriptMatcher::compile("76a914(?<identifier>[0-9a-f]{40})88ac").expect("compiles");
+        assert_eq!(matcher.identifier(&[0x00, 0x01, 0x02]), None);
+    }
+
+    // A group is still held to byte alignment, and a malformed one is rejected
+    // rather than quietly dropped.
+    #[test]
+    fn ident05_malformed_groups_are_rejected() {
+        for (pattern, why) in [
+            (
+                "76a914(?<identifier>[0-9a-f]{41})88ac",
+                "odd count inside a group",
+            ),
+            ("76a914(?<identifier>[0-9a-f]{40}88ac", "unclosed group"),
+            ("76a914[0-9a-f]{40})88ac", "unbalanced close"),
+            ("76a914([0-9a-f]{40})88ac", "unnamed group"),
+            ("76a914(?<>[0-9a-f]{40})88ac", "empty name"),
+            ("76a914(?<identifier[0-9a-f]{40})88ac", "missing '>'"),
+        ] {
+            assert!(
+                ScriptMatcher::compile(pattern).is_err(),
+                "'{pattern}' should be rejected ({why})"
+            );
+        }
+    }
+
+    // Adding a group must not change what the pattern selects.
+    #[test]
+    fn ident06_adding_a_group_does_not_change_the_match_set() {
+        let plain = ScriptMatcher::compile("76a914[0-9a-f]{40}88ac").expect("compiles");
+        let grouped =
+            ScriptMatcher::compile("76a914(?<identifier>[0-9a-f]{40})88ac").expect("compiles");
+
+        let good = {
+            let mut s = vec![0x76, 0xa9, 0x14];
+            s.extend_from_slice(&[0x33; 20]);
+            s.extend_from_slice(&[0x88, 0xac]);
+            s
+        };
+        let short = {
+            let mut s = vec![0x76, 0xa9, 0x14];
+            s.extend_from_slice(&[0x33; 19]);
+            s.extend_from_slice(&[0x88, 0xac]);
+            s
+        };
+        for script in [&good, &short, &Vec::new()] {
+            assert_eq!(
+                plain.is_match(script),
+                grouped.is_match(script),
+                "a capture group changed the match set"
+            );
+        }
     }
 }
