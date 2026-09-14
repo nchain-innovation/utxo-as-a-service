@@ -3,6 +3,7 @@ mod block_manager;
 pub mod collection;
 mod connection;
 mod database;
+mod hex_pattern;
 mod hexslice;
 pub mod logic;
 mod schema;
