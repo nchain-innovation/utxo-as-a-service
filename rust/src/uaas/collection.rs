@@ -4,6 +4,7 @@ use mysql::{prelude::*, PooledConn, *};
 
 use crate::{
     config::{CollectionConfig, Config},
+    uaas::hex_pattern,
     uaas::hexslice::HexSlice,
 };
 use anyhow::{anyhow, Result};
@@ -14,7 +15,7 @@ use chain_gang::{
     transaction::p2pkh,
     util::{Hash256, Serializable},
 };
-use regex::Regex;
+use regex::bytes::Regex;
 use retry::{delay, retry};
 
 /// Given an address return a locking script in hexstr format
@@ -144,9 +145,10 @@ pub struct WorkingCollection {
 impl WorkingCollection {
     pub fn new(collection: CollectionConfig, network: Network) -> Result<Self> {
         if let Some(ref addr) = collection.address {
-            // address -> regex locking script
+            // address -> locking script, in the same hex notation a pattern
+            // would be written in, so both paths compile the same way.
             let pattern = address_to_lock_script(addr, network)?;
-            let locking_script_regex = Regex::new(&pattern)?;
+            let locking_script_regex = hex_pattern::compile(&pattern)?;
             return Ok(WorkingCollection {
                 collection: collection.clone(),
                 txs: Vec::new(),
@@ -155,7 +157,7 @@ impl WorkingCollection {
         }
 
         if let Some(ref pattern) = collection.locking_script_pattern {
-            let locking_script_regex = Regex::new(pattern)?;
+            let locking_script_regex = hex_pattern::compile(pattern)?;
 
             return Ok(WorkingCollection {
                 collection: collection.clone(),
@@ -204,10 +206,10 @@ impl WorkingCollection {
     pub fn match_any_locking_script(&self, tx: &Tx) -> bool {
         if let Some(locking_script_regex) = &self.locking_script_regex {
             for vout in &tx.outputs {
-                // Convert the script into hexstring
-                let script_hex = format!("{}", HexSlice::new(&vout.lock_script.0));
-                // Pattern match here
-                if locking_script_regex.is_match(&script_hex) {
+                // Match the script bytes directly. Encoding to hex here cost
+                // more than the match itself and allowed nibble-misaligned
+                // matches; the pattern was translated to bytes at compile time.
+                if locking_script_regex.is_match(&vout.lock_script.0) {
                     return true;
                 }
             }
@@ -262,5 +264,117 @@ mod tests {
             lock_time: 0,
         };
         assert!(working.match_any_locking_script(&tx));
+    }
+
+    fn collection_for(pattern: &str) -> WorkingCollection {
+        WorkingCollection::new(
+            CollectionConfig {
+                name: "fixture".to_string(),
+                track_descendants: false,
+                address: None,
+                locking_script_pattern: Some(pattern.to_string()),
+            },
+            Network::BSV_Testnet,
+        )
+        .expect("collection compiles")
+    }
+
+    fn tx_with_script(script_hex: &str) -> Tx {
+        Tx {
+            version: 1,
+            inputs: Vec::new(),
+            outputs: vec![TxOut {
+                satoshis: 1000,
+                lock_script: Script(hex::decode(script_hex).expect("script hex")),
+            }],
+            lock_time: 0,
+        }
+    }
+
+    // Every pattern configured in data/uaasr.toml, against a script it is meant
+    // to select and one it is not. Matching moved from hex strings to bytes;
+    // these must be unaffected.
+    #[test]
+    fn coll01_live_patterns_select_the_same_scripts() {
+        let cases: [(&str, &str, &str, &str); 5] = [
+            (
+                "johns",
+                "7576a914[0-9a-f]{40}88ac$",
+                "7576a914111111111111111111111111111111111111111188ac",
+                // same script with a trailing byte: the '$' anchor must reject it
+                "7576a914111111111111111111111111111111111111111188acff",
+            ),
+            (
+                "dsa",
+                "006a[0-9a-f]{2}53417631[0-9a-f]*",
+                "006a0453417631deadbeef",
+                "006a0453417632deadbeef",
+            ),
+            (
+                "CoCv1",
+                "006a[0-9a-f]{2}436f437631[0-9a-f]*",
+                "006a05436f43763100ff",
+                "006a05436f43763200ff",
+            ),
+            (
+                "Fin",
+                "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac",
+                "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac",
+                "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f888ac",
+            ),
+            (
+                "1sat",
+                "0063036f726451126170706c69636174696f6e2f6273762d323000[0-9a-f]*",
+                // the literal decodes to: OP_FALSE OP_IF "ord" OP_1 "application/bsv-20" OP_FALSE
+                "0063036f726451126170706c69636174696f6e2f6273762d323000deadbeef",
+                // bsv-21 rather than bsv-20
+                "0063036f726451126170706c69636174696f6e2f6273762d323100deadbeef",
+            ),
+        ];
+
+        for (name, pattern, should_match, should_not) in cases {
+            let working = collection_for(pattern);
+            assert!(
+                working.match_any_locking_script(&tx_with_script(should_match)),
+                "{name} should match {should_match}"
+            );
+            assert!(
+                !working.match_any_locking_script(&tx_with_script(should_not)),
+                "{name} should not match {should_not}"
+            );
+        }
+    }
+
+    // The correctness half of CS-402, end to end through the collection.
+    #[test]
+    fn coll02_nibble_misaligned_script_is_not_collected() {
+        let working = collection_for("76a914[0-9a-f]{40}88ac");
+
+        let genuine = format!("76a914{}88ac", "aa".repeat(20));
+        assert!(working.match_any_locking_script(&tx_with_script(&genuine)));
+
+        // Shifted by one nibble: the hex encoding still contains the pattern,
+        // but the bytes are not a p2pkh script and contain no OP_DUP OP_HASH160.
+        let shifted = format!("0{}0", genuine);
+        assert!(
+            !working.match_any_locking_script(&tx_with_script(&shifted)),
+            "a script that only matches at an odd nibble must not be collected"
+        );
+    }
+
+    // A pattern that cannot be translated faithfully must fail to build the
+    // collection rather than silently monitor something else.
+    #[test]
+    fn coll03_untranslatable_pattern_fails_collection_construction() {
+        let result = WorkingCollection::new(
+            CollectionConfig {
+                name: "bad".to_string(),
+                track_descendants: false,
+                address: None,
+                locking_script_pattern: Some("76a91".to_string()),
+            },
+            Network::BSV_Testnet,
+        );
+        assert!(result.is_err(), "an odd-length literal must be rejected");
     }
 }
