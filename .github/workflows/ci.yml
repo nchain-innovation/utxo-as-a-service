@@ -60,7 +60,10 @@ jobs:
 
       - name: cargo clippy
         working-directory: rust
-        run: cargo clippy
+        # --all-targets so test code is linted too; -D warnings so a finding
+        # fails the build without relying on the RUSTFLAGS default that
+        # setup-rust-toolchain happens to set.
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: cargo test
         working-directory: rust
