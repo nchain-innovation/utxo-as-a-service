@@ -64,11 +64,9 @@ impl ThreadTracker {
 
     pub fn stop_all(&mut self) {
         // stop all threads
-        let _ = self
-            .children
-            .iter_mut()
-            .map(|(_ip, thx)| thx.running.store(false, Ordering::Relaxed))
-            .collect::<Vec<_>>();
+        for thx in self.children.values_mut() {
+            thx.running.store(false, Ordering::Relaxed);
+        }
     }
 
     pub fn stop(&mut self, ip: &IpAddr) {

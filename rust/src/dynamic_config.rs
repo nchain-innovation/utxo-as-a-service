@@ -138,7 +138,7 @@ mod tests {
     fn cfg06_add_monitor_persists_to_dynamic_config_file() {
         let dir =
             std::env::temp_dir().join(format!("uaas_dynamic_config_test_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir for dynamic config test");
         let path = dir.join("dynamic.toml");
         let config = sample_root_config(path.to_str().unwrap());
         let mut dynamic = DynamicConfig::new(&config);
