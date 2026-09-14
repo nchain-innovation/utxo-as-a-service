@@ -26,7 +26,6 @@ from validation import (
     validate_block_height,
     validate_monitor_name,
     validate_broadcast_tx_hex,
-    validate_hex_string,
 )
 
 RUST_REQUEST_TIMEOUT = 30  # seconds
