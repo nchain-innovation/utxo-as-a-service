@@ -22,7 +22,10 @@ startup_load_from_database = true
 # startup_load_from_database = false
 
 # Python database access
+# mysql_port is required here: database.py falls back to the connector default
+# of 3306 when it is absent, but docker-compose publishes the database on 3307.
 host = "host.docker.internal"
+mysql_port = 3307
 user = "maas"
 password = "maas-password"
 database = "main_uaas_db"
@@ -67,7 +70,10 @@ startup_load_from_database = true
 
 
 # Python database access
+# mysql_port is required here: database.py falls back to the connector default
+# of 3306 when it is absent, but docker-compose publishes the database on 3307.
 host = "host.docker.internal"
+mysql_port = 3307
 user = "uaas"
 password = "uaas-password"
 database = "uaas_db"

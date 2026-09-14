@@ -25,7 +25,10 @@ startup_load_from_database = true
 # startup_load_from_database = false
 
 # Python database access
+# Explicit so the port never depends on the connector default again.
+# Inside the compose network this is the container port, not the published one.
 host = "database"
+mysql_port = 3306
 user = "maas"
 password = "maas-password"
 database = "main_uaas_db"
@@ -62,7 +65,10 @@ startup_load_from_database = true
 
 
 # Python database access
+# Explicit so the port never depends on the connector default again.
+# Inside the compose network this is the container port, not the published one.
 host = "database"
+mysql_port = 3306
 user = "uaas"
 password = "uaas-password"
 database = "uaas_db"
