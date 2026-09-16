@@ -7,6 +7,9 @@ mod hex_pattern;
 mod hexslice;
 pub mod logic;
 mod schema;
+// Test-only: a script assembler for adversarial fixtures (CS-404).
+#[cfg(test)]
+pub mod script_asm;
 mod tx_analyser;
 pub mod tx_bounds;
 mod txdb;
