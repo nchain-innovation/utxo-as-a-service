@@ -26,13 +26,19 @@
 //! whenever `api_key` is unset (the documented default) and which
 //! `docker-compose.yml` binds to `0.0.0.0:8081`.
 //!
-//! **The P2P path is not covered and cannot be covered here.** `chain-gang`
-//! parses the wire message before this crate sees it — `EventHandler::on_tx`
-//! receives an already-constructed `&Tx` — so the allocation happens inside
-//! the library, above any code this crate controls. Any connected peer can
-//! still abort the process by announcing such a transaction, because
-//! `Logic::on_inv` issues `GetData` for every transaction announced to it.
-//! Closing that path needs the bound in `chain-gang` itself: CS-400.
+//! **The P2P path is closed upstream, not here.** `chain-gang` parses the wire
+//! message before this crate sees it — `EventHandler::on_tx` receives an
+//! already-constructed `&Tx` — so the allocation happens inside the library,
+//! above any code this crate controls. That path was closed in `chain-gang`
+//! itself (CS-400, upstream PR #165) and reaches this crate through the
+//! `v0.11.2` pin in `Cargo.toml`; `bounds12` below guards that pin.
+//!
+//! This module is therefore no longer the only thing standing between a
+//! hostile length and an abort. It is kept because it still rejects a
+//! malformed submission at the HTTP boundary with a specific error, before a
+//! deserialiser is asked to trust it, rather than relying on the library to
+//! return an error for every shape — and because it catches the trailing-byte
+//! case (`bounds11`) that `chain-gang` accepts by design.
 //!
 //! The walk is bounded by the length of its input. Each input consumes at least
 //! [`MIN_INPUT_BYTES`] and each output at least [`MIN_OUTPUT_BYTES`], and a
@@ -478,5 +484,32 @@ mod tests {
         );
         // The deserialiser is happy with it, which is the problem.
         assert!(Tx::read(&mut Cursor::new(&bytes)).is_ok());
+    }
+
+    // The P2P path is closed upstream, not here: this asserts that the pinned
+    // `chain-gang` refuses a hostile declared length instead of sizing an
+    // allocation from it. It guards the dependency pin, so dropping back to a
+    // version without the fix fails the build rather than silently reopening
+    // the path no code in this crate can defend.
+    //
+    // Note this test cannot *fail* against an unfixed `chain-gang`: the
+    // allocation aborts the process, so the whole test binary dies with
+    // SIGABRT and takes the rest of the suite with it. An abort here means the
+    // pin regressed.
+    #[test]
+    fn bounds12_chain_gang_rejects_a_hostile_declared_length() {
+        // 2^48 bytes of locking script, with none of them supplied.
+        let bytes = tx_with_output_script(1 << 48, &[]);
+        assert!(
+            Tx::read(&mut Cursor::new(&bytes)).is_err(),
+            "chain-gang accepted a 2^48-byte declared script length"
+        );
+
+        // Same for the unlocking script, which is a separate read path.
+        let bytes = tx_with_input_script(1 << 48, &[]);
+        assert!(
+            Tx::read(&mut Cursor::new(&bytes)).is_err(),
+            "chain-gang accepted a 2^48-byte declared input script length"
+        );
     }
 }
