@@ -6,7 +6,11 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
 
-  - package-ecosystem: pip
+  # `uv`, not `pip`: the pip ecosystem edits pyproject.toml but does not
+  # understand uv.lock, so the two drift and `uv sync --frozen` silently
+  # installs the stale locked version. The uv ecosystem updates both in
+  # the same PR. See the `uv lock --check` step in ci.yml.
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
