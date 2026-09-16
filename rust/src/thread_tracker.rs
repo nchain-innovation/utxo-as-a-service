@@ -15,6 +15,15 @@ pub struct ThreadTracker {
     children: HashMap<IpAddr, PeerThread>,
 }
 
+// `new()` takes no arguments and yields an empty tracker, so it is exactly
+// `Default`. Required now that the module is public API: the binary is a
+// separate crate and uses `ThreadTracker`, so it cannot be `pub(crate)`.
+impl Default for ThreadTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThreadTracker {
     pub fn new() -> Self {
         ThreadTracker {

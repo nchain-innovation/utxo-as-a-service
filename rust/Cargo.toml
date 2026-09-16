@@ -27,3 +27,16 @@ anyhow = "1.0.102"
 [features]
 # Introduce random orphans into the download stream
 rnd_orphans = []
+
+# Declared here, not as an inner attribute, because the package now has two
+# crates: the library and the binary. A `#![warn(...)]` in lib.rs would not
+# cover main.rs, silently dropping this lint from the binary.
+#
+# `let _ = <iterator adapter>` is how the dead UTXO write path (CS-393) hid for
+# two years: `let _ =` silences the whole `unused` lint group, `unused_must_use`
+# and `map_unit_fn` included, so the build stayed clean while neither closure
+# ran. This lint is the one that actually names it. It lives in
+# `clippy::restriction`, which is deliberately opinionated and not meant to be
+# enabled wholesale, so it is named one lint at a time rather than by group.
+[lints.clippy]
+let_underscore_must_use = "warn"
