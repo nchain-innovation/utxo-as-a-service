@@ -24,8 +24,26 @@ if [ -z "$VERSION" ]; then
         exit 1
     fi
 
-    if [ -n "$(git status --porcelain)" ]; then
-        echo "error: the working tree is dirty; the image would not match tag $VERSION." >&2
+    # Any tracked modification means HEAD no longer describes the tree, so the
+    # image could not be reproduced from tag $VERSION.
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "error: tracked files are modified; the image would not match tag $VERSION." >&2
+        git status --short --untracked-files=no >&2
+        exit 1
+    fi
+
+    # Untracked files matter only when they sit inside the docker build context
+    # that the Dockerfiles actually COPY, since there is no .dockerignore and
+    # anything in those paths is baked into a layer. Untracked notes elsewhere
+    # in the repository cannot reach either image, so they do not block a
+    # release. Keep this list in step with the COPY lines in Python_Dockerfile
+    # and Rust_Dockerfile.
+    context_paths=(rust python/src data/uaasr.toml pyproject.toml uv.lock)
+    untracked="$(git ls-files --others --exclude-standard -- "${context_paths[@]}")"
+    if [ -n "$untracked" ]; then
+        echo "error: untracked files inside the docker build context would be" >&2
+        echo "       baked into the image but are not in tag $VERSION:" >&2
+        echo "$untracked" | sed 's/^/         /' >&2
         exit 1
     fi
 
