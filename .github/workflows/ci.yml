@@ -115,6 +115,12 @@ jobs:
           );
           EOF
 
+      # `uv sync --frozen` resolves against the lock and exits 0 even when
+      # the lock contradicts pyproject.toml, installing the stale locked
+      # version silently. Check for that drift explicitly first.
+      - name: Check uv.lock matches pyproject.toml
+        run: uv lock --check
+
       - name: Install dependencies
         run: uv sync --all-groups --frozen
 
