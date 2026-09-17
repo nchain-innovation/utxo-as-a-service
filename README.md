@@ -81,6 +81,20 @@ This will provide a REST API with a Swagger interface at http://localhost:5010/d
 This service records data to a `MySQL` database which must be present for the service to run.
 Database setup details can be found [here](docs/Database.md).
 
+### Schema
+
+The schema is defined in `rust/migrations/`, one object per file, and applied by the service binary:
+
+```bash
+uaas migrate postgresql://uaas:uaas-password@localhost:5433/uaas_db
+```
+
+It is safe to run repeatedly — migrations already applied are skipped — and it takes `UAAS_POSTGRES_URL` if no URL is given. The migrations are embedded in the binary at compile time, so the published image needs no `psql` and no source tree.
+
+Nothing creates tables at startup any more. The service asserts the schema version it expects and refuses to run against anything else, rather than creating what it finds missing.
+
+This targets the PostgreSQL service, which is **not yet the one the indexer uses** — the migration is in progress and the running service is still on MariaDB. See [docs/Database.md](docs/Database.md).
+
 ## Docker
 Encapsulating the service in Docker removes the need to install the project dependencies on the host machine.
 Only Docker is required to build and run the service and web interface.

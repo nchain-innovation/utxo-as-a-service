@@ -1,5 +1,76 @@
 # Database
 
+> **Migration in progress.** The indexer still reads and writes MariaDB, and
+> everything below describes that. A PostgreSQL service now runs alongside it
+> with the target schema applied, but nothing reads from it yet. The section
+> immediately below describes the new arrangement; the rest of this document is
+> the current one.
+
+## Schema and migrations (PostgreSQL)
+
+The schema lives in `rust/migrations/`, as `V{n}__{name}.sql`, one object per
+file. It is **not** created by the application and **not** in
+`init_database/`, which is a change from how this service has always worked.
+
+### Why not in the application
+
+Until this change, all eight tables and six indexes were created by Rust at
+startup, each guarded by a query against `INFORMATION_SCHEMA` followed by a
+bare `CREATE TABLE`. Three problems, none of which is fixable while the
+schema lives in code:
+
+* the check and the create are separate statements, so two instances starting
+  together race;
+* the existence probe does not filter by schema, so a same-named table anywhere
+  visible suppresses creation;
+* each core table had three or four definitions — production code, test code,
+  CI heredocs — which had already drifted from one another.
+
+### Why not in `init_database/`
+
+Anything mounted at `/docker-entrypoint-initdb.d/` runs **only when the
+container's data directory is empty**. It cannot evolve a database that already
+exists, so it can create a schema once and never change it. That directory now
+holds roles and databases only.
+
+### Applying them
+
+```bash
+uaas migrate postgresql://uaas:uaas-password@localhost:5433/uaas_db
+```
+
+Or set `UAAS_POSTGRES_URL` and run `uaas migrate`. Safe to repeat: applied
+migrations are skipped. The files are embedded in the binary at compile time,
+so the published image carries no `psql` and no `.sql` files.
+
+### What it refuses to do
+
+| Situation | Behaviour |
+|---|---|
+| A migration file edited after it was applied | Refused, naming the file. An applied migration is history; add a new one instead. |
+| The database records a migration this build does not have | Refused. The binary has been rolled back without its schema. |
+| The service starts against a schema at the wrong version | Refused at startup, naming both versions, rather than failing later at a query. |
+
+Each migration and its bookkeeping row commit in one transaction. PostgreSQL's
+DDL is transactional, so a migration that fails part-way leaves nothing behind
+— no half-created table and no row claiming success. This is the reason the
+runner is ~150 lines rather than a dependency: the manual-repair procedure a
+MySQL-family runner needs does not exist here, because MySQL-family DDL commits
+implicitly.
+
+### Adding a migration
+
+1. Add `rust/migrations/V{n}__{name}.sql` with the next number.
+2. Register it in `MIGRATIONS` in `rust/src/migrate.rs` and bump
+   `EXPECTED_VERSION`.
+3. `cargo test --lib migrate` — `mig01` fails if the file and the list disagree.
+
+Never edit a file that has already been applied anywhere.
+
+---
+
+## MariaDB (current)
+
 This section describes the commands to setup and run MySQL in a Docker image.
 
 These steps are taken from  https://bitbucket.stressedsharks.com/projects/SDL/repos/utxo-identity/browse/UsersDB/dbschema?at=refs%2Fheads%2Fadd_tx
