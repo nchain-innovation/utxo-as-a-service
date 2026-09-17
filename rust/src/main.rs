@@ -1,16 +1,3 @@
-// `let _ = <iterator adapter>` is how the dead UTXO write path (CS-393) hid for
-// two years: `let _ =` silences the whole `unused` lint group, `unused_must_use`
-// and `map_unit_fn` included, so the build stayed clean while neither closure
-// ran. This lint is the one that actually names it.
-//
-// It lives in `clippy::restriction`, which is deliberately opinionated and not
-// meant to be enabled wholesale, so it is named here one lint at a time rather
-// than by enabling the group.
-#![warn(clippy::let_underscore_must_use)]
-
-#[macro_use]
-extern crate lazy_static;
-
 use actix_web::{web, App, HttpServer};
 use mysql::Pool;
 use std::{
@@ -21,21 +8,7 @@ use std::{
 };
 use tokio::signal;
 
-mod config;
-mod dynamic_config;
-mod event_handler;
-mod peer_connection;
-mod peer_event;
-mod peer_thread;
-mod rate_limit;
-mod rest_api;
-mod services;
-mod thread_manager;
-mod thread_tracker;
-mod thread_util;
-mod uaas;
-
-use crate::{
+use uaas::{
     config::get_config,
     peer_event::{PeerEventMessage, PeerEventType},
     rate_limit::RateLimiter,
