@@ -10,6 +10,7 @@ use tokio::signal;
 
 use uaas::{
     config::get_config,
+    migrate,
     peer_event::{PeerEventMessage, PeerEventType},
     rate_limit::RateLimiter,
     rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
@@ -19,12 +20,81 @@ use uaas::{
     uaas::logic::Logic,
 };
 
-#[actix_web::main]
-async fn main() {
-    if let Err(err) = run().await {
+const USAGE: &str = "\
+usage:
+  uaas                      run the indexing service
+  uaas migrate [URL]        apply the PostgreSQL schema migrations
+
+`migrate` takes a libpq connection URL, or reads UAAS_POSTGRES_URL.
+It is safe to run repeatedly: migrations already applied are skipped.";
+
+// Deliberately not `#[actix_web::main]`. That attribute wraps the whole of
+// `main` in a tokio runtime, and the synchronous `postgres` client drives its
+// own runtime internally — calling it from inside one panics with "Cannot start
+// a runtime from within a runtime". So `migrate` has to run before any runtime
+// exists, and the service enters one explicitly afterwards. The expansion below
+// is what the attribute would have generated.
+fn main() {
+    // One subcommand, matched by hand. A CLI parser would be a dependency
+    // earning its keep only once there is a second flag to parse.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        None => {}
+        Some("migrate") => {
+            if let Err(err) = run_migrate(args.get(1).map(String::as_str)) {
+                // {err:#} so anyhow's context chain is printed, not just the
+                // outermost message: "applying V5__utxo: relation already
+                // exists" is actionable, "applying V5__utxo" is not.
+                eprintln!("migrate failed: {err:#}");
+                process::exit(1);
+            }
+            return;
+        }
+        Some("--help" | "-h" | "help") => {
+            println!("{USAGE}");
+            return;
+        }
+        Some(other) => {
+            eprintln!("unknown argument {other:?}\n\n{USAGE}");
+            process::exit(2);
+        }
+    }
+
+    if let Err(err) = actix_web::rt::System::new().block_on(run()) {
         eprintln!("Fatal startup error: {err}");
         process::exit(1);
     }
+}
+
+/// Applies the schema migrations and exits. Does not start the service.
+///
+/// Separate from `run` on purpose: this is the step that runs once per deploy,
+/// before the service starts, and it must be possible to run it without
+/// bringing anything else up.
+fn run_migrate(url_arg: Option<&str>) -> anyhow::Result<()> {
+    let url = match url_arg {
+        Some(url) => url.to_string(),
+        None => std::env::var("UAAS_POSTGRES_URL").map_err(|_| {
+            anyhow::anyhow!("no connection URL: pass one as an argument or set UAAS_POSTGRES_URL")
+        })?,
+    };
+
+    let mut client = postgres::Client::connect(&url, postgres::NoTls)
+        .map_err(|err| anyhow::anyhow!("could not connect to PostgreSQL: {err}"))?;
+
+    let report = migrate::run(&mut client)?;
+    if report.applied.is_empty() {
+        println!(
+            "schema already at version {}, {} migrations previously applied",
+            report.version, report.already_applied
+        );
+    } else {
+        for name in &report.applied {
+            println!("applied {name}");
+        }
+        println!("schema now at version {}", report.version);
+    }
+    Ok(())
 }
 
 async fn run() -> Result<(), String> {
