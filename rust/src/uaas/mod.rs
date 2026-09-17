@@ -6,6 +6,9 @@ mod database;
 mod hex_pattern;
 mod hexslice;
 pub mod logic;
+// Test-only: the adversarial fixture corpus (CS-405).
+#[cfg(test)]
+mod probes;
 mod schema;
 // Test-only: a script assembler for adversarial fixtures (CS-404).
 #[cfg(test)]
