@@ -3,7 +3,7 @@ mod block_manager;
 pub mod collection;
 mod connection;
 mod database;
-mod hex_pattern;
+pub mod hex_pattern;
 mod hexslice;
 pub mod logic;
 // Test-only: the adversarial fixture corpus (CS-405).

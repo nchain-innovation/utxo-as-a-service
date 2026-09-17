@@ -1,0 +1,33 @@
+[package]
+name = "uaas-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Its own workspace root, so `cargo build` and `cargo test` in rust/ never
+# reach in here and try to build a nightly-only crate with the pinned stable
+# toolchain.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.uaas]
+path = ".."
+
+[[bin]]
+name = "matcher_pattern"
+path = "fuzz_targets/matcher_pattern.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "matcher_script"
+path = "fuzz_targets/matcher_script.rs"
+test = false
+doc = false
+bench = false
