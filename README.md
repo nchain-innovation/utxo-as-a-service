@@ -160,10 +160,11 @@ Project status notes can be found [here](docs/Project.md).
 
 ## Fuzzing
 
-`rust/fuzz` holds two coverage-guided fuzz targets over the collection matcher:
+`rust/fuzz` holds three coverage-guided fuzz targets over the script matcher and tokeniser:
 
 * `matcher_pattern` — fuzzes the `locking_script_pattern` string. This is the surface `POST /collection/monitor` exposes, so in production every byte of it is chosen by the caller. The property is that compiling a pattern never panics and never aborts, whatever it is handed. Most inputs are rejected, and rejecting is the correct answer.
 * `matcher_script` — fixes the pattern and fuzzes the locking script bytes, which is the direction that matters for the indexer: a script arrives from the P2P network inside a transaction. As well as never panicking, a match must yield an identifier that is a whole number of bytes — a capture of any other length would mean a match could straddle a byte boundary.
+* `script_parse` — fuzzes the tokeniser over the same script bytes. Tokenising must terminate (every token consumes at least one byte), must never read outside the input however large a push declares itself to be, and must round-trip the script byte for byte from the token stream alone.
 
 ### One-off setup
 
