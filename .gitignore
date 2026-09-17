@@ -13,6 +13,7 @@ __pycache__
 # Generated data
 data/*.dat
 data/mysql
+data/postgres
 data/dynamic.toml
 data/dynamic*.toml
 
