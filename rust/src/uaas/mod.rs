@@ -13,6 +13,7 @@ mod schema;
 // Test-only: a script assembler for adversarial fixtures (CS-404).
 #[cfg(test)]
 pub mod script_asm;
+pub mod script_parse;
 mod tx_analyser;
 pub mod tx_bounds;
 mod txdb;

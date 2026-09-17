@@ -81,6 +81,7 @@ matcher, seeded from the probe corpus above:
 |---|---|---|
 | `matcher_pattern` | the `locking_script_pattern` string | compiling a caller-supplied pattern never panics or aborts. This is the `POST /collection/monitor` surface. |
 | `matcher_script` | raw locking script bytes | matching never panics, and any captured `identifier` is a whole number of bytes. |
+| `script_parse` | raw locking script bytes | tokenising terminates, stays inside the input, never panics, and round-trips the script byte for byte. |
 
 ### Setup
 

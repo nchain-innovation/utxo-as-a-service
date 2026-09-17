@@ -31,3 +31,10 @@ path = "fuzz_targets/matcher_script.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "script_parse"
+path = "fuzz_targets/script_parse.rs"
+test = false
+doc = false
+bench = false

@@ -533,6 +533,32 @@ fn write_fuzz_seed_corpus() {
         ("empty", Vec::new()),
     ];
 
+    // Extra scripts for the script_parse target. The matcher_script seeds are
+    // reused as well, so these are only the shapes the tokeniser cares about
+    // and the matcher does not: encoding equivalence, branch structure, and
+    // the malformed cases that must produce a truncation marker.
+    let parse_scripts: Vec<(&str, Vec<u8>)> = vec![
+        ("one_negate_opcode", asm("OP_1NEGATE")),
+        ("one_negate_minimal", asm("0x81")),
+        ("one_negate_pushdata1", asm("OP_PUSHDATA1 0x81")),
+        ("one_negate_pushdata2", asm("OP_PUSHDATA2 0x81")),
+        ("one_negate_pushdata4", asm("OP_PUSHDATA4 0x81")),
+        ("small_ints", asm("OP_0 OP_1 OP_16 OP_1NEGATE")),
+        ("empty_pushdata1", asm("OP_PUSHDATA1 0x")),
+        ("empty_pushdata4", asm("OP_PUSHDATA4 0x")),
+        (
+            "nested_branches",
+            asm("OP_IF OP_1 OP_IF OP_2 OP_ELSE OP_3 OP_ENDIF OP_ENDIF OP_4"),
+        ),
+        ("unbalanced_endif", asm("OP_ENDIF OP_ENDIF OP_1")),
+        ("unbalanced_if", asm("OP_IF OP_IF OP_1")),
+        ("stray_else", asm("OP_ELSE")),
+        ("truncated_direct_push", asm("raw:20aabb")),
+        ("truncated_pushdata2_length", asm("raw:4d01")),
+        ("unknown_opcode", asm("raw:ff")),
+        ("op_return_bare", asm("OP_RETURN")),
+    ];
+
     // Patterns for the matcher_pattern target: every live collection pattern,
     // plus the hostile ones from probe G that must stay rejected.
     let patterns: Vec<(&str, &str)> = vec![
@@ -561,6 +587,9 @@ fn write_fuzz_seed_corpus() {
     let mut seeds: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for (name, bytes) in scripts {
         seeds.push((root.join("matcher_script").join(name), bytes));
+    }
+    for (name, bytes) in parse_scripts {
+        seeds.push((root.join("script_parse").join(name), bytes));
     }
     for (name, pattern) in patterns {
         seeds.push((
