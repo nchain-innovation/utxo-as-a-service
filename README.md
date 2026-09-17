@@ -122,6 +122,7 @@ The following directories exist in this project:
 ├── python
 │   └── src
 └── rust
+    ├── fuzz
     └── src
 ```
 These directories contain the following:
@@ -130,6 +131,7 @@ These directories contain the following:
 * `docs/diagrams` - PlantUML diagrams and source in support of the documentation
 * `python/src` - Python REST web interface to UaaS
 * `rust/src` - Rust service source code (P2P sync, UTXO maintenance, internal API)
+* `rust/fuzz` - Fuzz targets over the collection matcher. A separate crate on its own toolchain; not part of an ordinary build
 
 ## Development
 The following diagram shows how the Rust UaaS processes individual `transactions` and `blocks` from peer nodes.
@@ -155,6 +157,51 @@ Project development details can be found [here](docs/Development.md).
 Systems requirements and verification traceability are documented [here](docs/SystemsRequirements.md).
 
 Project status notes can be found [here](docs/Project.md).
+
+## Fuzzing
+
+`rust/fuzz` holds two coverage-guided fuzz targets over the collection matcher:
+
+* `matcher_pattern` — fuzzes the `locking_script_pattern` string. This is the surface `POST /collection/monitor` exposes, so in production every byte of it is chosen by the caller. The property is that compiling a pattern never panics and never aborts, whatever it is handed. Most inputs are rejected, and rejecting is the correct answer.
+* `matcher_script` — fixes the pattern and fuzzes the locking script bytes, which is the direction that matters for the indexer: a script arrives from the P2P network inside a transaction. As well as never panicking, a match must yield an identifier that is a whole number of bytes — a capture of any other length would mean a match could straddle a byte boundary.
+
+### One-off setup
+
+`cargo-fuzz` needs a nightly compiler, because it passes `-Z sanitizer=address` to rustc and stable rejects unstable flags. See the [Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/setup.html).
+
+```bash
+cargo install cargo-fuzz
+rustup toolchain install nightly-2026-09-17
+```
+
+`rust/fuzz/rust-toolchain.toml` pins that nightly, and rustup applies it by directory, so **nothing else in the project moves off the stable 1.98 pin** — not the service, not `cargo test`, not CI.
+
+### Running
+
+Run from `rust/fuzz`, **not** from `rust`:
+
+```bash
+cd rust/fuzz
+cargo fuzz list
+mkdir -p corpus/matcher_script
+cargo fuzz run matcher_script corpus/matcher_script seeds/matcher_script -- -max_total_time=300
+```
+
+The first directory is the working corpus, which libFuzzer grows as it finds new coverage and which is not committed. The second is the committed seed set, read only — those inputs come from the adversarial probe fixtures in `rust/src/uaas/probes.rs`, so the fuzzer starts from the shapes the review found interesting rather than from random bytes.
+
+Swap `matcher_script` for `matcher_pattern` to run the other target. `-max_total_time` is in seconds; without it the run continues until interrupted.
+
+A crash is written to `rust/fuzz/artifacts/<target>/` and replayed with:
+
+```bash
+cargo fuzz run matcher_script artifacts/matcher_script/<crash-file>
+```
+
+**Why `rust/fuzz` and not `rust`:** `cargo fuzz` passes `--manifest-path` rather than changing directory, while rustup picks a toolchain from the working directory. Started from `rust`, it is handed the stable pin and fails with `error: the option 'Z' is only accepted on the nightly compiler`.
+
+There is no fuzzing job in CI. A useful run takes minutes to hours, which does not fit a per-push workflow — run it on demand, or after changing the matcher or the pattern grammar.
+
+Seed regeneration and the rest of the detail are in [docs/Development.md](docs/Development.md).
 
 ## Building and Publishing Docker Images
 

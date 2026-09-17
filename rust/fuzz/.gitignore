@@ -1,0 +1,6 @@
+target
+artifacts
+coverage
+# The working corpus grows during a run and is machine-specific. The seeds it
+# starts from are committed, in seeds/.
+corpus

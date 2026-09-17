@@ -72,6 +72,67 @@ cd rust
 UAAS_BENCH=1 cargo test --release bench_probe -- --nocapture
 ```
 
+## Fuzzing
+
+`rust/fuzz/` holds two coverage-guided fuzz targets over the collection
+matcher, seeded from the probe corpus above:
+
+| Target | Fuzzed input | Property |
+|---|---|---|
+| `matcher_pattern` | the `locking_script_pattern` string | compiling a caller-supplied pattern never panics or aborts. This is the `POST /collection/monitor` surface. |
+| `matcher_script` | raw locking script bytes | matching never panics, and any captured `identifier` is a whole number of bytes. |
+
+### Setup
+
+`cargo-fuzz` needs a nightly compiler: it passes `-Z sanitizer=address` to
+rustc, which stable rejects. See the
+[Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/setup.html).
+
+```bash
+cargo install cargo-fuzz
+rustup toolchain install nightly-2026-09-17
+```
+
+`rust/fuzz/rust-toolchain.toml` pins that nightly, and the date is pinned on
+purpose — a floating channel is what put the 1.98 pin at the repository root
+in the first place. Bump it deliberately.
+
+### Running
+
+**Run it from `rust/fuzz/`, not from `rust/`.** rustup picks a toolchain from
+the *working directory*, and `cargo fuzz` passes `--manifest-path` rather than
+changing directory, so invoking it from `rust/` uses the root 1.98 pin and
+fails with `the option 'Z' is only accepted on the nightly compiler`.
+
+```bash
+cd rust/fuzz
+mkdir -p corpus/matcher_script
+cargo fuzz run matcher_script corpus/matcher_script seeds/matcher_script -- -max_total_time=300
+```
+
+The first directory is the working corpus, which libFuzzer grows and which is
+gitignored. The second is the committed read-only seed set.
+
+Nothing else is affected: `cargo build`, `cargo test` and CI all run from
+`rust/` or the repository root and keep the 1.98 pin. `rust/fuzz/Cargo.toml`
+declares its own `[workspace]` so the nightly-only crate is never pulled into
+an ordinary build.
+
+### Seeds
+
+`rust/fuzz/seeds/` is generated from the probe fixtures, so the two cannot
+drift. `write_fuzz_seed_corpus` verifies the committed seeds on every
+`cargo test` run and fails if a fixture changed without them being
+regenerated:
+
+```bash
+cd rust
+UAAS_WRITE_FUZZ_CORPUS=1 cargo test --lib write_fuzz_seed_corpus
+```
+
+A fuzz run is not a per-push CI job — it wants minutes to hours, so it belongs
+in a scheduled or on-demand workflow.
+
 ## Orphan testing
 The rust service has `rnd_orphans` a feature flag which introduces random orphans into the download stream.
 To test try the following

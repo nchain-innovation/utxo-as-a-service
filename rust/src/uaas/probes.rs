@@ -74,6 +74,11 @@ fn pubkey_pattern() -> String {
     format!("21{PUBKEY}")
 }
 
+/// A genuine 25-byte P2PKH locking script as hex, for fixtures that shift it.
+fn genuine_p2pkh_hex() -> String {
+    format!("76a914{}88ac", "aa".repeat(20))
+}
+
 fn asm(src: &str) -> Vec<u8> {
     assemble(src).unwrap_or_else(|err| panic!("fixture must assemble: {src:?}: {err:?}"))
 }
@@ -454,4 +459,135 @@ fn probe_k_oversized_pushes_and_deep_nesting_return_an_answer() {
         !collects(&collection, large),
         "a large non-matching element must not match"
     );
+}
+
+/// Writes the fuzz seed corpus from the probe fixtures above.
+///
+/// The seeds and the probes are the same bytes by construction, so they cannot
+/// drift. Run it after changing a fixture:
+///
+/// ```text
+/// UAAS_WRITE_FUZZ_CORPUS=1 cargo test --lib write_fuzz_seed_corpus
+/// ```
+///
+/// Ordinarily it verifies instead of writing, so a fixture change that was not
+/// propagated fails the test rather than silently leaving the fuzzer starting
+/// from stale inputs. The seeds are committed; the working corpus a run grows
+/// from them is not.
+#[test]
+fn write_fuzz_seed_corpus() {
+    use std::path::Path;
+
+    // Scripts for the matcher_script target. Named for the probe they come
+    // from, so a crashing input points at the case that produced it.
+    let scripts: Vec<(&str, Vec<u8>)> = vec![
+        (
+            "baseline_genuine_p2pkh",
+            asm(&format!(
+                "OP_DUP OP_HASH160 0x{FIN_H160} OP_EQUALVERIFY OP_CHECKSIG"
+            )),
+        ),
+        (
+            "probe_a_template_in_op_return",
+            asm(&format!("OP_RETURN 0x76a914{FIN_H160}88ac")),
+        ),
+        (
+            "probe_b_op_return_in_branch",
+            asm(&format!("OP_IF OP_RETURN OP_ENDIF 0x76a914{FIN_H160}88ac")),
+        ),
+        (
+            "probe_c_key_dropped",
+            asm(&format!("0x{PUBKEY} OP_DROP OP_0 OP_RETURN")),
+        ),
+        ("probe_d_minimal_push", asm(&format!("0x{PUBKEY}"))),
+        (
+            "probe_d_pushdata1",
+            asm(&format!("OP_PUSHDATA1 0x{PUBKEY}")),
+        ),
+        (
+            "probe_d_pushdata2",
+            asm(&format!("OP_PUSHDATA2 0x{PUBKEY}")),
+        ),
+        (
+            "probe_d_pushdata4",
+            asm(&format!("OP_PUSHDATA4 0x{PUBKEY}")),
+        ),
+        (
+            "probe_h_nibble_misaligned",
+            // A genuine p2pkh script shifted by one nibble. The hex encoding
+            // still contains "76a914...88ac", but the bytes are not a p2pkh
+            // script and contain no OP_DUP OP_HASH160, so the byte matcher
+            // must not see it. Seeded so the fuzzer explores around the
+            // boundary CS-402 closed.
+            asm(&format!("raw:0{}0", genuine_p2pkh_hex())),
+        ),
+        ("probe_k_truncated_pushdata4", asm("raw:4effffffff")),
+        (
+            "probe_k_nested_branches",
+            asm(&format!(
+                "{} 0x76a914{FIN_H160}88ac {}",
+                "OP_IF ".repeat(64),
+                "OP_ENDIF ".repeat(64)
+            )),
+        ),
+        ("empty", Vec::new()),
+    ];
+
+    // Patterns for the matcher_pattern target: every live collection pattern,
+    // plus the hostile ones from probe G that must stay rejected.
+    let patterns: Vec<(&str, &str)> = vec![
+        ("live_johns", "7576a914[0-9a-f]{40}88ac$"),
+        ("live_dsa", "006a[0-9a-f]{2}53417631[0-9a-f]*"),
+        ("live_cocv1", "006a[0-9a-f]{2}436f437631[0-9a-f]*"),
+        (
+            "live_fin",
+            "76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac",
+        ),
+        (
+            "live_1sat",
+            "0063036f726451126170706c69636174696f6e2f6273762d323000[0-9a-f]*",
+        ),
+        ("identifier_group", "76a914(?<identifier>[0-9a-f]{40})88ac"),
+        ("hostile_nested_repetition", "(a+)+b"),
+        ("hostile_star_group", "(0[0-9a-f]*)*76a914"),
+        ("hostile_counted_group", "([0-9a-f]{2}){1,10000}88ac"),
+        ("hostile_alternation", "(76a914|76a915)[0-9a-f]{40}"),
+        ("odd_length_literal", "76a91"),
+    ];
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/seeds");
+    let writing = std::env::var("UAAS_WRITE_FUZZ_CORPUS").is_ok();
+
+    let mut seeds: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
+    for (name, bytes) in scripts {
+        seeds.push((root.join("matcher_script").join(name), bytes));
+    }
+    for (name, pattern) in patterns {
+        seeds.push((
+            root.join("matcher_pattern").join(name),
+            pattern.as_bytes().to_vec(),
+        ));
+    }
+
+    for (path, bytes) in seeds {
+        if writing {
+            std::fs::create_dir_all(path.parent().expect("has a parent")).expect("create seed dir");
+            std::fs::write(&path, &bytes).expect("write seed");
+            continue;
+        }
+        let found = std::fs::read(&path).unwrap_or_else(|err| {
+            panic!(
+                "missing fuzz seed {}: {err}. Regenerate with \
+                 UAAS_WRITE_FUZZ_CORPUS=1 cargo test --lib write_fuzz_seed_corpus",
+                path.display()
+            )
+        });
+        assert_eq!(
+            found,
+            bytes,
+            "fuzz seed {} is stale; regenerate with \
+             UAAS_WRITE_FUZZ_CORPUS=1 cargo test --lib write_fuzz_seed_corpus",
+            path.display()
+        );
+    }
 }

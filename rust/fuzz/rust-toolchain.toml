@@ -1,0 +1,13 @@
+# cargo-fuzz needs nightly: it passes `-Z sanitizer=address` to rustc, which
+# stable rejects. See https://rust-fuzz.github.io/book/cargo-fuzz/setup.html
+#
+# rustup searches upward from the working directory and uses the nearest file,
+# so this applies to `cargo` run from rust/fuzz/ and nowhere else. The service
+# itself, its tests and CI all keep the 1.98 pin at the repository root.
+#
+# Pinned to a date, not to `nightly`. A floating channel is what put the root
+# pin here in the first place: stable moved under CI and a new clippy lint
+# turned main red on an unrelated PR. Nightly moves every day, so it would do
+# that far more often. Bump this deliberately.
+[toolchain]
+channel = "nightly-2026-09-17"
