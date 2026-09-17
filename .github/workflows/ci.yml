@@ -26,6 +26,21 @@ jobs:
           --health-timeout=5s
           --health-retries=5
           --health-start-period=30s
+      # Inert: the service under test still runs on MariaDB. This exists so the
+      # migration tests and `uaas migrate` run against the engine they target
+      # rather than being skipped.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          --health-start-period=30s
 
     steps:
       - uses: actions/checkout@v7
@@ -35,7 +50,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config mariadb-client
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config mariadb-client postgresql-client
 
       - name: Initialize database
         run: |
@@ -69,7 +84,26 @@ jobs:
         working-directory: rust
         env:
           UAAS_TEST_MYSQL_URL: mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
+          # Without this the migration tests skip rather than fail, which looks
+          # identical to passing.
+          UAAS_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: cargo test
+
+      # The tests call migrate::run directly. This runs the shipped binary end
+      # to end, which is what a deploy actually does, and asserts the schema
+      # version it leaves behind.
+      - name: uaas migrate smoke test
+        working-directory: rust
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres" \
+            -v ON_ERROR_STOP=1 -f ../init_database/postgres/01_roles_and_databases.sql
+          cargo run --quiet -- migrate "postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_db"
+          version=$(psql "postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_db" \
+            -tAc "SELECT max(version) FROM schema_migration")
+          echo "schema version: $version"
+          test "$version" = "10"
+          # A second run must be a no-op, not an error.
+          cargo run --quiet -- migrate "postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_db"
 
   python:
     name: Python
