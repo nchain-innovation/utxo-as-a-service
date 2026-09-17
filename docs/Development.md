@@ -14,6 +14,14 @@ cd rust
 cargo test
 ```
 
+Some tests need a MariaDB server and are skipped, not failed, when
+`UAAS_TEST_MYSQL_URL` is unset. Point it at a throwaway database — these tests
+write to, and delete from, the tables they use:
+```bash
+export UAAS_TEST_MYSQL_URL=mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
+cargo test
+```
+
 To format the code:
 ```bash
 cd rust
@@ -25,6 +33,45 @@ For Rust hints:
 cd rust
 cargo clippy
 ```
+## The adversarial fixture corpus
+
+`rust/src/uaas/probes.rs` holds a corpus of probes against the collection
+matcher, each one a reconstruction of a lettered probe from the adversarial
+review. Most of them assert behaviour we intend to change — a matcher that is a
+substring search over bytes cannot tell "this output pays the monitored key"
+from "these bytes appear somewhere in this output". Those probes are named
+`..._today` and carry a `TODO(CS-415)` comment; when the structural matcher
+lands, the assertion inverts and the suffix goes.
+
+```bash
+cd rust
+cargo test probe_
+```
+
+Fixtures are written with the assembler in `rust/src/uaas/script_asm.rs` rather
+than as hex literals, so a push encoding is stated rather than hand-counted:
+
+```
+OP_RETURN 0x76a914c0d164cbb336e3c64338c70506ef543c2fc7b8f988ac
+```
+
+Both modules are `#[cfg(test)]` and live in `src/` rather than `rust/tests/`.
+An integration test is a separate crate and links the library built *without*
+`cfg(test)`, so neither module exists from there.
+
+**No probe may connect to, or replay from, a mainnet node.** Synthetic fixtures
+and testnet only, until explicitly cleared.
+
+### Benchmark probes
+
+Throughput probes are gated behind `UAAS_BENCH` so they do not slow down an
+ordinary test run, and are only meaningful in a release build:
+
+```bash
+cd rust
+UAAS_BENCH=1 cargo test --release bench_probe -- --nocapture
+```
+
 ## Orphan testing
 The rust service has `rnd_orphans` a feature flag which introduces random orphans into the download stream.
 To test try the following

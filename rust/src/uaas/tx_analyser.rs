@@ -482,6 +482,126 @@ mod tests {
         );
     }
 
+    // Probe L (CS-405) — a malleated sibling is indistinguishable from a
+    // second, unrelated transaction.
+    //
+    // Two announcements spend the same prevout and pay the same outputs; only
+    // the unlocking script differs, so the txids differ. That is transaction
+    // malleability: pre-confirmation the txid is not a stable identity.
+    //
+    // Nothing here detects it. The mempool is keyed on txid alone
+    // (`txdb.rs`, `HashMap<Hash256, Hash256>`), there is no prevout index
+    // anywhere, and `process_tx_inputs` deletes the prevout without asking
+    // whether it was already spent. A malleated sibling and a genuine
+    // double-spend are equally invisible.
+    //
+    // This probe could not be written before CS-393: with the delete path dead
+    // there was nothing to observe. Now that deletes execute, the observable
+    // consequence is below — the UTXO set gains two live entries for what is
+    // economically one output.
+    //
+    // TODO(UAAS-18): provisional identity derived from the prevout and output
+    // sets, with the txid provisional until a block pins it. When that lands,
+    // the second announcement must be recognised as a conflicting spend rather
+    // than silently doubling the balance.
+    fn malleated_pair(prev_output: OutPoint) -> (Tx, Tx) {
+        let outputs = vec![TxOut {
+            satoshis: 900,
+            lock_script: p2pkh_script(0xcc),
+        }];
+        // version 2: nothing in the crate branches on version, which is the
+        // premise of review question 4.
+        let build = |unlock: &[u8]| Tx {
+            version: 2,
+            inputs: vec![TxIn {
+                prev_output: prev_output.clone(),
+                unlock_script: Script(unlock.to_vec()),
+                ..TxIn::default()
+            }],
+            outputs: outputs.clone(),
+            lock_time: 0,
+        };
+        // Same spend, two encodings of the unlocking script. OP_NOP is a
+        // no-op, so this is malleation in the strict sense: the scripts are
+        // behaviourally identical.
+        (build(&[0x51]), build(&[0x51, 0x61]))
+    }
+
+    #[test]
+    fn utxo03_a_malleated_sibling_doubles_the_utxo_set_today() {
+        let Some((mut analyser, rx)) =
+            analyser_with_live_db("utxo03_a_malleated_sibling_doubles_the_utxo_set_today")
+        else {
+            return;
+        };
+
+        let funding = funding_tx(0x31);
+        analyser.process_block_tx(&funding, 300, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+        assert_eq!(analyser.utxo.get_satoshis(&outpoint), Some(1_000));
+
+        let (tx_a, tx_b) = malleated_pair(outpoint.clone());
+
+        // The pair really is a malleated pair, not two different spends.
+        assert_ne!(tx_a.hash(), tx_b.hash(), "the txids must differ");
+        assert_eq!(
+            tx_a.inputs[0].prev_output, tx_b.inputs[0].prev_output,
+            "both must spend the same prevout"
+        );
+        assert_eq!(tx_a.outputs, tx_b.outputs, "both must pay the same outputs");
+        assert_eq!(tx_a.version, tx_b.version);
+
+        analyser.process_block_tx(&tx_a, 301, 1);
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoint),
+            None,
+            "the first spend removes the funding outpoint"
+        );
+
+        analyser.process_block_tx(&tx_b, 301, 2);
+
+        // The finding. One output was funded and one output was spent, but the
+        // utxo set now carries both siblings' outputs as live and unrelated.
+        let out_a = OutPoint {
+            hash: tx_a.hash(),
+            index: 0,
+        };
+        let out_b = OutPoint {
+            hash: tx_b.hash(),
+            index: 0,
+        };
+        assert_eq!(
+            (
+                analyser.utxo.get_satoshis(&out_a),
+                analyser.utxo.get_satoshis(&out_b)
+            ),
+            (Some(900), Some(900)),
+            "documents the phantom balance: 900 satoshis counted twice from 1000 funded"
+        );
+
+        // And the conflict leaves no trace. `Utxo::delete` is guarded by
+        // `remove(..).is_some()`, so the second spend of an already-spent
+        // outpoint queues nothing at all — there is not even a duplicate
+        // delete for an operator to notice.
+        analyser.utxo.update_db();
+        let deletes: Vec<OutPoint> = drain(&rx)
+            .into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoBatchDelete(outpoints) => Some(outpoints),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(
+            deletes.iter().filter(|o| **o == outpoint).count(),
+            1,
+            "the second spend of the same outpoint is silently discarded"
+        );
+    }
+
     #[test]
     fn utxo02_process_block_visits_every_transaction_and_records_the_height() {
         let Some((mut analyser, rx)) = analyser_with_live_db(
