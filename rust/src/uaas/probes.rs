@@ -16,7 +16,7 @@
 //!
 //! A test that asserts something we intend to change is a trap unless it says
 //! so, so every such probe is named `..._today` and carries a
-//! `TODO(UAAS-07b)` comment. When the structural matcher lands, the assertion
+//! `TODO(CS-415)` comment. When the structural matcher lands, the assertion
 //! inverts and the suffix goes.
 //!
 //! # Where this lives, and why
@@ -143,7 +143,7 @@ fn probe_baseline_a_genuine_p2pkh_output_is_collected() {
 ///
 /// Cost to mount: one dust output.
 ///
-/// TODO(UAAS-07b): a structural matcher must not collect this. Invert to
+/// TODO(CS-415): a structural matcher must not collect this. Invert to
 /// `assert!(!collects(...))` and drop the `_today` suffix.
 #[test]
 fn probe_a_p2pkh_template_as_op_return_data_is_collected_today() {
@@ -169,7 +169,7 @@ fn probe_a_p2pkh_template_as_op_return_data_is_collected_today() {
 /// stream is not reliably the boundary. Any tokeniser has to track branch
 /// context to tell them apart.
 ///
-/// TODO(UAAS-07b): must not be collected once branch structure is understood.
+/// TODO(CS-415): must not be collected once branch structure is understood.
 #[test]
 fn probe_b_op_return_inside_a_branch_is_collected_today() {
     let collection = collection_for(P2PKH_PATTERN);
@@ -197,7 +197,7 @@ fn probe_b_op_return_inside_a_branch_is_collected_today() {
 /// the matcher establishes only "these bytes are present", never "this output
 /// is spendable by the holder of that key".
 ///
-/// TODO(UAAS-07b): the match must sit on an executable path terminating in a
+/// TODO(CS-415): the match must sit on an executable path terminating in a
 /// signature check over that operand.
 #[test]
 fn probe_c_key_dropped_before_any_checksig_is_collected_today() {
@@ -235,7 +235,7 @@ fn probe_c_key_dropped_before_any_checksig_is_collected_today() {
 /// Post-Genesis, and with `nVersion > 1` under Chronicle dropping
 /// minimal-encoding enforcement, the encoding is the sender's free choice.
 ///
-/// TODO(UAAS-07b): all four must match, on the element rather than its
+/// TODO(CS-415): all four must match, on the element rather than its
 /// encoding.
 #[test]
 fn probe_d_the_same_element_matches_under_only_two_of_four_encodings_today() {
@@ -310,7 +310,7 @@ fn probe_d_the_four_encodings_carry_an_identical_element() {
 /// user reaches through `POST /collection/monitor` without ever writing a
 /// pattern, so the failure is invisible to them.
 ///
-/// TODO(UAAS-07b): an address monitor must select only outputs that actually
+/// TODO(CS-415): an address monitor must select only outputs that actually
 /// pay that address.
 #[test]
 fn probe_e_address_derived_pattern_matches_a_forged_copy_today() {

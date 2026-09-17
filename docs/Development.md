@@ -40,7 +40,7 @@ matcher, each one a reconstruction of a lettered probe from the adversarial
 review. Most of them assert behaviour we intend to change — a matcher that is a
 substring search over bytes cannot tell "this output pays the monitored key"
 from "these bytes appear somewhere in this output". Those probes are named
-`..._today` and carry a `TODO(UAAS-07b)` comment; when the structural matcher
+`..._today` and carry a `TODO(CS-415)` comment; when the structural matcher
 lands, the assertion inverts and the suffix goes.
 
 ```bash
