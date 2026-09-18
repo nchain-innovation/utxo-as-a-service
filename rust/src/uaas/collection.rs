@@ -1,11 +1,10 @@
 use std::time::Instant;
 
-use mysql::{prelude::*, PooledConn, *};
+use crate::db::PooledConn;
 
 use crate::{
     config::{CollectionConfig, Config},
     uaas::hex_pattern::ScriptMatcher,
-    uaas::hexslice::HexSlice,
 };
 use anyhow::{anyhow, Result};
 use chain_gang::{
@@ -32,7 +31,6 @@ fn address_to_lock_script(address: &str, network: Network) -> Result<String> {
 /// Database interface used by all collections
 ///
 ///
-#[derive(Debug)]
 pub struct CollectionDatabase {
     // Retry database connections
     ms_delay: u64,
@@ -49,40 +47,29 @@ impl CollectionDatabase {
         }
     }
 
-    fn decode_stored_hash(value: &str) -> Option<Hash256> {
-        match Hash256::decode(value) {
-            Ok(hash) => Some(hash),
-            Err(err) => {
-                log::error!("Invalid stored collection tx hash {value}: {err:?}");
+    /// Stored hashes are raw `bytea` now, so this checks the length rather
+    /// than parsing hex.
+    fn decode_stored_hash(value: &[u8]) -> Option<Hash256> {
+        match <[u8; 32]>::try_from(value) {
+            Ok(bytes) => Some(Hash256(bytes)),
+            Err(_) => {
+                log::error!(
+                    "Stored collection hash is {} bytes, expected 32; row skipped",
+                    value.len()
+                );
                 None
             }
-        }
-    }
-
-    pub fn create_table(&self, conn: &mut PooledConn) {
-        log::info!("Table collection not found - creating");
-
-        let table = "CREATE TABLE collection (hash varchar(64), name varchar(64), tx longtext, CONSTRAINT PK_Entry PRIMARY KEY (hash, name));";
-        if let Err(err) = conn.query_drop(table) {
-            log::error!("Unable to create collection table: {err:?}");
-            return;
-        }
-
-        let index = "CREATE INDEX collect_key ON collection (hash, name);";
-        if let Err(err) = conn.query_drop(index) {
-            log::error!("Unable to create collection index: {err:?}");
         }
     }
 
     pub fn load_txs(&mut self, collection_name: &str) -> Vec<Hash256> {
         // load txs- tx hash from database
         let start = Instant::now();
-        let txs: Vec<String> = match self.conn.exec_map(
-            "SELECT hash FROM collection WHERE name = :name",
-            params! { "name" => collection_name },
-            |hash| hash,
+        let txs: Vec<Vec<u8>> = match self.conn.query(
+            "SELECT hash FROM collection WHERE monitor = $1",
+            &[&collection_name],
         ) {
-            Ok(txs) => txs,
+            Ok(rows) => rows.iter().map(|row| row.get(0)).collect(),
             Err(err) => {
                 log::error!("Unable to load collection txs for {collection_name}: {err:?}");
                 return Vec::new();
@@ -104,25 +91,25 @@ impl CollectionDatabase {
     }
 
     pub fn write_tx_to_database(&mut self, collection_name: &str, tx: &Tx) {
-        let hash = tx.hash().encode();
-        // Write the tx as hexstr
+        let hash256 = tx.hash();
+        let hash = hash256.encode();
+        // Raw bytes: the tx column is `bytea`, not hex in a `longtext`.
         let mut b = Vec::with_capacity(tx.size());
         if let Err(err) = tx.write(&mut b) {
             log::error!("Unable to serialize collection tx {hash}: {err:?}");
             return;
         }
-        let tx_hex = format!("{}", HexSlice::new(&b));
 
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
             || {
-                self.conn.exec_drop(
-                    "INSERT INTO collection (hash, name, tx) VALUES (:hash, :name, :tx)",
-                    params! {
-                        "hash" => hash.as_str(),
-                        "name" => collection_name,
-                        "tx" => tx_hex.as_str(),
-                    },
+                // (hash, monitor) is the primary key, and seeing the same
+                // transaction twice for the same monitor is ordinary rather
+                // than an error.
+                self.conn.execute(
+                    "INSERT INTO collection (hash, monitor, tx) VALUES ($1, $2, $3) \
+                     ON CONFLICT (hash, monitor) DO NOTHING",
+                    &[&&hash256.0[..], &collection_name, &b],
                 )
             },
         );

@@ -25,6 +25,7 @@ extern crate lazy_static;
 
 // Used by the binary.
 pub mod config;
+pub mod db;
 pub mod migrate;
 pub mod peer_event;
 pub mod rate_limit;

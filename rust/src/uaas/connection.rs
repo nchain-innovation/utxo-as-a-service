@@ -1,9 +1,8 @@
-use chrono::Utc;
-use mysql::{prelude::*, *};
-use retry::{delay, retry};
 use std::net::IpAddr;
 
-use crate::config::Config;
+use retry::{delay, retry};
+
+use crate::{config::Config, db::PooledConn};
 
 pub struct Connection {
     conn: PooledConn,
@@ -21,56 +20,25 @@ impl Connection {
         }
     }
 
-    fn create_table(&mut self) {
-        let tables: Vec<String> = match self.conn.query(
-            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
-        ) {
-            Ok(tables) => tables,
-            Err(err) => {
-                log::error!("Unable to list database tables for connect log: {err:?}");
-                return;
-            }
-        };
-
-        if !tables.iter().any(|x| x.as_str() == "connect") {
-            log::info!("Table connect not found - creating");
-            if let Err(err) = self.conn.query_drop(
-                "CREATE TABLE connect (date VARCHAR(64), ip VARCHAR(64), event VARCHAR(64));",
-            ) {
-                log::error!("Unable to create connect table: {err:?}");
-            }
-        }
-    }
-
     pub fn setup(&mut self) {
-        self.create_table();
+        // Nothing to do. The `connect` table is created by V10__connect.sql;
+        // this used to probe INFORMATION_SCHEMA and issue a CREATE TABLE.
     }
 
     fn insert_data(&mut self, ip: &IpAddr, event: &str) {
-        let connect_insert = match self
-            .conn
-            .prep("INSERT INTO connect (date, ip, event) VALUES (:date, :ip, :event)")
-        {
-            Ok(stmt) => stmt,
-            Err(err) => {
-                log::error!("Unable to prepare connect insert statement: {err:?}");
-                return;
-            }
-        };
-
-        let date = Utc::now();
-        let date_str = date.format("%Y-%m-%d %H:%M:%S").to_string();
-
+        // Neither the timestamp nor the id is supplied. `event_time` defaults
+        // to now() and `id` is GENERATED ALWAYS AS IDENTITY, which replaces the
+        // formatted VARCHAR(64) date this used to build with chrono — that
+        // could not be range-queried or sorted without parsing every row.
+        //
+        // `ip` goes in as an IpAddr against an `inet` column, so the address is
+        // validated and stored as an address rather than as text.
         let result = retry(
             delay::Fixed::from_millis(self.ms_delay).take(self.retries),
             || {
-                self.conn.exec_drop(
-                    &connect_insert,
-                    params! {
-                        "date" => date_str.clone(),
-                        "ip" => ip.to_string(),
-                        "event" => event
-                    },
+                self.conn.execute(
+                    "INSERT INTO connect (ip, event) VALUES ($1, $2)",
+                    &[ip, &event],
                 )
             },
         );

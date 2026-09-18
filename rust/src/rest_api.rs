@@ -4,12 +4,12 @@ use std::sync::{mpsc, Arc};
 use actix_web::{
     delete, get, http::header::ContentType, post, web, HttpRequest, HttpResponse, Responder, Result,
 };
-use mysql::{prelude::*, Pool};
 use serde::Serialize;
 
 use chain_gang::{messages::Tx, util::Serializable};
 
 use crate::config::CollectionConfig;
+use crate::db::Pool;
 use crate::rate_limit::RateLimiter;
 use crate::uaas::tx_bounds::validate_tx_bytes;
 use crate::uaas::util::decode_hexstr;
@@ -81,10 +81,17 @@ struct HealthResponse {
 }
 
 fn check_database(pool: &Pool) -> Result<(), String> {
-    let mut conn = pool.get_conn().map_err(|err| err.to_string())?;
-    conn.query_first::<u8, _>("SELECT 1")
+    let mut conn = pool.get().map_err(|err| err.to_string())?;
+    // query_one rather than query_opt: `SELECT 1` returning no row would mean
+    // the server answered something other than a working connection, which is
+    // exactly what this probe is for.
+    let one: i32 = conn
+        .query_one("SELECT 1", &[])
         .map_err(|err| err.to_string())?
-        .ok_or_else(|| "database health check returned no rows".to_string())?;
+        .get(0);
+    if one != 1 {
+        return Err("database health check returned an unexpected value".to_string());
+    }
     Ok(())
 }
 
@@ -268,24 +275,36 @@ mod tests {
     use actix_web::{test as actix_test, App};
     use std::sync::mpsc;
 
-    fn mysql_test_url() -> Option<String> {
-        std::env::var("UAAS_TEST_MYSQL_URL").ok()
+    fn postgres_test_url() -> Option<String> {
+        std::env::var("UAAS_TEST_POSTGRES_URL").ok()
     }
 
     fn live_db_pool() -> Option<Pool> {
-        let url = mysql_test_url()?;
-        Some(Pool::new(url.as_str()).expect("failed to connect to test database"))
+        let url = postgres_test_url()?;
+        Some(crate::db::build_pool(&url).expect("failed to connect to test database"))
     }
 
     fn invalid_credentials_pool() -> Option<Pool> {
-        let url = mysql_test_url()?;
-        let bad_url = url.replacen("maas:maas-password", "maas:not-the-password", 1);
-        Pool::new(bad_url.as_str()).ok()
+        let url = postgres_test_url()?;
+        // Swap whatever password the URL carries for one that is not it. The
+        // pool opens a connection eagerly, so a bad password fails here, which
+        // is what this fixture wants to hand the health check.
+        let bad_url = url.split_once(':').and_then(|(scheme, rest)| {
+            rest.rsplit_once('@').map(|(creds, host)| {
+                let user = creds
+                    .trim_start_matches("//")
+                    .split(':')
+                    .next()
+                    .unwrap_or("");
+                format!("{scheme}://{user}:not-the-password@{host}")
+            })
+        })?;
+        crate::db::build_pool(&bad_url).ok()
     }
 
-    fn skip_without_mysql(test_name: &str) -> Option<Pool> {
+    fn skip_without_postgres(test_name: &str) -> Option<Pool> {
         live_db_pool().or_else(|| {
-            eprintln!("skipping {test_name}: UAAS_TEST_MYSQL_URL not set");
+            eprintln!("skipping {test_name}: UAAS_TEST_POSTGRES_URL not set");
             None
         })
     }
@@ -314,7 +333,7 @@ mod tests {
 
         #[test]
         fn live_mysql_passes_health_check() {
-            let Some(pool) = skip_without_mysql("live_mysql_passes_health_check") else {
+            let Some(pool) = skip_without_postgres("live_mysql_passes_health_check") else {
                 return;
             };
             check_database(&pool).expect("database health check should succeed");
@@ -350,7 +369,7 @@ mod tests {
 
     #[actix_web::test]
     async fn health_returns_ok_with_database() {
-        let Some(pool) = skip_without_mysql("health_returns_ok_with_database") else {
+        let Some(pool) = skip_without_postgres("health_returns_ok_with_database") else {
             return;
         };
 
@@ -404,7 +423,7 @@ mod tests {
 
     #[actix_web::test]
     async fn version_returns_package_version() {
-        let Some(pool) = skip_without_mysql("version_returns_package_version") else {
+        let Some(pool) = skip_without_postgres("version_returns_package_version") else {
             return;
         };
 
@@ -426,7 +445,7 @@ mod tests {
 
     #[actix_web::test]
     async fn health_does_not_require_api_key() {
-        let Some(pool) = skip_without_mysql("health_does_not_require_api_key") else {
+        let Some(pool) = skip_without_postgres("health_does_not_require_api_key") else {
             return;
         };
 
@@ -455,7 +474,8 @@ mod tests {
 
     #[actix_web::test]
     async fn broadcast_tx_requires_api_key_when_configured() {
-        let Some(pool) = skip_without_mysql("broadcast_tx_requires_api_key_when_configured") else {
+        let Some(pool) = skip_without_postgres("broadcast_tx_requires_api_key_when_configured")
+        else {
             return;
         };
 
@@ -494,7 +514,7 @@ mod tests {
 
     #[actix_web::test]
     async fn sec04_health_is_exempt_from_rate_limit() {
-        let Some(pool) = skip_without_mysql("sec04_health_is_exempt_from_rate_limit") else {
+        let Some(pool) = skip_without_postgres("sec04_health_is_exempt_from_rate_limit") else {
             return;
         };
 
@@ -526,7 +546,8 @@ mod tests {
     async fn bcast05_broadcast_tx_queues_valid_transaction() {
         use chain_gang::{messages::Tx, util::Serializable};
 
-        let Some(pool) = skip_without_mysql("bcast05_broadcast_tx_queues_valid_transaction") else {
+        let Some(pool) = skip_without_postgres("bcast05_broadcast_tx_queues_valid_transaction")
+        else {
             return;
         };
 
@@ -575,7 +596,7 @@ mod tests {
     // on an allocation of 281474976710656 bytes.
     #[actix_web::test]
     async fn bcast06_malformed_tx_is_rejected_without_reaching_the_deserialiser() {
-        let Some(pool) = skip_without_mysql(
+        let Some(pool) = skip_without_postgres(
             "bcast06_malformed_tx_is_rejected_without_reaching_the_deserialiser",
         ) else {
             return;

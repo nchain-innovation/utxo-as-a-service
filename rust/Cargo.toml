@@ -17,6 +17,12 @@ mysql = "28.0.0"
 # the database work happens on the peer-manager thread and inside web::block,
 # so an async client would force a restructure for no gain.
 postgres = "0.19.14"
+# Pooling. The mysql crate had it built in; postgres does not, and the indexer
+# holds several connections while the web layer takes one per request.
+# Depends on postgres ^0.19, so it unifies on the client above rather than
+# pulling in a second one.
+r2d2 = "0.8.10"
+r2d2_postgres = "0.18.2"
 chrono = "0.4.45"
 rand = "0.10.2"
 hex = "0.4.3"

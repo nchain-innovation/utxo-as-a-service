@@ -1,20 +1,48 @@
+//! The database writer thread.
+//!
+//! Every write the indexer performs arrives here on a channel, so the peer
+//! threads are never blocked on the database during initial block download.
+//!
+//! # Signed columns
+//!
+//! PostgreSQL has no unsigned integer types, so every `u32`/`u64` that used to
+//! go into an `int unsigned` or `bigint unsigned` column now has to fit a
+//! signed one. These values come off the P2P wire and are attacker-chosen, so
+//! each conversion is checked explicitly rather than cast. A value that does
+//! not fit is dropped with an error naming it — writing a wrapped negative
+//! would corrupt the row silently, which is worse than losing it loudly.
+//!
+//! # Batches are transactional
+//!
+//! Each batch is applied inside one transaction, so a batch that fails part way
+//! leaves nothing behind. Previously `exec_batch` applied rows one at a time
+//! with no transaction, and a failure in the middle left the earlier rows
+//! written and the later ones not, with no record of where it stopped.
+
 use std::sync::mpsc;
+use std::time::{Duration, UNIX_EPOCH};
 
 use chain_gang::{messages::OutPoint, util::Hash256};
 
-use mysql::{prelude::*, PooledConn, *};
+use postgres::types::ToSql;
 
-use crate::config::Config;
+use crate::{config::Config, db::PooledConn};
 use retry::{delay, retry};
 
 // UtxoEntry - used to store data into utxo table
 #[derive(Clone)]
 pub struct UtxoEntryDB {
-    pub hash: String,
+    /// Raw 32-byte txid. Was a 64-character hex string in a `varchar(64)`.
+    pub hash: Vec<u8>,
     pub pos: u32,
     pub satoshis: i64,
+    /// `NOT_IN_BLOCK` (-1) for an output not yet in a block, which is written
+    /// as SQL NULL — see [`height_to_sql`].
     pub height: i32,
-    pub pubkeyhash: String,
+    /// The bytes identifying what selected this output. Populated from
+    /// `script_to_pubkeyhash` for now; CS-421 replaces it with the matching
+    /// pattern's named capture.
+    pub identifier: Option<Vec<u8>>,
 }
 
 // Used to store txs to write (in blocks)
@@ -59,8 +87,51 @@ pub struct MempoolEntryDB {
     pub hash: Hash256,
     pub locktime: u32,
     pub fee: i64,
+    /// Seconds since the unix epoch when the transaction was first seen.
     pub age: u64,
-    pub tx: String,
+    /// Raw transaction bytes. Was hex in a `longtext`, so this is half the size
+    /// and TOASTed by PostgreSQL once it passes the page threshold.
+    pub tx: Vec<u8>,
+}
+
+/// The in-memory sentinel for "this output is not in a block yet".
+///
+/// Kept so the in-memory UTXO set behaves exactly as before; only the stored
+/// representation changes, because the schema says NULL means this and a
+/// sentinel in a nullable column would contradict it.
+pub const NOT_IN_BLOCK: i32 = -1;
+
+fn height_to_sql(height: i32) -> Option<i32> {
+    if height == NOT_IN_BLOCK {
+        None
+    } else {
+        Some(height)
+    }
+}
+
+/// Reverses [`height_to_sql`] when reading a row back.
+pub fn height_from_sql(height: Option<i32>) -> i32 {
+    height.unwrap_or(NOT_IN_BLOCK)
+}
+
+/// Narrows an unsigned wire value to the signed column that now holds it.
+///
+/// Returns `None` and logs when it does not fit. Every caller drops the row
+/// rather than writing something else: these values are attacker-chosen, and a
+/// silent `as` cast would turn an out-of-range height or size into a negative
+/// one that reads back as valid.
+fn checked<T, U>(value: T, what: &str) -> Option<U>
+where
+    T: Copy + std::fmt::Display,
+    U: TryFrom<T>,
+{
+    match U::try_from(value) {
+        Ok(narrowed) => Some(narrowed),
+        Err(_) => {
+            log::error!("{what} {value} does not fit its database column; row dropped");
+            None
+        }
+    }
 }
 
 // DBOperationType - used to identify the type of operation that the database needs to do
@@ -160,231 +231,271 @@ impl Database {
         log::error!("Database write failed during {operation}: {err:?}");
     }
 
+    /// Runs `body` inside one transaction, retrying the whole thing.
+    ///
+    /// The transaction is what makes a batch all-or-nothing. The retry wraps
+    /// the transaction rather than sitting inside it, so a retried attempt
+    /// starts from a clean slate instead of resuming a transaction the server
+    /// has already aborted.
+    fn in_transaction<F>(&mut self, operation: &str, body: F)
+    where
+        F: Fn(&mut postgres::Transaction) -> Result<(), postgres::Error>,
+    {
+        let result = retry(
+            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
+            || -> Result<(), postgres::Error> {
+                let mut tx = self.conn.transaction()?;
+                body(&mut tx)?;
+                tx.commit()
+            },
+        );
+        if let Err(err) = result {
+            Self::log_write_error(operation, err);
+        }
+    }
+
     fn utxo_batch_write(&mut self, utxo_entries: Vec<UtxoEntryDB>) {
         if utxo_entries.is_empty() {
             return;
         }
-        // bulk/batch write tx output to utxo table
-
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn
-            .exec_batch(
-                //"INSERT OVERWRITE utxo (hash, pos, satoshis, height) VALUES (:hash, :pos, :satoshis, :height);",
-                "REPLACE INTO utxo (hash, pos, satoshis, height, pubkeyhash) VALUES (:hash, :pos, :satoshis, :height, :pubkeyhash);",
-                utxo_entries
-                    .iter()
-                    .map(|x| params! {
-                        "hash" => x.hash.as_str(), "pos" => x.pos, "satoshis" => x.satoshis, "height" => x.height, "pubkeyhash" => x.pubkeyhash.as_str()}),
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("utxo batch write", err);
-        }
+        // Rows are keyed on (txid, vout), which cannot legitimately be written
+        // twice with different contents. ON CONFLICT DO UPDATE replaces the
+        // REPLACE INTO this used to issue; REPLACE deleted and reinserted,
+        // which would have taken the row's identity with it.
+        self.in_transaction("utxo batch write", |tx| {
+            let stmt = tx.prepare(
+                "INSERT INTO utxo (txid, vout, satoshis, locking_script, identifier, created_height) \
+                 VALUES ($1, $2, $3, $4, $5, $6) \
+                 ON CONFLICT (txid, vout) DO UPDATE \
+                 SET satoshis = EXCLUDED.satoshis, \
+                     identifier = EXCLUDED.identifier, \
+                     created_height = EXCLUDED.created_height",
+            )?;
+            for entry in &utxo_entries {
+                let Some(vout) = checked::<u32, i32>(entry.pos, "output index") else {
+                    continue;
+                };
+                // locking_script is NOT NULL in the schema but the in-memory
+                // UTXO set does not keep it — it was dropped from UtxoEntry
+                // long ago because some scripts are very large. An empty script
+                // is the honest placeholder until CS-421, which records the
+                // script it matched against.
+                let script: &[u8] = &[];
+                tx.execute(
+                    &stmt,
+                    &[
+                        &entry.hash,
+                        &vout,
+                        &entry.satoshis,
+                        &script,
+                        &entry.identifier,
+                        &height_to_sql(entry.height),
+                    ],
+                )?;
+            }
+            Ok(())
+        });
     }
 
     fn utxo_batch_delete(&mut self, utxo_deletes: Vec<OutPoint>) {
         if utxo_deletes.is_empty() {
             return;
         }
-        // bulk/batch delete utxo table entries
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn.exec_batch(
-                    "DELETE FROM utxo WHERE hash = :hash AND pos = :pos;",
-                    utxo_deletes
-                        .iter()
-                        .map(|x| params! {"hash" => x.hash.encode(), "pos" => x.index}),
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("utxo batch delete", err);
-        }
+        self.in_transaction("utxo batch delete", |tx| {
+            let stmt = tx.prepare("DELETE FROM utxo WHERE txid = $1 AND vout = $2")?;
+            for outpoint in &utxo_deletes {
+                let Some(vout) = checked::<u32, i32>(outpoint.index, "output index") else {
+                    continue;
+                };
+                tx.execute(&stmt, &[&&outpoint.hash.0[..], &vout])?;
+            }
+            Ok(())
+        });
     }
 
     fn tx_batch_write(&mut self, tx_entries: Vec<TxEntryWriteDB>) {
         if tx_entries.is_empty() {
             return;
         }
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn
-                .exec_batch(
-                    "INSERT INTO tx (hash, height, blockindex, txsize, satoshis) VALUES (:hash, :height, :blockindex, :txsize, :satoshis)",
-                    tx_entries.iter().map(
-                        |tx| params! {"hash" => tx.hash.encode(), "height" => tx.height, "blockindex"=> tx.blockindex, "txsize"=> tx.size, "satoshis" => tx.satoshis},
-                    ),
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("tx batch write", err);
-        }
+        self.in_transaction("tx batch write", |db| {
+            let stmt = db.prepare(
+                "INSERT INTO tx (hash, height, blockindex, txsize, satoshis) \
+                 VALUES ($1, $2, $3, $4, $5) \
+                 ON CONFLICT (hash) DO NOTHING",
+            )?;
+            for entry in &tx_entries {
+                let (Some(height), Some(blockindex), Some(txsize), Some(satoshis)) = (
+                    checked::<usize, i32>(entry.height, "block height"),
+                    checked::<u32, i32>(entry.blockindex, "block index"),
+                    checked::<u32, i32>(entry.size, "transaction size"),
+                    checked::<u64, i64>(entry.satoshis, "transaction satoshis"),
+                ) else {
+                    continue;
+                };
+                db.execute(
+                    &stmt,
+                    &[&&entry.hash.0[..], &height, &blockindex, &txsize, &satoshis],
+                )?;
+            }
+            Ok(())
+        });
     }
 
     fn mempool_batch_write(&mut self, mempool_entries: Vec<MempoolEntryDB>) {
         if mempool_entries.is_empty() {
             return;
         }
-
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn.exec_batch(
-                    "INSERT INTO mempool (hash, locktime, fee, time, tx) \
-                     VALUES (:hash, :locktime, :fee, :time, :tx)",
-                    mempool_entries.iter().map(|entry| {
-                        params! {
-                            "hash" => entry.hash.encode(),
-                            "locktime" => entry.locktime,
-                            "fee" => entry.fee,
-                            "time" => entry.age,
-                            "tx" => entry.tx.as_str(),
-                        }
-                    }),
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("mempool batch write", err);
-        }
+        self.in_transaction("mempool batch write", |db| {
+            let stmt = db.prepare(
+                "INSERT INTO mempool (hash, locktime, fee, seen_at, tx) \
+                 VALUES ($1, $2, $3, $4, $5) \
+                 ON CONFLICT (hash) DO NOTHING",
+            )?;
+            for entry in &mempool_entries {
+                // `seen_at` is a timestamptz; the old column was an `int
+                // unsigned` unix timestamp that overflows in 2106.
+                let seen_at = UNIX_EPOCH + Duration::from_secs(entry.age);
+                let locktime = i64::from(entry.locktime);
+                db.execute(
+                    &stmt,
+                    &[
+                        &&entry.hash.0[..],
+                        &locktime,
+                        &entry.fee,
+                        &seen_at,
+                        &entry.tx,
+                    ],
+                )?;
+            }
+            Ok(())
+        });
     }
 
     fn mempool_batch_delete(&mut self, mempool_hashes: Vec<Hash256>) {
         if mempool_hashes.is_empty() {
             return;
         }
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn.exec_batch(
-                    "DELETE FROM mempool WHERE hash = :hash;",
-                    mempool_hashes
-                        .iter()
-                        .map(|x| params! {"hash" => x.encode()}),
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("mempool batch delete", err);
-        }
+        self.in_transaction("mempool batch delete", |db| {
+            let stmt = db.prepare("DELETE FROM mempool WHERE hash = $1")?;
+            for hash in &mempool_hashes {
+                db.execute(&stmt, &[&&hash.0[..]])?;
+            }
+            Ok(())
+        });
     }
 
     fn block_header_write(&mut self, block_header: BlockHeaderWriteDB) {
-        let height = block_header.height;
-        let hash = block_header.hash.encode();
-        let version = block_header.version;
-        let prev_hash = block_header.prev_hash.encode();
-        let merkle_root = block_header.merkle_root.encode();
-        let timestamp = block_header.timestamp;
-        let bits = block_header.bits;
-        let nonce = block_header.nonce;
-        let position = block_header.position;
-        let blocksize = block_header.blocksize;
-        let numtxs = block_header.numtxs;
+        // Every one of these is an unsigned wire value going into a signed
+        // column, so they are narrowed together and the row is dropped whole if
+        // any of them does not fit.
+        let (
+            Some(height),
+            Some(version),
+            Some(block_time),
+            Some(bits),
+            Some(nonce),
+            Some(file_offset),
+            Some(blocksize),
+            Some(numtxs),
+        ) = (
+            checked::<u32, i32>(block_header.height, "block height"),
+            checked::<u32, i32>(block_header.version, "block version"),
+            checked::<u32, i32>(block_header.timestamp, "block timestamp"),
+            checked::<u32, i32>(block_header.bits, "block bits"),
+            checked::<u32, i32>(block_header.nonce, "block nonce"),
+            checked::<u64, i64>(block_header.position, "block file offset"),
+            checked::<u32, i32>(block_header.blocksize, "block size"),
+            checked::<u32, i32>(block_header.numtxs, "block transaction count"),
+        )
+        else {
+            return;
+        };
 
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn.exec_drop(
-                    r"INSERT INTO blocks
-                    (height, hash, version, prev_hash, merkle_root, timestamp, bits, nonce, `offset`, blocksize, numtxs)
-                    VALUES (:height, :hash, :version, :prev_hash, :merkle_root, :timestamp, :bits, :nonce, :offset, :blocksize, :numtxs)",
-                    params! {
-                        "height" => height,
-                        "hash" => hash.as_str(),
-                        "version" => version,
-                        "prev_hash" => prev_hash.as_str(),
-                        "merkle_root" => merkle_root.as_str(),
-                        "timestamp" => timestamp,
-                        "bits" => bits,
-                        "nonce" => nonce,
-                        "offset" => position,
-                        "blocksize" => blocksize,
-                        "numtxs" => numtxs,
-                    },
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("block header write", err);
-        }
+        self.in_transaction("block header write", |db| {
+            let params: [&(dyn ToSql + Sync); 11] = [
+                &height,
+                &&block_header.hash.0[..],
+                &version,
+                &&block_header.prev_hash.0[..],
+                &&block_header.merkle_root.0[..],
+                &block_time,
+                &bits,
+                &nonce,
+                &file_offset,
+                &blocksize,
+                &numtxs,
+            ];
+            db.execute(
+                "INSERT INTO blocks \
+                 (height, hash, version, prev_hash, merkle_root, block_time, bits, nonce, \
+                  file_offset, blocksize, numtxs) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
+                 ON CONFLICT (hash) DO NOTHING",
+                &params,
+            )?;
+            Ok(())
+        });
     }
 
     fn block_header_delete(&mut self, hash: &Hash256) {
-        let hash = hash.encode();
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn.exec_drop(
-                    "DELETE FROM blocks WHERE hash = :hash",
-                    params! { "hash" => hash.as_str() },
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("block header delete", err);
-        }
+        let hash = hash.0;
+        self.in_transaction("block header delete", move |db| {
+            db.execute("DELETE FROM blocks WHERE hash = $1", &[&&hash[..]])?;
+            Ok(())
+        });
     }
 
     fn tx_delete_at_height(&mut self, height: u32) {
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn.exec_drop(
-                    "DELETE FROM tx WHERE height = :height",
-                    params! { "height" => height },
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("tx delete at height", err);
-        }
+        let Some(height) = checked::<u32, i32>(height, "block height") else {
+            return;
+        };
+        self.in_transaction("tx delete at height", move |db| {
+            db.execute("DELETE FROM tx WHERE height = $1", &[&height])?;
+            Ok(())
+        });
     }
 
     fn utxo_delete_at_height(&mut self, height: u32) {
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn.exec_drop(
-                    "DELETE FROM utxo WHERE height = :height",
-                    params! { "height" => height },
-                )
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("utxo delete at height", err);
-        }
+        let Some(height) = checked::<u32, i32>(height, "block height") else {
+            return;
+        };
+        self.in_transaction("utxo delete at height", move |db| {
+            db.execute("DELETE FROM utxo WHERE created_height = $1", &[&height])?;
+            Ok(())
+        });
     }
 
     fn orphan_block_header_write(&mut self, block_header: OrphanBlockHeaderWriteDB) {
-        let result = retry(
-            delay::Fixed::from_millis(self.ms_delay).take(self.retries),
-            || {
-                self.conn
-                .exec_drop(
-                r"INSERT INTO orphans (height, hash, version, prev_hash, merkle_root, timestamp, bits, nonce)
-                VALUES (:height, :hash, :version, :prev_hash, :merkle_root, :timestamp, :bits, :nonce)",
-                    params! {
-                        "height" => block_header.height,
-                        "hash" => block_header.hash.encode(),
-                        "version" => block_header.version,
-                        "prev_hash" => block_header.prev_hash.encode(),
-                        "merkle_root" => block_header.merkle_root.encode(),
-                        "timestamp"  => block_header.timestamp,
-                        "bits"  => block_header.bits,
-                        "nonce"  => block_header.nonce
-                    })
-            },
-        );
-        if let Err(err) = result {
-            Self::log_write_error("orphan block header write", err);
-        }
+        let (Some(height), Some(version), Some(block_time), Some(bits), Some(nonce)) = (
+            checked::<u32, i32>(block_header.height, "orphan height"),
+            checked::<u32, i32>(block_header.version, "orphan version"),
+            checked::<u32, i32>(block_header.timestamp, "orphan timestamp"),
+            checked::<u32, i32>(block_header.bits, "orphan bits"),
+            checked::<u32, i32>(block_header.nonce, "orphan nonce"),
+        ) else {
+            return;
+        };
+
+        self.in_transaction("orphan block header write", |db| {
+            let params: [&(dyn ToSql + Sync); 8] = [
+                &height,
+                &&block_header.hash.0[..],
+                &version,
+                &&block_header.prev_hash.0[..],
+                &&block_header.merkle_root.0[..],
+                &block_time,
+                &bits,
+                &nonce,
+            ];
+            db.execute(
+                "INSERT INTO orphans \
+                 (height, hash, version, prev_hash, merkle_root, block_time, bits, nonce) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+                 ON CONFLICT (hash) DO NOTHING",
+                &params,
+            )?;
+            Ok(())
+        });
     }
 
     fn apply(&mut self, op: DBOperationType) {
@@ -435,12 +546,10 @@ impl Database {
         }
     }
 }
-
 #[cfg(test)]
 mod test {
     use super::*;
     use std::sync::mpsc;
-    //use mysql::Pool;
 
     // Every fixture operation carries a u32 id in whichever field is free.
     // ids() reads them back, so a single assertion covers both "nothing was
@@ -461,11 +570,11 @@ mod test {
         DBOperationType::UtxoBatchWrite(
             ids.iter()
                 .map(|id| UtxoEntryDB {
-                    hash: hash_of(*id).encode(),
+                    hash: hash_of(*id).0.to_vec(),
                     pos: *id,
                     satoshis: 1_000,
                     height: 1,
-                    pubkeyhash: "unknown".to_string(),
+                    identifier: None,
                 })
                 .collect(),
         )
@@ -504,7 +613,7 @@ mod test {
                     locktime: *id,
                     fee: 0,
                     age: 0,
-                    tx: String::new(),
+                    tx: Vec::new(),
                 })
                 .collect(),
         )
@@ -701,39 +810,35 @@ mod test {
     // End to end over the real writer loop: the coalescer, the dispatch and the
     // SQL. perform_db_operations returns once the sender is dropped and the
     // channel drains, so the assertions run after every operation is applied.
+    //
+    // Needs a PostgreSQL server with the schema applied, and is skipped rather
+    // than failed without one.
     #[test]
     fn db07_delete_between_writes_reaches_the_database() {
-        let Ok(url) = std::env::var("UAAS_TEST_MYSQL_URL") else {
-            eprintln!("skipping db07_delete_between_writes_reaches_the_database: UAAS_TEST_MYSQL_URL not set");
+        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+            eprintln!(
+                "skipping db07_delete_between_writes_reaches_the_database: \
+                 UAAS_TEST_POSTGRES_URL not set"
+            );
             return;
         };
 
-        let pool = Pool::new(url.as_str()).expect("connect to UAAS_TEST_MYSQL_URL");
-        let mut setup = pool
-            .get_conn()
-            .expect("get connection for utxo table setup");
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
+        let mut setup = pool.get().expect("get connection for fixture setup");
+
+        // The table is the migrations' now; this test no longer creates it. If
+        // it is absent the migrations have not been applied, and failing here
+        // says so more usefully than a CREATE TABLE that papers over it.
         setup
-            .query_drop(
-                "CREATE TABLE IF NOT EXISTS utxo (
-                    hash varchar(64) not null,
-                    pos int unsigned not null,
-                    satoshis bigint unsigned not null,
-                    height int not null,
-                    pubkeyhash varchar(64),
-                    PRIMARY KEY (hash, pos)
-                )",
-            )
-            .expect("create utxo table");
+            .execute("SELECT 1 FROM utxo WHERE false", &[])
+            .expect("utxo table must exist -- run `uaas migrate` against the test database");
 
         // Ids well clear of the other tests' rows.
         let spent = 0xdb00_0001u32;
         let kept = 0xdb00_0002u32;
         for id in [spent, kept] {
             setup
-                .exec_drop(
-                    "DELETE FROM utxo WHERE hash = :hash",
-                    params! { "hash" => hash_of(id).encode() },
-                )
+                .execute("DELETE FROM utxo WHERE txid = $1", &[&&hash_of(id).0[..]])
                 .expect("clear fixture rows");
         }
 
@@ -747,51 +852,50 @@ mod test {
         drop(tx);
 
         let mut database = Database {
-            conn: pool.get_conn().expect("get connection for writer"),
+            conn: pool.get().expect("get connection for writer"),
             rx,
             ms_delay: 300,
             retries: 3,
         };
         database.perform_db_operations();
 
-        let present = |conn: &mut PooledConn, id: u32| -> bool {
-            conn.exec_first::<u32, _, _>(
-                "SELECT pos FROM utxo WHERE hash = :hash AND pos = :pos",
-                params! { "hash" => hash_of(id).encode(), "pos" => id },
+        let present = |conn: &mut crate::db::PooledConn, id: u32| -> bool {
+            let vout = i32::try_from(id).expect("fixture id fits an i32");
+            conn.query_opt(
+                "SELECT vout FROM utxo WHERE txid = $1 AND vout = $2",
+                &[&&hash_of(id).0[..], &vout],
             )
-            .expect("query utxo row")
+            .expect("query fixture row")
             .is_some()
         };
 
+        let mut check = pool.get().expect("get connection for assertions");
         assert!(
-            !present(&mut setup, spent),
-            "the delete must have been applied, not dropped while coalescing the write"
+            !present(&mut check, spent),
+            "the delete between two writes must have reached the database"
         );
         assert!(
-            present(&mut setup, kept),
-            "the write after the delete must still have been applied"
+            present(&mut check, kept),
+            "the write after the delete must have reached the database"
         );
 
         for id in [spent, kept] {
-            setup
-                .exec_drop(
-                    "DELETE FROM utxo WHERE hash = :hash",
-                    params! { "hash" => hash_of(id).encode() },
-                )
+            check
+                .execute("DELETE FROM utxo WHERE txid = $1", &[&&hash_of(id).0[..]])
                 .expect("clean up fixture rows");
         }
     }
 
     #[test]
     fn test_operation() {
-        let Some(url) = std::env::var("UAAS_TEST_MYSQL_URL").ok() else {
-            eprintln!("skipping database integration test: UAAS_TEST_MYSQL_URL not set");
+        let Some(url) = std::env::var("UAAS_TEST_POSTGRES_URL").ok() else {
+            eprintln!("skipping database integration test: UAAS_TEST_POSTGRES_URL not set");
             return;
         };
 
-        let pool = Pool::new(url.as_str()).expect("connect to UAAS_TEST_MYSQL_URL");
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let conn = pool
-            .get_conn()
+            .get()
             .expect("get connection for database integration test");
         let (_tx, rx) = mpsc::channel();
         let mut database = Database {

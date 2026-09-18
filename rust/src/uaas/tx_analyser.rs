@@ -1,6 +1,6 @@
 use std::{cmp, sync::mpsc};
 
-use mysql::{prelude::*, Pool, PooledConn};
+use crate::db::{Pool, PooledConn};
 
 use chain_gang::{
     messages::{Block, Tx, TxOut},
@@ -44,8 +44,6 @@ pub struct TxAnalyser {
     pub txdb: TxDB,
     // Unspent tx - make public so logic can write to database when in ready state
     pub utxo: Utxo,
-    // Database connection
-    conn: PooledConn,
     // Collections
     collection: Vec<WorkingCollection>,
     collection_db: CollectionDatabase,
@@ -55,7 +53,7 @@ pub struct TxAnalyser {
 
 impl TxAnalyser {
     fn pool_conn(pool: &Pool, label: &str) -> Result<PooledConn, String> {
-        pool.get_conn().map_err(|err| {
+        pool.get().map_err(|err| {
             log::error!("Unable to get {label} database connection: {err:?}");
             format!("Unable to get {label} database connection")
         })
@@ -66,7 +64,6 @@ impl TxAnalyser {
         pool: Pool,
         tx: mpsc::Sender<DBOperationType>,
     ) -> Result<Self, String> {
-        let tx_conn = Self::pool_conn(&pool, "tx analyser")?;
         let utxo_conn = Self::pool_conn(&pool, "utxo")?;
         let txdb_conn = Self::pool_conn(&pool, "txdb")?;
         let collection_conn = Self::pool_conn(&pool, "collection")?;
@@ -102,42 +99,11 @@ impl TxAnalyser {
             save_txs,
             txdb: TxDB::new(txdb_conn, tx.clone(), save_txs),
             utxo: Utxo::new(utxo_conn, tx),
-            conn: tx_conn,
             collection,
             collection_db: CollectionDatabase::new(collection_conn, config),
             dynamic_config: dynamic_config.clone(),
             network,
         })
-    }
-
-    fn create_tables(&mut self) {
-        let tables: Vec<String> = match self.conn.query(
-            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
-        ) {
-            Ok(tables) => tables,
-            Err(err) => {
-                log::error!("Unable to list database tables for tx analyser: {err:?}");
-                return;
-            }
-        };
-
-        if self.save_txs && !tables.iter().any(|x| x.as_str() == "tx") {
-            self.txdb.create_tx_table();
-        }
-
-        if !tables.iter().any(|x| x.as_str() == "mempool") {
-            self.txdb.create_mempool_table();
-        }
-
-        // utxo
-        if !tables.iter().any(|x| x.as_str() == "utxo") {
-            self.utxo.create_table();
-        }
-
-        // Collection table - one table for all collections
-        if !tables.iter().any(|x| x.as_str() == "collection") {
-            self.collection_db.create_table(&mut self.conn);
-        }
     }
 
     fn read_tables(&mut self) {
@@ -156,7 +122,6 @@ impl TxAnalyser {
 
     pub fn setup(&mut self) {
         // Do the startup setup that is required for tx analyser
-        self.create_tables();
         self.read_tables();
     }
 
@@ -416,11 +381,11 @@ mod tests {
     // reachable server. Same convention as the schema and rest_api tests:
     // skip when UAAS_TEST_MYSQL_URL is unset rather than fail.
     fn analyser_with_live_db(test_name: &str) -> Option<(TxAnalyser, Receiver<DBOperationType>)> {
-        let Ok(url) = std::env::var("UAAS_TEST_MYSQL_URL") else {
-            eprintln!("skipping {test_name}: UAAS_TEST_MYSQL_URL not set");
+        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+            eprintln!("skipping {test_name}: UAAS_TEST_POSTGRES_URL not set");
             return None;
         };
-        let pool = Pool::new(url.as_str()).expect("connect to UAAS_TEST_MYSQL_URL");
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let (tx, rx) = mpsc::channel();
         let analyser = TxAnalyser::new(&sample_config(), pool, tx).expect("construct TxAnalyser");
         Some((analyser, rx))
@@ -649,9 +614,11 @@ mod tests {
         );
         for entry in &written {
             assert_eq!(
-                entry.height, HEIGHT,
+                entry.height,
+                HEIGHT,
                 "utxo row {} should be recorded at the block height, not {}",
-                entry.hash, NOT_IN_BLOCK
+                hex::encode(&entry.hash),
+                NOT_IN_BLOCK
             );
         }
     }

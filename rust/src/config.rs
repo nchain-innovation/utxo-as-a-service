@@ -24,8 +24,10 @@ pub struct NetworkSettings {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
-    pub mysql_url: String,
-    pub mysql_url_docker: String,
+    /// libpq connection URL, used when the service runs on the host.
+    pub postgres_url: String,
+    /// The same database as seen from inside a container.
+    pub postgres_url_docker: String,
     pub ms_delay: u64,
     pub retries: usize,
 }
@@ -145,13 +147,13 @@ impl Config {
         Ok(())
     }
 
-    pub fn get_mysql_url(&self) -> &str {
-        // Return the sql_url for the current environment
+    pub fn get_postgres_url(&self) -> &str {
+        // Return the connection URL for the current environment.
 
         // APP_ENV=docker means that we are in docker, otherwise we are on raw machine :-)
         match env::var_os("APP_ENV") {
-            Some(_) => &self.database.mysql_url_docker,
-            None => &self.database.mysql_url,
+            Some(_) => &self.database.postgres_url_docker,
+            None => &self.database.postgres_url,
         }
     }
 
@@ -226,8 +228,8 @@ pub(crate) mod tests {
             save_txs = false
 
             [database]
-            mysql_url = "mysql://local"
-            mysql_url_docker = "mysql://docker"
+            postgres_url = "postgresql://local"
+            postgres_url_docker = "postgresql://docker"
             ms_delay = 300
             retries = 3
 
@@ -283,8 +285,8 @@ save_blocks = false
 save_txs = false
 
 [database]
-mysql_url = "mysql://local"
-mysql_url_docker = "mysql://docker"
+postgres_url = "postgresql://local"
+postgres_url_docker = "postgresql://docker"
 ms_delay = 300
 retries = 3
 
@@ -308,12 +310,12 @@ filename = "../data/dynamic.toml"
     }
 
     #[test]
-    fn cfg03_uses_docker_mysql_url_when_app_env_set() {
+    fn cfg03_uses_docker_postgres_url_when_app_env_set() {
         let config = sample_config();
         unsafe {
             std::env::set_var("APP_ENV", "docker");
         }
-        assert_eq!(config.get_mysql_url(), "mysql://docker");
+        assert_eq!(config.get_postgres_url(), "postgresql://docker");
         unsafe {
             std::env::remove_var("APP_ENV");
         }

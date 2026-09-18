@@ -1,5 +1,4 @@
 use actix_web::{web, App, HttpServer};
-use mysql::Pool;
 use std::{
     net::{IpAddr, Ipv4Addr},
     panic, process,
@@ -10,7 +9,7 @@ use tokio::signal;
 
 use uaas::{
     config::get_config,
-    migrate,
+    db, migrate,
     peer_event::{PeerEventMessage, PeerEventType},
     rate_limit::RateLimiter,
     rest_api::{add_monitor, broadcast_tx, delete_monitor, health, version, AppState},
@@ -119,14 +118,24 @@ async fn run() -> Result<(), String> {
     let max_broadcast_tx_bytes = config.web_interface.max_broadcast_tx_bytes;
     let payload_limit = max_broadcast_tx_bytes.saturating_mul(2).max(1024);
 
-    let db_pool = Pool::new(config.get_mysql_url()).map_err(|err| {
-        log::error!(
-            "Problem connecting to database. Check database is connected and configuration is correct: {err:?}"
-        );
+    let db_pool = db::build_pool(config.get_postgres_url()).map_err(|err| {
+        log::error!("Problem connecting to database: {err:#}");
         format!(
-            "Problem connecting to database. Check database is connected and database connection configuration is correct: {err:?}"
+            "Problem connecting to database. Check the database is running and \
+             database.postgres_url is correct: {err:#}"
         )
     })?;
+
+    // Refuse to run against a schema this build does not understand, before any
+    // query is issued. A mismatch here is a deployment mistake, and it should
+    // say so rather than surface later as a column that has changed meaning.
+    {
+        let mut conn = db_pool
+            .get()
+            .map_err(|err| format!("could not take a connection from the pool: {err}"))?;
+        migrate::assert_expected_version(&mut conn)
+            .map_err(|err| format!("schema check failed: {err:#}"))?;
+    }
 
     let app_state = AppState {
         msg_from_rest_api: tx_rest,

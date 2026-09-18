@@ -114,8 +114,8 @@ mod tests {
                 save_txs: false,
             },
             database: DatabaseConfig {
-                mysql_url: "mysql://local".to_string(),
-                mysql_url_docker: "mysql://docker".to_string(),
+                postgres_url: "postgresql://local".to_string(),
+                postgres_url_docker: "postgresql://docker".to_string(),
                 ms_delay: 300,
                 retries: 3,
             },
