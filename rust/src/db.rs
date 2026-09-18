@@ -27,12 +27,22 @@ pub type PooledConn = r2d2::PooledConnection<Manager>;
 /// r2d2 opens one connection eagerly to check the configuration, so a bad URL
 /// or an unreachable server fails here rather than at the first query.
 ///
-/// **Must not be called from inside an async runtime.** The synchronous
-/// postgres client drives a runtime of its own, and nesting one panics with
-/// "Cannot start a runtime from within a runtime". `main` calls this before it
-/// enters the actix runtime, and handlers reach the pool through `web::block`,
-/// which is on a blocking thread. A test that needs a pool inside
-/// `#[actix_web::test]` has to build it on a plain thread.
+/// **Neither this nor [`Pool::get`] may be called from inside an async
+/// runtime.** The synchronous postgres client drives a runtime of its own, and
+/// nesting one panics with "Cannot start a runtime from within a runtime" —
+/// then panics again in the client's destructor during cleanup, which makes it
+/// a non-unwinding abort rather than a failed request.
+///
+/// `get` counts because r2d2 validates a connection as it hands it out:
+/// `PostgresConnectionManager::is_valid` issues a query on the calling thread.
+///
+/// `web::block` is **not** a way round this. Tokio's blocking-pool threads
+/// still carry the runtime context, so they panic exactly as a worker thread
+/// would; see `rest_api::check_database`, which spawns a plain thread. `main`
+/// does all of its database work — this call, the schema check and `Logic`
+/// construction — before entering a runtime at all, and the peer manager runs
+/// on a plain thread. A test that needs a pool inside `#[actix_web::test]` has
+/// to build it on a plain thread too.
 pub fn build_pool(url: &str) -> Result<Pool> {
     let config = url
         .parse()
