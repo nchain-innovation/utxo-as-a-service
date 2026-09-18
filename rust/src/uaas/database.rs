@@ -39,9 +39,16 @@ pub struct UtxoEntryDB {
     /// `NOT_IN_BLOCK` (-1) for an output not yet in a block, which is written
     /// as SQL NULL — see [`height_to_sql`].
     pub height: i32,
-    /// The bytes identifying what selected this output. Populated from
-    /// `script_to_pubkeyhash` for now; CS-421 replaces it with the matching
-    /// pattern's named capture.
+    /// The locking script the output pays to.
+    ///
+    /// Carried in full now. It was dropped from the in-memory entry because
+    /// some scripts are very large, and written as an empty placeholder — which
+    /// the settle would then copy into `utxo_spent`, so both tables would have
+    /// lied. Recording only monitored outputs is what makes keeping it
+    /// affordable: the volume is what the patterns select, not every spendable
+    /// output on the chain.
+    pub locking_script: Vec<u8>,
+    /// The bytes the matching pattern captured in its `identifier` group.
     pub identifier: Option<Vec<u8>>,
 }
 
@@ -135,6 +142,15 @@ where
 }
 
 // DBOperationType - used to identify the type of operation that the database needs to do
+
+/// One monitor's claim on one outpoint. Many-to-many, hence its own table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MonitorRecord {
+    pub txid: Vec<u8>,
+    pub vout: u32,
+    pub monitor: String,
+}
+
 /// One spend, identified by the outpoint it consumes.
 ///
 /// `spending_txid` is deliberately *not* part of the identity. Pre-confirmation
@@ -160,6 +176,8 @@ pub enum DBOperationType {
     UtxoBatchSpend(Vec<SpendRecord>),
     /// A spend seen in a block: settle it at that height.
     UtxoBatchSettle(Vec<SpendRecord>, i32),
+    /// Which monitors selected which outpoints.
+    UtxoMonitorBatchWrite(Vec<MonitorRecord>),
     TxBatchWrite(Vec<TxEntryWriteDB>),
     MempoolBatchDelete(Vec<Hash256>),
     MempoolBatchWrite(Vec<MempoolEntryDB>),
@@ -216,6 +234,10 @@ fn coalesce_operations(ops: Vec<DBOperationType>) -> Vec<DBOperationType> {
             (Some(DBOperationType::UtxoBatchSpend(acc)), DBOperationType::UtxoBatchSpend(more)) => {
                 acc.extend(more)
             }
+            (
+                Some(DBOperationType::UtxoMonitorBatchWrite(acc)),
+                DBOperationType::UtxoMonitorBatchWrite(more),
+            ) => acc.extend(more),
             // Only merged when the heights agree. Two settles at different
             // heights are different statements and must stay ordered.
             (
@@ -306,19 +328,13 @@ impl Database {
                 let Some(vout) = checked::<u32, i32>(entry.pos, "output index") else {
                     continue;
                 };
-                // locking_script is NOT NULL in the schema but the in-memory
-                // UTXO set does not keep it — it was dropped from UtxoEntry
-                // long ago because some scripts are very large. An empty script
-                // is the honest placeholder until CS-421, which records the
-                // script it matched against.
-                let script: &[u8] = &[];
                 tx.execute(
                     &stmt,
                     &[
                         &entry.hash,
                         &vout,
                         &entry.satoshis,
-                        &script,
+                        &entry.locking_script,
                         &entry.identifier,
                         &height_to_sql(entry.height),
                     ],
@@ -451,6 +467,30 @@ impl Database {
                  ON CONFLICT (txid, vout) DO NOTHING",
                 &[&txids, &vouts, &spending, &height],
             )?;
+            Ok(())
+        });
+    }
+
+    /// Which monitors selected which outpoints.
+    ///
+    /// `ON CONFLICT DO NOTHING` because seeing the same output selected by the
+    /// same monitor twice is ordinary — a reorg replays it — rather than an
+    /// error.
+    fn utxo_monitor_batch_write(&mut self, records: Vec<MonitorRecord>) {
+        if records.is_empty() {
+            return;
+        }
+        self.in_transaction("utxo monitor batch write", |tx| {
+            let stmt = tx.prepare(
+                "INSERT INTO utxo_monitor (txid, vout, monitor) VALUES ($1, $2, $3) \
+                 ON CONFLICT (txid, vout, monitor) DO NOTHING",
+            )?;
+            for record in &records {
+                let Some(vout) = checked::<u32, i32>(record.vout, "output index") else {
+                    continue;
+                };
+                tx.execute(&stmt, &[&record.txid, &vout, &record.monitor])?;
+            }
             Ok(())
         });
     }
@@ -645,6 +685,9 @@ impl Database {
             DBOperationType::UtxoBatchWrite(entries) => self.utxo_batch_write(entries),
             DBOperationType::UtxoBatchDelete(deletes) => self.utxo_batch_delete(deletes),
             DBOperationType::UtxoBatchSpend(spends) => self.utxo_batch_spend(spends),
+            DBOperationType::UtxoMonitorBatchWrite(records) => {
+                self.utxo_monitor_batch_write(records)
+            }
             DBOperationType::UtxoBatchSettle(spends, height) => {
                 self.utxo_batch_settle(spends, height)
             }
@@ -720,6 +763,7 @@ mod test {
                     pos: *id,
                     satoshis: 1_000,
                     height: 1,
+                    locking_script: vec![0x76, 0xa9, 0x14],
                     identifier: None,
                 })
                 .collect(),
@@ -783,6 +827,9 @@ mod test {
                 DBOperationType::UtxoBatchSpend(spends) => {
                     out.extend(spends.iter().map(|s| s.vout))
                 }
+                DBOperationType::UtxoMonitorBatchWrite(records) => {
+                    out.extend(records.iter().map(|r| r.vout))
+                }
                 DBOperationType::UtxoBatchSettle(spends, _) => {
                     out.extend(spends.iter().map(|s| s.vout))
                 }
@@ -813,6 +860,7 @@ mod test {
                 DBOperationType::UtxoBatchWrite(_) => "utxo_write",
                 DBOperationType::UtxoBatchDelete(_) => "utxo_delete",
                 DBOperationType::UtxoBatchSpend(_) => "utxo_spend",
+                DBOperationType::UtxoMonitorBatchWrite(_) => "utxo_monitor_write",
                 DBOperationType::UtxoBatchSettle(_, _) => "utxo_settle",
                 DBOperationType::TxBatchWrite(_) => "tx_write",
                 DBOperationType::MempoolBatchWrite(_) => "mempool_write",

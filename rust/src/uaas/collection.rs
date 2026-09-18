@@ -189,18 +189,33 @@ impl WorkingCollection {
         self.txs.iter().any(|x| x == &hash)
     }
 
+    /// Whether this collection's pattern selects a single locking script.
+    ///
+    /// Match the script bytes directly. Encoding to hex cost more than the
+    /// match itself and allowed nibble-misaligned matches; the pattern was
+    /// translated to bytes at compile time.
+    pub fn matches_script(&self, script: &[u8]) -> bool {
+        self.locking_script_regex
+            .as_ref()
+            .is_some_and(|matcher| matcher.is_match(script))
+    }
+
+    /// The bytes this collection's pattern captured as the output's identifier.
+    ///
+    /// `None` covers three different things, and the caller does not need to
+    /// tell them apart: no pattern (the broadcast collection), a pattern that
+    /// declares no `identifier` group, and a pattern that declares one but did
+    /// not match this script.
+    pub fn identifier_in<'a>(&self, script: &'a [u8]) -> Option<&'a [u8]> {
+        self.locking_script_regex
+            .as_ref()
+            .and_then(|matcher| matcher.identifier(script))
+    }
+
     pub fn match_any_locking_script(&self, tx: &Tx) -> bool {
-        if let Some(locking_script_regex) = &self.locking_script_regex {
-            for vout in &tx.outputs {
-                // Match the script bytes directly. Encoding to hex here cost
-                // more than the match itself and allowed nibble-misaligned
-                // matches; the pattern was translated to bytes at compile time.
-                if locking_script_regex.is_match(&vout.lock_script.0) {
-                    return true;
-                }
-            }
-        }
-        false
+        tx.outputs
+            .iter()
+            .any(|vout| self.matches_script(&vout.lock_script.0))
     }
 
     pub fn push(&mut self, hash: Hash256) {
