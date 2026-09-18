@@ -170,3 +170,49 @@ jobs:
 
       - name: Build images
         run: ./build.sh
+
+      # The build above only proves the Dockerfiles compile; the images were
+      # thrown away. This starts the service for real, which is the one check
+      # that catches a startup fault — `cargo test` never runs main.
+      #
+      # ~15s on top of a job that already spends 151s building these images.
+      - name: Service starts, migrates and serves
+        run: |
+          set -euo pipefail
+          # Neutralise every peer address: 192.0.2.1 is TEST-NET-1 (RFC 5737)
+          # and unroutable, so this makes no outbound connection. Rewriting the
+          # committed config rather than keeping a second copy means it cannot
+          # drift out of step with it.
+          sed -E 's/^ip = \[.*\]/ip = [ "192.0.2.1" ]/' data/uaasr.docker.toml \
+            > data/uaasr.smoke.toml
+          # Fail loudly if the substitution missed one, rather than quietly
+          # dialling a real node. Captured into a variable rather than tested
+          # with `grep -q` in a pipeline, which is not portable across shells.
+          offenders=$(grep -E '^ip = ' data/uaasr.smoke.toml | grep -v '192\.0\.2\.1' || true)
+          if [ -n "$offenders" ]; then
+            echo "a peer address was not neutralised:"
+            echo "$offenders"
+            exit 1
+          fi
+
+          # --wait blocks until uaas_backend reports healthy, and fails if
+          # uaas_migrate exits non-zero, since the backend depends on it
+          # completing successfully.
+          docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+            -p uaas-smoke up -d --wait --wait-timeout 180 uaas_backend
+
+          echo "--- uaas_migrate ---"
+          docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+            -p uaas-smoke logs uaas_migrate
+
+          body=$(curl -sf --max-time 10 http://127.0.0.1:8081/health)
+          echo "/health -> $body"
+          echo "$body" | grep -q '"status":"ok"'
+
+      - name: Smoke test teardown
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+            -p uaas-smoke logs --no-color uaas_backend || true
+          docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+            -p uaas-smoke down -v || true
