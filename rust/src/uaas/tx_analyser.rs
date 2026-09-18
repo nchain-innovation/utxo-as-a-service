@@ -567,6 +567,62 @@ mod tests {
         );
     }
 
+    // CS-421 evidence, not a design test.
+    //
+    // CS-421's acceptance criteria say utxo03's assertion is inverted because
+    // the settle is keyed on the outpoint. This test is the reason that is not
+    // so. The two things CS-421 introduces on the output path are a filter on
+    // the locking script and an identifier captured from it — and a malleated
+    // pair pays byte-identical outputs, so neither can tell the siblings apart.
+    // Whatever the filter admits for one, it admits for the other.
+    //
+    // Keying the settle on the outpoint fixes a real and different bug: a spend
+    // seen in the mempool as A and mined as its sibling B settles, where a
+    // settle keyed on the spending txid matches nothing and leaves spent_height
+    // NULL forever. That is pinned separately, against the database.
+    //
+    // The doubling needs conflict detection — TODO(UAAS-18)'s provisional
+    // identity over the prevout and output sets — and is out of scope here.
+    #[test]
+    fn utxo04_monitored_output_filtering_cannot_separate_a_malleated_pair() {
+        let prev_output = OutPoint {
+            hash: funding_tx(0x41).hash(),
+            index: 0,
+        };
+        let (tx_a, tx_b) = malleated_pair(prev_output);
+
+        // The premise: different transactions, identical outputs.
+        assert_ne!(tx_a.hash(), tx_b.hash(), "the txids must differ");
+        assert_eq!(tx_a.outputs, tx_b.outputs, "both must pay the same outputs");
+
+        // The filter CS-421 adds, over the script the pair actually pays.
+        let matcher = crate::uaas::hex_pattern::ScriptMatcher::compile(
+            "76a914(?<identifier>[0-9a-f]{40})88ac",
+        )
+        .expect("pattern compiles");
+
+        let script_a = &tx_a.outputs[0].lock_script.0;
+        let script_b = &tx_b.outputs[0].lock_script.0;
+
+        assert_eq!(
+            matcher.is_match(script_a),
+            matcher.is_match(script_b),
+            "a filter on the locking script cannot distinguish malleated siblings"
+        );
+        assert!(
+            matcher.is_match(script_a),
+            "this fixture must actually be selected, or the test proves nothing"
+        );
+        assert_eq!(
+            matcher.identifier(script_a),
+            matcher.identifier(script_b),
+            "the captured identifier is the same for both siblings"
+        );
+
+        // So both siblings' outputs are admitted, and the phantom balance
+        // utxo03 documents survives monitored-output filtering unchanged.
+    }
+
     #[test]
     fn utxo02_process_block_visits_every_transaction_and_records_the_height() {
         let Some((mut analyser, rx)) = analyser_with_live_db(
