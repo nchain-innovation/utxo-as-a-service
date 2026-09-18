@@ -379,7 +379,7 @@ mod tests {
 
     // TxAnalyser::new needs four pooled connections, so these tests need a
     // reachable server. Same convention as the schema and rest_api tests:
-    // skip when UAAS_TEST_MYSQL_URL is unset rather than fail.
+    // skip when UAAS_TEST_POSTGRES_URL is unset rather than fail.
     fn analyser_with_live_db(test_name: &str) -> Option<(TxAnalyser, Receiver<DBOperationType>)> {
         let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
             eprintln!("skipping {test_name}: UAAS_TEST_POSTGRES_URL not set");

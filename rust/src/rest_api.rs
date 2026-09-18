@@ -321,11 +321,21 @@ mod tests {
             .clone()
     }
 
+    /// A pool whose password is wrong, built *without* connecting.
+    ///
+    /// `db::build_pool` goes through `r2d2::Pool::new`, which opens one
+    /// connection eagerly and so returns `Err` on bad credentials — it can
+    /// never hand back the broken pool these tests need. This fixture used to
+    /// call it and silently skipped both tests as a result. `build_unchecked`
+    /// skips that initial connection, so the failure lands where the health
+    /// check actually meets it: at `pool.get()`.
+    ///
+    /// The short connection timeout is what keeps that failure to seconds.
+    /// r2d2 retries a failing connection until the timeout elapses, and its
+    /// default is 30 seconds.
     fn invalid_credentials_pool() -> Option<Pool> {
         let url = postgres_test_url()?;
-        // Swap whatever password the URL carries for one that is not it. The
-        // pool opens a connection eagerly, so a bad password fails here, which
-        // is what this fixture wants to hand the health check.
+        // Swap whatever password the URL carries for one that is not it.
         let bad_url = url.split_once(':').and_then(|(scheme, rest)| {
             rest.rsplit_once('@').map(|(creds, host)| {
                 let user = creds
@@ -337,7 +347,16 @@ mod tests {
             })
         })?;
         static POOL: std::sync::OnceLock<Option<Pool>> = std::sync::OnceLock::new();
-        POOL.get_or_init(|| pool_off_runtime(bad_url)).clone()
+        POOL.get_or_init(|| {
+            let config = bad_url.parse().ok()?;
+            let manager = crate::db::Manager::new(config, postgres::NoTls);
+            Some(
+                r2d2::Pool::builder()
+                    .connection_timeout(std::time::Duration::from_secs(2))
+                    .build_unchecked(manager),
+            )
+        })
+        .clone()
     }
 
     fn skip_without_postgres(test_name: &str) -> Option<Pool> {
@@ -370,8 +389,8 @@ mod tests {
         use super::*;
 
         #[test]
-        fn live_mysql_passes_health_check() {
-            let Some(pool) = skip_without_postgres("live_mysql_passes_health_check") else {
+        fn live_database_passes_health_check() {
+            let Some(pool) = skip_without_postgres("live_database_passes_health_check") else {
                 return;
             };
             check_database(&pool).expect("database health check should succeed");
