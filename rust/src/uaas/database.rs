@@ -135,9 +135,31 @@ where
 }
 
 // DBOperationType - used to identify the type of operation that the database needs to do
+/// One spend, identified by the outpoint it consumes.
+///
+/// `spending_txid` is deliberately *not* part of the identity. Pre-confirmation
+/// a txid is malleable — the same economic spend can be announced under several
+/// of them — so every statement that matches an existing row keys on
+/// `(txid, vout)` and treats the spending txid as a value to be written, never
+/// as a thing to look up by. A settle keyed on the spending txid matches
+/// nothing when a malleated sibling is the one that gets mined, and the row
+/// stays unsettled permanently.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpendRecord {
+    /// The txid of the outpoint being spent.
+    pub txid: Vec<u8>,
+    pub vout: u32,
+    /// The txid of the transaction doing the spending.
+    pub spending_txid: Vec<u8>,
+}
+
 pub enum DBOperationType {
     UtxoBatchWrite(Vec<UtxoEntryDB>),
     UtxoBatchDelete(Vec<OutPoint>),
+    /// A spend seen but not yet mined: move utxo -> utxo_spent, height NULL.
+    UtxoBatchSpend(Vec<SpendRecord>),
+    /// A spend seen in a block: settle it at that height.
+    UtxoBatchSettle(Vec<SpendRecord>, i32),
     TxBatchWrite(Vec<TxEntryWriteDB>),
     MempoolBatchDelete(Vec<Hash256>),
     MempoolBatchWrite(Vec<MempoolEntryDB>),
@@ -191,6 +213,15 @@ fn coalesce_operations(ops: Vec<DBOperationType>) -> Vec<DBOperationType> {
                 Some(DBOperationType::UtxoBatchDelete(acc)),
                 DBOperationType::UtxoBatchDelete(more),
             ) => acc.extend(more),
+            (Some(DBOperationType::UtxoBatchSpend(acc)), DBOperationType::UtxoBatchSpend(more)) => {
+                acc.extend(more)
+            }
+            // Only merged when the heights agree. Two settles at different
+            // heights are different statements and must stay ordered.
+            (
+                Some(DBOperationType::UtxoBatchSettle(acc, acc_height)),
+                DBOperationType::UtxoBatchSettle(more, more_height),
+            ) if *acc_height == more_height => acc.extend(more),
             (Some(DBOperationType::TxBatchWrite(acc)), DBOperationType::TxBatchWrite(more)) => {
                 acc.extend(more)
             }
@@ -309,6 +340,117 @@ impl Database {
                 };
                 tx.execute(&stmt, &[&&outpoint.hash.0[..], &vout])?;
             }
+            Ok(())
+        });
+    }
+
+    /// Splits spends into the three parallel arrays the set-based statements
+    /// take, dropping any whose vout will not fit the signed column.
+    fn spend_arrays(spends: &[SpendRecord]) -> (Vec<&[u8]>, Vec<i32>, Vec<&[u8]>) {
+        let mut txids = Vec::with_capacity(spends.len());
+        let mut vouts = Vec::with_capacity(spends.len());
+        let mut spending = Vec::with_capacity(spends.len());
+        for spend in spends {
+            let Some(vout) = checked::<u32, i32>(spend.vout, "output index") else {
+                continue;
+            };
+            txids.push(spend.txid.as_slice());
+            vouts.push(vout);
+            spending.push(spend.spending_txid.as_slice());
+        }
+        (txids, vouts, spending)
+    }
+
+    /// A spend seen but not yet mined: the row moves out of the spendable set
+    /// and into `utxo_spent` with a NULL `spent_height`.
+    ///
+    /// `ON CONFLICT DO NOTHING` rather than an update: a second, conflicting
+    /// spend of the same outpoint must not overwrite the first sighting. First
+    /// seen wins, and distinguishing a malleated sibling from a genuine
+    /// double-spend is CS-428, not this.
+    fn utxo_batch_spend(&mut self, spends: Vec<SpendRecord>) {
+        if spends.is_empty() {
+            return;
+        }
+        self.in_transaction("utxo batch spend", |tx| {
+            let (txids, vouts, spending) = Self::spend_arrays(&spends);
+            if txids.is_empty() {
+                return Ok(());
+            }
+            tx.execute(
+                "WITH moved AS ( \
+                     DELETE FROM utxo u \
+                     USING unnest($1::bytea[], $2::integer[], $3::bytea[]) \
+                          AS i(txid, vout, spending_txid) \
+                     WHERE u.txid = i.txid AND u.vout = i.vout \
+                     RETURNING u.txid, u.vout, u.satoshis, u.locking_script, \
+                               u.identifier, u.created_height, i.spending_txid \
+                 ) \
+                 INSERT INTO utxo_spent (txid, vout, satoshis, locking_script, \
+                                         identifier, created_height, spent_txid, spent_height) \
+                 SELECT txid, vout, satoshis, locking_script, identifier, \
+                        created_height, spending_txid, NULL \
+                 FROM moved \
+                 ON CONFLICT (txid, vout) DO NOTHING",
+                &[&txids, &vouts, &spending],
+            )?;
+            Ok(())
+        });
+    }
+
+    /// A spend seen in a block, at `height`.
+    ///
+    /// Two statements, in this order, because a spend reaches a block by one of
+    /// two routes and only one of them has a row already:
+    ///
+    /// 1. it was seen in the mempool first, so `utxo_spent` holds it with a
+    ///    NULL height — settle that row in place;
+    /// 2. it was never seen, so the outpoint is still in `utxo` — move it,
+    ///    already settled.
+    ///
+    /// **Both key on the outpoint, never on the spending txid.** A spend
+    /// announced as one txid and mined as a malleated sibling under another is
+    /// the same spend; keyed on the txid, statement 1 matches nothing and the
+    /// row keeps its NULL height for ever. Keyed on the outpoint it settles,
+    /// and `spent_txid` is corrected to the txid the block actually carried.
+    fn utxo_batch_settle(&mut self, spends: Vec<SpendRecord>, height: i32) {
+        if spends.is_empty() {
+            return;
+        }
+        self.in_transaction("utxo batch settle", |tx| {
+            let (txids, vouts, spending) = Self::spend_arrays(&spends);
+            if txids.is_empty() {
+                return Ok(());
+            }
+
+            // 1. Settle spends already recorded from the mempool.
+            tx.execute(
+                "UPDATE utxo_spent s \
+                 SET spent_height = $4, spent_txid = i.spending_txid \
+                 FROM unnest($1::bytea[], $2::integer[], $3::bytea[]) \
+                      AS i(txid, vout, spending_txid) \
+                 WHERE s.txid = i.txid AND s.vout = i.vout AND s.spent_height IS NULL",
+                &[&txids, &vouts, &spending, &height],
+            )?;
+
+            // 2. Move anything still live — the spend was never seen unmined.
+            tx.execute(
+                "WITH moved AS ( \
+                     DELETE FROM utxo u \
+                     USING unnest($1::bytea[], $2::integer[], $3::bytea[]) \
+                          AS i(txid, vout, spending_txid) \
+                     WHERE u.txid = i.txid AND u.vout = i.vout \
+                     RETURNING u.txid, u.vout, u.satoshis, u.locking_script, \
+                               u.identifier, u.created_height, i.spending_txid \
+                 ) \
+                 INSERT INTO utxo_spent (txid, vout, satoshis, locking_script, \
+                                         identifier, created_height, spent_txid, spent_height) \
+                 SELECT txid, vout, satoshis, locking_script, identifier, \
+                        created_height, spending_txid, $4 \
+                 FROM moved \
+                 ON CONFLICT (txid, vout) DO NOTHING",
+                &[&txids, &vouts, &spending, &height],
+            )?;
             Ok(())
         });
     }
@@ -502,6 +644,10 @@ impl Database {
         match op {
             DBOperationType::UtxoBatchWrite(entries) => self.utxo_batch_write(entries),
             DBOperationType::UtxoBatchDelete(deletes) => self.utxo_batch_delete(deletes),
+            DBOperationType::UtxoBatchSpend(spends) => self.utxo_batch_spend(spends),
+            DBOperationType::UtxoBatchSettle(spends, height) => {
+                self.utxo_batch_settle(spends, height)
+            }
             DBOperationType::TxBatchWrite(entries) => self.tx_batch_write(entries),
             DBOperationType::MempoolBatchWrite(entries) => self.mempool_batch_write(entries),
             DBOperationType::MempoolBatchDelete(hashes) => self.mempool_batch_delete(hashes),
@@ -634,6 +780,12 @@ mod test {
                 DBOperationType::UtxoBatchDelete(deletes) => {
                     out.extend(deletes.iter().map(|d| d.index))
                 }
+                DBOperationType::UtxoBatchSpend(spends) => {
+                    out.extend(spends.iter().map(|s| s.vout))
+                }
+                DBOperationType::UtxoBatchSettle(spends, _) => {
+                    out.extend(spends.iter().map(|s| s.vout))
+                }
                 DBOperationType::TxBatchWrite(entries) => {
                     out.extend(entries.iter().map(|e| e.blockindex))
                 }
@@ -660,6 +812,8 @@ mod test {
             .map(|op| match op {
                 DBOperationType::UtxoBatchWrite(_) => "utxo_write",
                 DBOperationType::UtxoBatchDelete(_) => "utxo_delete",
+                DBOperationType::UtxoBatchSpend(_) => "utxo_spend",
+                DBOperationType::UtxoBatchSettle(_, _) => "utxo_settle",
                 DBOperationType::TxBatchWrite(_) => "tx_write",
                 DBOperationType::MempoolBatchWrite(_) => "mempool_write",
                 DBOperationType::MempoolBatchDelete(_) => "mempool_delete",
@@ -886,6 +1040,181 @@ mod test {
                 .execute("DELETE FROM utxo WHERE txid = $1", &[&&hash_of(id).0[..]])
                 .expect("clean up fixture rows");
         }
+    }
+
+    // --- CS-421: the move-and-settle -------------------------------------
+    //
+    // These need a PostgreSQL server with the schema applied, and are skipped
+    // rather than failed without one.
+
+    /// A live utxo row, and the spend of it, over ids well clear of the other
+    /// tests'. Returns the outpoint's parts so assertions can name them.
+    fn spend_fixture(id: u32, spender: u32) -> (Vec<u8>, i32, Vec<u8>) {
+        (
+            hash_of(id).0.to_vec(),
+            i32::try_from(id).expect("fixture id fits an i32"),
+            hash_of(spender).0.to_vec(),
+        )
+    }
+
+    fn seed_live_utxo(conn: &mut crate::db::PooledConn, txid: &[u8], vout: i32) {
+        conn.execute("DELETE FROM utxo_spent WHERE txid = $1", &[&txid])
+            .expect("clear utxo_spent fixture");
+        conn.execute("DELETE FROM utxo WHERE txid = $1", &[&txid])
+            .expect("clear utxo fixture");
+        conn.execute(
+            "INSERT INTO utxo (txid, vout, satoshis, locking_script, identifier, created_height) \
+             VALUES ($1, $2, 1000, '\\x76a914', NULL, 300)",
+            &[&txid, &vout],
+        )
+        .expect("seed a live utxo row");
+    }
+
+    fn settled_state(
+        conn: &mut crate::db::PooledConn,
+        txid: &[u8],
+    ) -> Option<(Vec<u8>, Option<i32>)> {
+        conn.query_opt(
+            "SELECT spent_txid, spent_height FROM utxo_spent WHERE txid = $1",
+            &[&txid],
+        )
+        .expect("read utxo_spent")
+        .map(|row| (row.get(0), row.get(1)))
+    }
+
+    fn live_count(conn: &mut crate::db::PooledConn, txid: &[u8]) -> i64 {
+        conn.query_one("SELECT count(*) FROM utxo WHERE txid = $1", &[&txid])
+            .expect("count live rows")
+            .get(0)
+    }
+
+    fn database_for(pool: &crate::db::Pool) -> Database {
+        let (_tx, rx) = mpsc::channel();
+        Database {
+            conn: pool.get().expect("connection for the writer"),
+            rx,
+            ms_delay: 300,
+            retries: 3,
+        }
+    }
+
+    #[test]
+    fn db08_a_spend_seen_unmined_moves_the_row_and_leaves_the_height_null() {
+        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+            eprintln!("skipping db08: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db1_0001, 0x0db1_00a1);
+        seed_live_utxo(&mut conn, &txid, vout);
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_spend(vec![SpendRecord {
+            txid: txid.clone(),
+            vout: u32::try_from(vout).expect("vout fits"),
+            spending_txid: spender.clone(),
+        }]);
+
+        assert_eq!(
+            live_count(&mut conn, &txid),
+            0,
+            "the outpoint must leave the spendable set"
+        );
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((spender, None)),
+            "it must be recorded as spent but unmined"
+        );
+    }
+
+    // The reason every statement keys on the outpoint.
+    //
+    // A spend is announced as txid A and reaches the mempool. The block then
+    // carries its malleated sibling B — same outpoint, same outputs, different
+    // unlocking script, different txid. Keyed on the outpoint the row settles
+    // and spent_txid is corrected to B. Keyed on the spending txid it would
+    // match nothing and keep its NULL height for ever, which is the failure
+    // this test exists to make impossible to reintroduce.
+    #[test]
+    fn db09_the_settle_is_keyed_on_the_outpoint_not_the_spending_txid() {
+        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+            eprintln!("skipping db09: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, announced) = spend_fixture(0x0db1_0002, 0x0db1_00a2);
+        // The sibling that actually gets mined, under a different txid.
+        let mined = hash_of(0x0db1_00b2).0.to_vec();
+        assert_ne!(announced, mined, "the siblings must have different txids");
+
+        seed_live_utxo(&mut conn, &txid, vout);
+
+        let mut database = database_for(&pool);
+        let vout_u32 = u32::try_from(vout).expect("vout fits");
+
+        // Seen in the mempool as A.
+        database.utxo_batch_spend(vec![SpendRecord {
+            txid: txid.clone(),
+            vout: vout_u32,
+            spending_txid: announced.clone(),
+        }]);
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((announced, None)),
+            "the mempool sighting is recorded unmined"
+        );
+
+        // Mined as B.
+        database.utxo_batch_settle(
+            vec![SpendRecord {
+                txid: txid.clone(),
+                vout: vout_u32,
+                spending_txid: mined.clone(),
+            }],
+            301,
+        );
+
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((mined, Some(301))),
+            "the settle must match on the outpoint and correct the spending txid"
+        );
+    }
+
+    // The other route into a block: the spend was never seen unmined, so the
+    // outpoint is still live and statement 2 moves it already settled.
+    #[test]
+    fn db10_a_spend_never_seen_unmined_is_moved_and_settled_in_one_step() {
+        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+            eprintln!("skipping db10: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db1_0003, 0x0db1_00a3);
+        seed_live_utxo(&mut conn, &txid, vout);
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_settle(
+            vec![SpendRecord {
+                txid: txid.clone(),
+                vout: u32::try_from(vout).expect("vout fits"),
+                spending_txid: spender.clone(),
+            }],
+            302,
+        );
+
+        assert_eq!(live_count(&mut conn, &txid), 0, "the row must move");
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((spender, Some(302))),
+            "and arrive already settled at the block height"
+        );
     }
 
     #[test]
