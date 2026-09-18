@@ -61,22 +61,32 @@ docker compose stop uaas_backend uaas_web
 
 ### 2. Truncate the affected tables
 
-Dialect: **MariaDB 11.4**. `TRUNCATE TABLE` is DDL — it is not transactional
-and cannot be rolled back. Take a dump first if the `blocks` table is
-expensive to rebuild.
+Dialect: **PostgreSQL 17**. Unlike MariaDB, where `TRUNCATE` is DDL that
+commits implicitly and cannot be rolled back, PostgreSQL's DDL is transactional
+— wrap these in `BEGIN`/`COMMIT` and a mistake is recoverable with `ROLLBACK`
+until you commit. Take a dump anyway if the `blocks` table is expensive to
+rebuild.
 
 ```sql
+BEGIN;
 TRUNCATE TABLE utxo;
 TRUNCATE TABLE mempool;
 TRUNCATE TABLE blocks;
 TRUNCATE TABLE tx;      -- only if save_txs = true
+COMMIT;
 ```
 
-`blocks` and `tx` must go too, not just `utxo`. The writer inserts them with a
-plain `INSERT` against a primary key on `hash` (`database.rs:285` and `:170`),
-so replaying the same blocks into a populated table fails on duplicate keys.
-`utxo` is the exception — it uses `REPLACE INTO` (`database.rs:127`) and is
-idempotent on its own.
+`TRUNCATE` takes an `ACCESS EXCLUSIVE` lock on each table, so nothing can read
+them while the transaction is open. That is why the service is stopped first
+rather than relying on the lock to serialise against it.
+
+Truncating `blocks` and `tx` is now a choice rather than a requirement. Under
+MariaDB the writer used a plain `INSERT` against the primary key on `hash`, so
+replaying a block into a populated table failed on a duplicate key. Every
+insert on this path is now `ON CONFLICT (hash) DO NOTHING`
+(`database.rs:322`, `:429`), and `utxo` is `ON CONFLICT (txid, vout) DO UPDATE`
+(`database.rs:267`), so a replay is idempotent. Truncate them to rebuild from
+nothing; leave them to replay over what is there.
 
 Leave `collection` alone unless the collection definitions have changed; it is
 keyed independently of block height.

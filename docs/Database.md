@@ -1,10 +1,10 @@
 # Database
 
-> **Migration in progress.** The indexer still reads and writes MariaDB, and
-> everything below describes that. A PostgreSQL service now runs alongside it
-> with the target schema applied, but nothing reads from it yet. The section
-> immediately below describes the new arrangement; the rest of this document is
-> the current one.
+> **Two engines, for now.** The Rust indexer reads and writes **PostgreSQL**;
+> that is the first section below. The Python REST API has not been moved yet
+> and still reads **MariaDB**, which nothing writes to any more — so it serves
+> whatever was last written there. The MariaDB section is kept for that reason
+> and goes away with the Python data layer.
 
 ## Schema and migrations (PostgreSQL)
 
@@ -69,9 +69,13 @@ Never edit a file that has already been applied anywhere.
 
 ---
 
-## MariaDB (current)
+## MariaDB (Python REST API only)
 
-This section describes the commands to setup and run MySQL in a Docker image.
+Nothing in the Rust service speaks to this any more. It remains because the
+Python REST API reads it, and it is removed when that moves to PostgreSQL.
+
+This section describes the commands to set up and run MySQL in a Docker image
+by hand; `docker-compose up` does all of it for you.
 
 These steps are taken from  https://bitbucket.stressedsharks.com/projects/SDL/repos/utxo-identity/browse/UsersDB/dbschema?at=refs%2Fheads%2Fadd_tx
 
@@ -197,7 +201,7 @@ docker start my-sql
 
 ## Docker Compose MariaDB tuning
 
-`docker-compose up` mounts `docker/mariadb/99-uaas.cnf` into the MariaDB container. It sets InnoDB options tuned for UaaS sync and REST workloads:
+`docker-compose up` mounts `docker/mariadb/99-uaas.cnf` into the MariaDB container. It sets InnoDB options tuned for what used to be the indexer's write pattern; with the indexer on PostgreSQL only the Python REST API's reads remain, so these are now over-provisioned rather than wrong:
 
 * `innodb_buffer_pool_size = 512M` — increase on dedicated hosts (typically 50–70% of RAM)
 * `innodb_flush_log_at_trx_commit = 2` — faster writes with a small durability trade-off (appropriate for an indexer)

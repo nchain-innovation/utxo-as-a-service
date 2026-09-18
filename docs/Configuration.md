@@ -72,15 +72,15 @@ Information used to configure the Rust database connection
 ```toml
 [database]
 
-mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-mysql_url_docker = "mysql://uaas:uaas-password@host.docker.internal:3306/uaas_db"
+postgres_url = "postgresql://uaas:uaas-password@localhost:5433/uaas_db"
+postgres_url_docker = "postgresql://uaas:uaas-password@postgres:5432/uaas_db"
 
 ms_delay = 300
 retries = 6
 ```
 
-* `mysql_url` - this is the url of the database, this is used by the Rust service on the local machine
-* `mysql_url_docker` - as `mysql_url` but for use in a Docker container
+* `postgres_url` - libpq connection URL for the database, used by the Rust service on the local machine
+* `postgres_url_docker` - as `postgres_url` but for use in a Docker container, where the host is the compose service name and the port is the container's own, not the published one
 * `ms_delay` - if a datase connection fails, this is the delay before retrying in milliseconds.
 * `retries` - this is the number of times to retry a database connection before declaring the connection broken.
 

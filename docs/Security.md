@@ -8,7 +8,8 @@ UaaS exposes HTTP APIs and a database that were designed for trusted network env
 |---------|--------------|-------|
 | Python REST API | 5010 | Query UTXO data, broadcast transactions, manage monitors |
 | Rust REST API | 8081 | Used internally by Python; also accepts broadcast and monitor changes |
-| MariaDB | 3307 (compose) | Stores blocks, UTXO set, collections |
+| PostgreSQL | 5433 (compose) | Stores blocks, UTXO set, collections |
+| MariaDB | 3307 (compose) | Read by the Python REST API only |
 | Adminer (compose) | 8080 | Database admin UI with no built-in authentication |
 
 **Recommendations:**
