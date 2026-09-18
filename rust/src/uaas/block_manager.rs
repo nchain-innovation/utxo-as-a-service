@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use mysql::{prelude::*, PooledConn};
+use crate::db::PooledConn;
 
 use chain_gang::{
     messages::{Block, BlockHeader, Payload},
@@ -23,18 +23,24 @@ use crate::{
 };
 
 // database header structure
+/// A row of the `blocks` table as it is stored.
+///
+/// Every field takes the column's own type. The columns are signed because
+/// PostgreSQL has no unsigned integers, and hashes are raw `bytea` rather than
+/// hex, so this no longer mirrors the in-memory header's unsigned fields —
+/// the conversion happens where the row is turned into a `BlockHeader`.
 struct DBHeader {
-    height: u32,
-    _hash: String,
-    version: u32,
-    prev_hash: String,
-    merkle_root: String,
-    timestamp: u32,
-    bits: u32,
-    nonce: u32,
-    _position: u64,
-    _blocksize: u32,
-    _numtxs: u32,
+    height: i32,
+    _hash: Vec<u8>,
+    version: i32,
+    prev_hash: Vec<u8>,
+    merkle_root: Vec<u8>,
+    timestamp: i32,
+    bits: i32,
+    nonce: i32,
+    _position: i64,
+    _blocksize: i32,
+    _numtxs: i32,
 }
 
 // Used to record the block with a position in the block file
@@ -80,14 +86,33 @@ impl BlockManager {
         }
     }
 
-    fn decode_stored_hash(label: &str, value: &str) -> Option<Hash256> {
-        match Hash256::decode(value) {
-            Ok(hash) => Some(hash),
-            Err(err) => {
-                log::error!("Invalid {label} hash {value}: {err:?}");
+    /// Stored hashes are raw `bytea` now, so this checks the length rather
+    /// than parsing hex.
+    fn decode_stored_hash(label: &str, value: &[u8]) -> Option<Hash256> {
+        match <[u8; 32]>::try_from(value) {
+            Ok(bytes) => Some(Hash256(bytes)),
+            Err(_) => {
+                log::error!(
+                    "Stored {label} is {} bytes, expected 32; row skipped",
+                    value.len()
+                );
                 None
             }
         }
+    }
+
+    /// Widens a stored signed column back to the unsigned field the in-memory
+    /// header uses.
+    ///
+    /// A negative value here means the column holds something this service did
+    /// not write, so the row is skipped rather than wrapped into a huge
+    /// unsigned number.
+    fn unsigned_from_column(label: &str, value: i32) -> Option<u32> {
+        u32::try_from(value)
+            .map_err(|_| {
+                log::error!("Stored {label} is negative ({value}); row skipped");
+            })
+            .ok()
     }
 
     pub fn new(
@@ -118,106 +143,34 @@ impl BlockManager {
         })
     }
 
-    fn create_tables(&mut self) {
-        // Create tables, if required
-        // Check for the tables
-        let tables: Vec<String> = match self.conn.query(
-            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';",
-        ) {
-            Ok(tables) => tables,
-            Err(err) => {
-                log::error!("Unable to list database tables: {err:?}");
-                return;
-            }
-        };
-
-        if !tables.iter().any(|x| x.as_str() == "blocks") {
-            log::info!("Table blocks not found - creating");
-            if let Err(err) = self.conn.query_drop(
-                r"CREATE TABLE blocks (
-                    height int unsigned not null,
-                    hash varchar(64) not null,
-                    version int unsigned not null,
-                    prev_hash varchar(64) not null,
-                    merkle_root varchar(64) not null,
-                    timestamp int unsigned not null,
-                    bits int unsigned not null,
-                    nonce int unsigned not null,
-                    `offset` bigint unsigned not null,
-                    blocksize int unsigned not null,
-                    numtxs int unsigned not null,
-                    CONSTRAINT PK_Entry PRIMARY KEY (hash));",
-            ) {
-                log::error!("Unable to create blocks table: {err:?}");
-                return;
-            }
-            if let Err(err) = self
-                .conn
-                .query_drop(r"CREATE INDEX IF NOT EXISTS idx_blocks_height ON blocks (height);")
-            {
-                log::error!("Unable to create blocks height index: {err:?}");
-            }
-        }
-
-        if !tables.iter().any(|x| x.as_str() == "orphans") {
-            log::info!("Table orphans not found - creating");
-            if let Err(err) = self.conn.query_drop(
-                r"CREATE TABLE orphans (
-                    height int unsigned not null,
-                    hash varchar(64) not null,
-                    version int unsigned not null,
-                    prev_hash varchar(64) not null,
-                    merkle_root varchar(64) not null,
-                    timestamp int unsigned not null,
-                    bits int unsigned not null,
-                    nonce int unsigned not null,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);",
-            ) {
-                log::error!("Unable to create orphans table: {err:?}");
-            }
-        }
-
-        // Disable safe mode... wa ha ha - what could possibly go wrong?
-        if let Err(err) = self.conn.query_drop("SET sql_safe_updates=0;") {
-            log::warn!("Unable to disable sql_safe_updates: {err:?}");
-        }
-    }
-
     fn load_blockheaders_from_database(&mut self) {
         // load headers from database
         let start = Instant::now();
 
-        let headers: Vec<DBHeader> = match self.conn.query_map(
-            "SELECT * FROM blocks ORDER BY height asc",
-            |(
-                height,
-                _hash,
-                version,
-                prev_hash,
-                merkle_root,
-                timestamp,
-                bits,
-                nonce,
-                position,
-                _blocksize,
-                _numtxs,
-            )| {
-                DBHeader {
-                    height,
-                    _hash,
-                    version,
-                    prev_hash,
-                    merkle_root,
-                    timestamp,
-                    bits,
-                    nonce,
-                    _position: position,
-                    _blocksize,
-                    _numtxs,
-                }
-            },
+        // Named columns rather than SELECT *: positional decoding silently
+        // shifts when a migration adds a column.
+        let headers: Vec<DBHeader> = match self.conn.query(
+            "SELECT height, hash, version, prev_hash, merkle_root, block_time, bits, nonce, \
+                    file_offset, blocksize, numtxs \
+             FROM blocks ORDER BY height ASC",
+            &[],
         ) {
-            Ok(headers) => headers,
+            Ok(rows) => rows
+                .iter()
+                .map(|row| DBHeader {
+                    height: row.get(0),
+                    _hash: row.get(1),
+                    version: row.get(2),
+                    prev_hash: row.get(3),
+                    merkle_root: row.get(4),
+                    timestamp: row.get(5),
+                    bits: row.get(6),
+                    nonce: row.get(7),
+                    _position: row.get(8),
+                    _blocksize: row.get(9),
+                    _numtxs: row.get(10),
+                })
+                .collect(),
             Err(err) => {
                 log::error!("Unable to load block headers from database: {err:?}");
                 return;
@@ -231,19 +184,29 @@ impl BlockManager {
             let Some(merkle_root) = Self::decode_stored_hash("merkle_root", &b.merkle_root) else {
                 continue;
             };
+            let (Some(version), Some(timestamp), Some(bits), Some(nonce), Some(height)) = (
+                Self::unsigned_from_column("block version", b.version),
+                Self::unsigned_from_column("block timestamp", b.timestamp),
+                Self::unsigned_from_column("block bits", b.bits),
+                Self::unsigned_from_column("block nonce", b.nonce),
+                Self::unsigned_from_column("block height", b.height),
+            ) else {
+                continue;
+            };
+
             let block_header = BlockHeader {
-                version: b.version,
+                version,
                 prev_hash,
                 merkle_root,
-                timestamp: b.timestamp,
-                bits: b.bits,
-                nonce: b.nonce,
+                timestamp,
+                bits,
+                nonce,
             };
             // Store the block header
             let hash = block_header.hash();
-            self.hash_to_index.insert(hash, b.height);
+            self.hash_to_index.insert(hash, height);
             self.block_headers.push(block_header);
-            self.height = b.height + 1;
+            self.height = height + 1;
         }
         log::info!(
             "Loaded {} headers in {} seconds",
@@ -456,8 +419,6 @@ impl BlockManager {
 
     pub fn setup(&mut self, tx_analyser: &mut TxAnalyser) {
         // Does all the startup stuff a BlockManager needs to do
-        self.create_tables();
-        super::schema::ensure_performance_indexes(&mut self.conn);
         if self.startup_load_from_database {
             self.load_blockheaders_from_database();
             // Set the status - note that the height is updated by the load_blockheaders_from_database method

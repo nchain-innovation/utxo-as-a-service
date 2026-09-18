@@ -1,7 +1,5 @@
 use std::{sync::mpsc, thread};
 
-use mysql::{Pool, PooledConn};
-
 use chain_gang::{
     messages::{Addr, Block, BlockLocator, Headers, Inv, InvVect, Message, Tx},
     util::Hash256,
@@ -9,6 +7,7 @@ use chain_gang::{
 
 use crate::{
     config::Config,
+    db::{Pool, PooledConn},
     thread_util::catch_unwind_logged,
     uaas::{
         address_manager::AddressManager, block_manager::BlockManager, connection::Connection,
@@ -59,7 +58,7 @@ pub struct Logic {
 
 impl Logic {
     fn pool_conn(pool: &Pool, label: &str) -> Result<PooledConn, String> {
-        pool.get_conn().map_err(|err| {
+        pool.get().map_err(|err| {
             log::error!("Unable to get {label} database connection: {err:?}");
             format!("Unable to get {label} database connection")
         })

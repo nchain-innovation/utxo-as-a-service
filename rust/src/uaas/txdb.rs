@@ -5,10 +5,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use chain_gang::messages::{Block, Payload, Tx};
 use chain_gang::util::{Hash256, Serializable};
 
-use super::hexslice::HexSlice;
-
-use mysql::prelude::*;
-use mysql::PooledConn;
+use crate::db::PooledConn;
 
 use super::database::{DBOperationType, MempoolEntryDB, TxEntryWriteDB};
 
@@ -78,54 +75,21 @@ impl TxDB {
         }
     }
 
-    pub fn create_tx_table(&mut self) {
-        // Create tx table
-        log::info!("Table tx not found - creating");
-        if let Err(err) = self.conn.query_drop(
-            r"CREATE TABLE tx (
-                hash varchar(64) not null,
-                height int unsigned not null,
-                blockindex int unsigned not null,
-                txsize int unsigned not null,
-                satoshis bigint unsigned not null,
-                CONSTRAINT PK_Entry PRIMARY KEY (hash));",
-        ) {
-            log::error!("Unable to create tx table: {err:?}");
-            return;
-        }
-
-        if let Err(err) = self.conn.query_drop(
-            r"CREATE INDEX IF NOT EXISTS idx_tx_height_blockindex ON tx (height, blockindex);",
-        ) {
-            log::error!("Unable to create tx height index: {err:?}");
-        }
-    }
-
-    pub fn create_mempool_table(&mut self) {
-        log::info!("Table mempool not found - creating");
-        if let Err(err) = self.conn.query_drop(
-            r"CREATE TABLE mempool (
-                hash varchar(64) not null,
-                locktime int unsigned not null,
-                fee bigint unsigned not null,
-                time int unsigned not null,
-                tx longtext not null,
-                CONSTRAINT PK_Mempool PRIMARY KEY (hash))",
-        ) {
-            log::error!("Unable to create mempool table: {err:?}");
-        }
-        // Note that tx longtext should be good for 4GB txs
-    }
-
     pub fn load_tx(&mut self) {
         // Load tx - (tx hash and height) from database
         let start = Instant::now();
 
-        let txs: Vec<TxEntryDB> = match self.conn.query_map(
-            "SELECT hash, height FROM tx ORDER BY height",
-            |(hash, height)| TxEntryDB { hash, height },
-        ) {
-            Ok(txs) => txs,
+        let txs: Vec<TxEntryDB> = match self
+            .conn
+            .query("SELECT hash, height FROM tx ORDER BY height", &[])
+        {
+            Ok(rows) => rows
+                .iter()
+                .map(|row| TxEntryDB {
+                    hash: row.get(0),
+                    height: row.get(1),
+                })
+                .collect(),
             Err(err) => {
                 log::error!("Unable to load txs from database: {err:?}");
                 return;
@@ -149,12 +113,15 @@ impl TxDB {
         // load mempool - tx hash and height from database
         let start = Instant::now();
 
+        // `time` became `seen_at`, a timestamptz rather than a unix integer.
         let txs: Vec<MempoolEntryReadDB> = match self
             .conn
-            .query_map("SELECT hash FROM mempool ORDER BY time", |hash| {
-                MempoolEntryReadDB { _hash: hash }
-            }) {
-            Ok(txs) => txs,
+            .query("SELECT hash FROM mempool ORDER BY seen_at", &[])
+        {
+            Ok(rows) => rows
+                .iter()
+                .map(|row| MempoolEntryReadDB { _hash: row.get(0) })
+                .collect(),
             Err(err) => {
                 log::error!("Unable to load mempool from database: {err:?}");
                 return;
@@ -281,14 +248,13 @@ impl TxDB {
             self.mempool.remove(&hash);
             return;
         }
-        let tx_hex = format!("{}", HexSlice::new(&b));
-
+        // Raw bytes: the column is `bytea`, not hex in a `longtext`.
         let mempool_entry = MempoolEntryDB {
             hash,
             locktime: tx.lock_time,
             fee,
             age,
-            tx: tx_hex,
+            tx: b,
         };
 
         self.mempool_entries.push(mempool_entry);

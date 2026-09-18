@@ -12,7 +12,7 @@ This document defines systems requirements for **UTXO as a Service (UaaS)** and 
 UaaS indexes the Bitcoin SV (BSV) blockchain by:
 
 1. Connecting to BSV peer nodes over P2P (Rust service).
-2. Maintaining blocks, transactions, mempool, and UTXO state in MariaDB/MySQL.
+2. Maintaining blocks, transactions, mempool, and UTXO state in PostgreSQL.
 3. Exposing query, broadcast, and collection-monitor APIs via a Python FastAPI layer.
 
 ---
@@ -37,7 +37,7 @@ UaaS indexes the Bitcoin SV (BSV) blockchain by:
 |----|-------------|-------|
 | CFG-01 | Load configuration from TOML | AUT-R `cfg01_reads_config_from_toml_file`; AUT-P `test_cfg01_loads_valid_toml` |
 | CFG-02 | Fail fast on missing/invalid config | AUT-P `test_cfg02_rejects_missing_service_section`, `test_cfg02_rejects_invalid_rate_limit` |
-| CFG-03 | Use `mysql_url_docker` when `APP_ENV=docker` | AUT-R `cfg03_uses_docker_mysql_url_when_app_env_set` |
+| CFG-03 | Use `postgres_url_docker` when `APP_ENV=docker` | AUT-R `cfg03_uses_docker_postgres_url_when_app_env_set` |
 | CFG-04 | Read active network settings (IPs, ports) | AUT-R `cfg04_reads_active_network_port_and_ips`; AUT-P `test_cfg04_reads_active_network_settings` |
 | CFG-05 | Load static `[[collection]]` monitors | AUT-P `test_cfg05_loads_static_collections`; AUT-I `test_get_collections` |
 | CFG-06 | Persist dynamic monitors to configured file | AUT-R `cfg06_add_monitor_persists_to_dynamic_config_file`; AUT-P `test_cfg06_loads_dynamic_monitors_from_file` |
@@ -146,9 +146,10 @@ UaaS indexes the Bitcoin SV (BSV) blockchain by:
 ## 4. Running verification
 
 ```bash
-# Rust
-export UAAS_TEST_MYSQL_URL=mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
-cd rust && cargo fmt --check && cargo clippy && cargo test
+# Rust. The database tests need the schema applied; they do not create tables.
+export UAAS_TEST_POSTGRES_URL=postgresql://uaas:uaas-password@127.0.0.1:5433/uaas_test_db
+cd rust && cargo run -- migrate "$UAAS_TEST_POSTGRES_URL"
+cargo fmt --check && cargo clippy && cargo test
 
 # Python unit + smoke + source-contract + CI checks
 uv sync --all-groups

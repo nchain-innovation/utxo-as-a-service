@@ -6,11 +6,9 @@ use std::time::Instant;
 use chain_gang::messages::OutPoint;
 use chain_gang::util::Hash256;
 
-use mysql::prelude::*;
-use mysql::PooledConn;
-// use mysql::*;
+use crate::db::PooledConn;
 
-use super::database::{DBOperationType, UtxoEntryDB};
+use super::database::{height_from_sql, DBOperationType, UtxoEntryDB};
 
 // Used to store the unspent txs (UTXO)
 #[derive(Clone)]
@@ -18,8 +16,10 @@ pub struct UtxoEntry {
     satoshis: i64,
     // lock_script: Script, - have seen some very large script lengths here - removed for now
     height: i32, // use NOT_IN_BLOCK -1 to indicate that tx is not in block
-    #[allow(dead_code)] // pubkeyhash
-    pubkeyhash: String,
+    /// Bytes identifying what selected this output. `None` when the pattern
+    /// declared no identifier.
+    #[allow(dead_code)]
+    identifier: Option<Vec<u8>>,
 }
 
 // provides access to utxo state and wraps interface to utxo table
@@ -46,11 +46,16 @@ impl Utxo {
         }
     }
 
-    fn decode_stored_hash(value: &str) -> Option<Hash256> {
-        match Hash256::decode(value) {
-            Ok(hash) => Some(hash),
-            Err(err) => {
-                log::error!("Invalid stored utxo hash {value}: {err:?}");
+    /// Stored txids are raw `bytea` now, not 64-character hex, so this checks
+    /// the length rather than parsing.
+    fn decode_stored_hash(value: &[u8]) -> Option<Hash256> {
+        match <[u8; 32]>::try_from(value) {
+            Ok(bytes) => Some(Hash256(bytes)),
+            Err(_) => {
+                log::error!(
+                    "Stored utxo txid is {} bytes, expected 32; row skipped",
+                    value.len()
+                );
                 None
             }
         }
@@ -66,58 +71,43 @@ impl Utxo {
         }
     }
 
-    pub fn create_table(&mut self) {
-        // Create Utxo table
-        // utxo
-        log::info!("Table utxo not found - creating");
-        if let Err(err) = self.conn.query_drop(
-            r"CREATE TABLE utxo (
-                hash varchar(64) not null,
-                pos int unsigned not null,
-                satoshis bigint unsigned not null,
-                height int not null,
-                pubkeyhash varchar(64),
-                CONSTRAINT PK_Entry PRIMARY KEY (hash, pos));",
-        ) {
-            log::error!("Unable to create utxo table: {err:?}");
-            return;
-        }
-
-        if let Err(err) = self
-            .conn
-            .query_drop(r"CREATE INDEX IF NOT EXISTS speed_key ON utxo (pubkeyhash);")
-        {
-            log::error!("Unable to create utxo pubkeyhash index: {err:?}");
-        }
-
-        if let Err(err) = self
-            .conn
-            .query_drop(r"CREATE INDEX IF NOT EXISTS idx_utxo_height ON utxo (height);")
-        {
-            log::error!("Unable to create utxo height index: {err:?}");
-        }
-    }
-
     pub fn load_utxo(&mut self) {
         // load outpoints from database
         let start = Instant::now();
 
-        let txs: Vec<UtxoEntryDB> = match self.conn.query_map(
-            "SELECT * FROM utxo",
-            |(hash, pos, satoshis, height, pubkeyhash)| UtxoEntryDB {
-                hash,
-                pos,
-                satoshis,
-                height,
-                pubkeyhash,
-            },
+        // Named columns rather than SELECT *: positional decoding breaks
+        // silently when a migration adds a column, and the new table has more
+        // of them than this reads.
+        let rows = match self.conn.query(
+            "SELECT txid, vout, satoshis, identifier, created_height FROM utxo",
+            &[],
         ) {
-            Ok(txs) => txs,
+            Ok(rows) => rows,
             Err(err) => {
                 log::error!("Unable to load utxo from database: {err:?}");
                 return;
             }
         };
+
+        let txs: Vec<UtxoEntryDB> = rows
+            .iter()
+            .filter_map(|row| {
+                let vout: i32 = row.get(1);
+                // vout is non-negative by construction; a negative one would
+                // mean the column had been written by something else.
+                let Ok(pos) = u32::try_from(vout) else {
+                    log::error!("Stored utxo vout {vout} is negative; row skipped");
+                    return None;
+                };
+                Some(UtxoEntryDB {
+                    hash: row.get(0),
+                    pos,
+                    satoshis: row.get(2),
+                    identifier: row.get(3),
+                    height: height_from_sql(row.get(4)),
+                })
+            })
+            .collect();
 
         // Load entries into utxo struct
         for entry in txs {
@@ -132,7 +122,7 @@ impl Utxo {
             let utxo_entry = UtxoEntry {
                 satoshis: entry.satoshis,
                 height: entry.height,
-                pubkeyhash: entry.pubkeyhash,
+                identifier: entry.identifier,
             };
             // add to list
             self.utxo.insert(outpoint, utxo_entry);
@@ -168,22 +158,38 @@ impl Utxo {
             index: index_u32,
         };
 
+        // `pubkeyhash` arrives as hex from script_to_pubkeyhash and the column
+        // is now `bytea`. An empty string means the script was not p2pkh, which
+        // is NULL rather than an empty identifier. CS-421 replaces this with
+        // the matching pattern's named capture.
+        let identifier = if pubkeyhash.is_empty() {
+            None
+        } else {
+            match hex::decode(pubkeyhash) {
+                Ok(bytes) => Some(bytes),
+                Err(err) => {
+                    log::error!("Unable to decode pubkeyhash {pubkeyhash}: {err:?}");
+                    None
+                }
+            }
+        };
+
         let new_entry = UtxoEntry {
             satoshis,
             // lock_script: vout.lock_script.clone(),
             height,
-            pubkeyhash: pubkeyhash.to_string(),
+            identifier: identifier.clone(),
         };
         // add to utxo list
         self.utxo.insert(outpoint.clone(), new_entry);
 
         // Record for batch write to utxo table
         let utxo_entry = UtxoEntryDB {
-            hash: hash.encode(),
+            hash: hash.0.to_vec(),
             pos: index_u32,
             satoshis,
             height,
-            pubkeyhash: pubkeyhash.to_string(),
+            identifier,
         };
         self.utxo_entries.insert(outpoint, utxo_entry);
     }

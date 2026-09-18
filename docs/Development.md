@@ -14,11 +14,15 @@ cd rust
 cargo test
 ```
 
-Some tests need a MariaDB server and are skipped, not failed, when
-`UAAS_TEST_MYSQL_URL` is unset. Point it at a throwaway database — these tests
-write to, and delete from, the tables they use:
+Some tests need a PostgreSQL server and are skipped, not failed, when
+`UAAS_TEST_POSTGRES_URL` is unset. Point it at a throwaway database — these
+tests write to, and delete from, the tables they use:
 ```bash
-export UAAS_TEST_MYSQL_URL=mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
+export UAAS_TEST_POSTGRES_URL=postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_test_db
+cd rust
+# The tests no longer create their own tables: the migrations own the schema.
+# Without this they fail on a missing relation rather than skipping.
+cargo run -- migrate "$UAAS_TEST_POSTGRES_URL"
 cargo test
 ```
 

@@ -1,0 +1,31 @@
+# Overrides for the startup smoke test, used by CI and runnable by hand:
+#
+#   sed -E 's/^ip = \[.*\]/ip = [ "192.0.2.1" ]/' data/uaasr.docker.toml \
+#     > data/uaasr.smoke.toml
+#   docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+#     -p uaas-smoke up -d --wait uaas_backend
+#   curl -sf http://127.0.0.1:8081/health
+#   docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+#     -p uaas-smoke down -v
+#
+# Naming uaas_backend brings up postgres and uaas_migrate with it and nothing
+# else: MariaDB, adminer and the Python web API are not part of this check.
+services:
+  postgres:
+    # A named volume rather than the ./data/postgres bind mount, so `down -v`
+    # actually removes it and each run starts from an empty data directory —
+    # which is also the only condition under which the roles-and-databases init
+    # script runs at all.
+    volumes:
+      - smoke_pgdata:/var/lib/postgresql/data
+      - ./init_database/postgres:/docker-entrypoint-initdb.d/:ro
+
+  uaas_backend:
+    # The peer address in this config is unroutable, so the service starts,
+    # migrates and serves without reaching any real node. Startup is what is
+    # under test here, not block download.
+    volumes:
+      - ./data/uaasr.smoke.toml:/app/data/uaasr.toml:ro
+
+volumes:
+  smoke_pgdata:

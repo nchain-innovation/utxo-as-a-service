@@ -32,9 +32,8 @@ services:
         - ./init_database:/docker-entrypoint-initdb.d/:ro
         - ./docker/mariadb/99-uaas.cnf:/etc/mysql/mariadb.conf.d/99-uaas.cnf:ro
 
-  # PostgreSQL — inert for now. The service still reads and writes MariaDB;
-  # this exists so the schema in rust/migrations/ and `uaas migrate` can be
-  # exercised against the engine they target, ahead of the data-layer swap.
+  # PostgreSQL — the Rust service's data store. The Python web API still reads
+  # MariaDB below, so until that is swapped over it serves stale data.
   postgres:
     container_name: uaas_postgres
     image: postgres:17
@@ -67,10 +66,38 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports:
       - 8080:8080
     networks:
       - uaas_network
+
+  # Schema migration — runs to completion, then exits.
+  #
+  # A separate one-shot service rather than something folded into the backend's
+  # entrypoint, because that is the shape a deploy wants: migrate once, then
+  # start however many service replicas. The backend refuses to start against a
+  # schema version it does not recognise, so this has to succeed first.
+  #
+  # The init script mounted into the postgres container creates roles and
+  # databases only; it can never apply the schema, because anything in
+  # /docker-entrypoint-initdb.d/ runs only on an empty data directory.
+  uaas_migrate:
+    container_name: uaas_migrate
+    image: uaas-service
+    networks:
+      - uaas_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # `uaas migrate` reads this when given no URL argument. Local development
+      # credentials, the same ones in data/uaasr.docker.toml.
+      UAAS_POSTGRES_URL: ${UAAS_POSTGRES_URL:-postgresql://uaas:uaas-password@postgres:5432/uaas_db}
+    command: ["/app/bin/uaas", "migrate"]
+    # One shot: a restart policy would re-run it on every exit.
+    restart: "no"
 
   # UaaS backend
   uaas_backend:
@@ -81,8 +108,10 @@ services:
     networks:
       - uaas_network
     depends_on:
-      database:
+      postgres:
         condition: service_healthy
+      uaas_migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8081/health"]
       interval: 10s
@@ -94,7 +123,8 @@ services:
       - ./data/uaasr.docker.toml:/app/data/uaasr.toml:ro
     restart: on-failure
 
-  # UaaS web API
+  # UaaS web API — still on MariaDB, which nothing writes to any more, so its
+  # responses are stale until the Python data layer is swapped over too.
   uaas_web:
     container_name: uaas_web
     image: uaas-web

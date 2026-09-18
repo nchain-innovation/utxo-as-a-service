@@ -79,8 +79,8 @@ save_blocks = false
 save_txs = false
 
 [database]
-mysql_url = "mysql://uaas:uaas-password@localhost:3306/uaas_db"
-mysql_url_docker = "mysql://uaas:uaas-password@database:3306/uaas_db"
+postgres_url = "postgresql://uaas:uaas-password@localhost:5432/uaas_db"
+postgres_url_docker = "postgresql://uaas:uaas-password@postgres:5432/uaas_db"
 
 ms_delay = 300
 retries = 6

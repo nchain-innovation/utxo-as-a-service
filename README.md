@@ -3,7 +3,7 @@
  The UTXO as a Service (UaaS) monitors BSV Node Peer to Peer (P2P) messages and builds its own UTXO set that can be queried to obtain non-standard transactions.
 
 This service is implemented in Rust with a Python REST API web interface.
-The two components read the same configuration file and share data using a MySQL-compatible database (MariaDB in Docker Compose) and a shared data directory.
+The two components read the same configuration file and a shared data directory. The Rust indexer stores its data in **PostgreSQL**; the Python REST API still reads MariaDB, so until it is moved across it serves whatever was last written there rather than current data.
 The diagram also shows the Docker containers that make up the service.
 ![Service Deployment](docs/diagrams/deployment.png)
 
@@ -28,7 +28,7 @@ Then start the system:
 ```bash
 docker-compose up -d
 ```
-The database service uses MariaDB on host port **3307** when the default compose file is used, to avoid conflicting with other local databases.
+Compose publishes PostgreSQL on host port **5433** and MariaDB on **3307**, both off their default ports to avoid conflicting with other local databases. A one-shot `uaas_migrate` service applies the schema before the indexer starts.
 
 To stop the system:
 ```bash
@@ -47,7 +47,7 @@ cargo build
 ```
 
 ## To Run the Service
-Note that this project requires the `MySQL` database running to run.
+Note that this project requires PostgreSQL running, with the schema applied.
 See the `Database` section below for details.
 
 To run:
@@ -56,10 +56,9 @@ cd rust
 cargo run
 ```
 
-If the following message is seen in the output, the service is unable to connect to the database. Check that MariaDB/MySQL is running and that `data/uaasr.toml` points at the correct host and port.
+If the following message is seen in the output, the service is unable to connect to the database. Check that PostgreSQL is running and that `database.postgres_url` in `data/uaasr.toml` points at the correct host and port.
 ```
-thread 'main' panicked at 'Problem connecting to database. Check database is connected and configuration is correct.
-: DriverError { Could not connect to address `localhost:3306': Cannot assign requested address (os error 99) }', src/uaas/logic.rs:52:14
+Fatal startup error: Problem connecting to database. Check the database is running and database.postgres_url is correct: could not connect to PostgreSQL: error connecting to server: Connection refused (os error 111)
 ```
 ## To Run the REST Web interface
 
@@ -70,7 +69,7 @@ To run this:
 cd python/src
 ./web.py
 ```
-Note again that this is dependent on `MySQL` database.
+Note again that this is dependent on the MariaDB database, not the PostgreSQL one the indexer writes.
 
 This will provide a REST API with a Swagger interface at http://localhost:5010/docs
 
@@ -78,7 +77,7 @@ This will provide a REST API with a Swagger interface at http://localhost:5010/d
 
 
 ## Database
-This service records data to a `MySQL` database which must be present for the service to run.
+The Rust service records data to a PostgreSQL database, which must be present and carry the expected schema version for the service to start.
 Database setup details can be found [here](docs/Database.md).
 
 ### Schema
@@ -93,12 +92,12 @@ It is safe to run repeatedly — migrations already applied are skipped — and 
 
 Nothing creates tables at startup any more. The service asserts the schema version it expects and refuses to run against anything else, rather than creating what it finds missing.
 
-This targets the PostgreSQL service, which is **not yet the one the indexer uses** — the migration is in progress and the running service is still on MariaDB. See [docs/Database.md](docs/Database.md).
+The Python REST API has not moved yet: it still reads MariaDB, which nothing writes to any more. See [docs/Database.md](docs/Database.md).
 
 ## Docker
 Encapsulating the service in Docker removes the need to install the project dependencies on the host machine.
 Only Docker is required to build and run the service and web interface.
-Note that the `MySQL` docker image is still required.
+Note that the PostgreSQL and MariaDB docker images are still required.
 ### 1) Build The Docker Image
 To build the docker image associated with the service, run the following command in the project directory.
 ```bash

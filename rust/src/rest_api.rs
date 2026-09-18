@@ -4,12 +4,12 @@ use std::sync::{mpsc, Arc};
 use actix_web::{
     delete, get, http::header::ContentType, post, web, HttpRequest, HttpResponse, Responder, Result,
 };
-use mysql::{prelude::*, Pool};
 use serde::Serialize;
 
 use chain_gang::{messages::Tx, util::Serializable};
 
 use crate::config::CollectionConfig;
+use crate::db::Pool;
 use crate::rate_limit::RateLimiter;
 use crate::uaas::tx_bounds::validate_tx_bytes;
 use crate::uaas::util::decode_hexstr;
@@ -80,11 +80,35 @@ struct HealthResponse {
     database: Option<String>,
 }
 
+/// Probes the database on a thread of its own.
+///
+/// This cannot run on an actix worker *or* on a `web::block` thread. The
+/// synchronous postgres client drives a runtime internally, and tokio's
+/// blocking pool threads still carry the runtime context, so `block_on` there
+/// panics with "Cannot start a runtime from within a runtime". `mysql` had no
+/// such constraint, which is why `web::block` alone used to be enough.
+///
+/// The peer-manager side is unaffected: it is a plain `thread::spawn` and was
+/// never inside a runtime.
 fn check_database(pool: &Pool) -> Result<(), String> {
-    let mut conn = pool.get_conn().map_err(|err| err.to_string())?;
-    conn.query_first::<u8, _>("SELECT 1")
+    let pool = pool.clone();
+    std::thread::spawn(move || probe(&pool))
+        .join()
+        .map_err(|_| "database health check thread panicked".to_string())?
+}
+
+fn probe(pool: &Pool) -> Result<(), String> {
+    let mut conn = pool.get().map_err(|err| err.to_string())?;
+    // query_one rather than query_opt: `SELECT 1` returning no row would mean
+    // the server answered something other than a working connection, which is
+    // exactly what this probe is for.
+    let one: i32 = conn
+        .query_one("SELECT 1", &[])
         .map_err(|err| err.to_string())?
-        .ok_or_else(|| "database health check returned no rows".to_string())?;
+        .get(0);
+    if one != 1 {
+        return Err("database health check returned an unexpected value".to_string());
+    }
     Ok(())
 }
 
@@ -268,24 +292,76 @@ mod tests {
     use actix_web::{test as actix_test, App};
     use std::sync::mpsc;
 
-    fn mysql_test_url() -> Option<String> {
-        std::env::var("UAAS_TEST_MYSQL_URL").ok()
+    fn postgres_test_url() -> Option<String> {
+        std::env::var("UAAS_TEST_POSTGRES_URL").ok()
+    }
+
+    /// Builds a pool on a plain thread, once for the whole test binary.
+    ///
+    /// Two constraints, both from the synchronous postgres client driving a
+    /// runtime of its own:
+    ///
+    /// * it cannot be *built* inside a runtime, because `Pool::new` connects
+    ///   eagerly — and `#[actix_web::test]` is a runtime;
+    /// * it cannot be *dropped* inside one either, because closing a client
+    ///   blocks the same way.
+    ///
+    /// A `OnceLock` satisfies both: built once on a plain thread, and never
+    /// dropped. In production neither arises — `main` builds the pool before
+    /// entering the runtime and holds it for the life of the process.
+    fn pool_off_runtime(url: String) -> Option<Pool> {
+        std::thread::spawn(move || crate::db::build_pool(&url).ok())
+            .join()
+            .ok()?
     }
 
     fn live_db_pool() -> Option<Pool> {
-        let url = mysql_test_url()?;
-        Some(Pool::new(url.as_str()).expect("failed to connect to test database"))
+        static POOL: std::sync::OnceLock<Option<Pool>> = std::sync::OnceLock::new();
+        POOL.get_or_init(|| pool_off_runtime(postgres_test_url()?))
+            .clone()
     }
 
+    /// A pool whose password is wrong, built *without* connecting.
+    ///
+    /// `db::build_pool` goes through `r2d2::Pool::new`, which opens one
+    /// connection eagerly and so returns `Err` on bad credentials — it can
+    /// never hand back the broken pool these tests need. This fixture used to
+    /// call it and silently skipped both tests as a result. `build_unchecked`
+    /// skips that initial connection, so the failure lands where the health
+    /// check actually meets it: at `pool.get()`.
+    ///
+    /// The short connection timeout is what keeps that failure to seconds.
+    /// r2d2 retries a failing connection until the timeout elapses, and its
+    /// default is 30 seconds.
     fn invalid_credentials_pool() -> Option<Pool> {
-        let url = mysql_test_url()?;
-        let bad_url = url.replacen("maas:maas-password", "maas:not-the-password", 1);
-        Pool::new(bad_url.as_str()).ok()
+        let url = postgres_test_url()?;
+        // Swap whatever password the URL carries for one that is not it.
+        let bad_url = url.split_once(':').and_then(|(scheme, rest)| {
+            rest.rsplit_once('@').map(|(creds, host)| {
+                let user = creds
+                    .trim_start_matches("//")
+                    .split(':')
+                    .next()
+                    .unwrap_or("");
+                format!("{scheme}://{user}:not-the-password@{host}")
+            })
+        })?;
+        static POOL: std::sync::OnceLock<Option<Pool>> = std::sync::OnceLock::new();
+        POOL.get_or_init(|| {
+            let config = bad_url.parse().ok()?;
+            let manager = crate::db::Manager::new(config, postgres::NoTls);
+            Some(
+                r2d2::Pool::builder()
+                    .connection_timeout(std::time::Duration::from_secs(2))
+                    .build_unchecked(manager),
+            )
+        })
+        .clone()
     }
 
-    fn skip_without_mysql(test_name: &str) -> Option<Pool> {
+    fn skip_without_postgres(test_name: &str) -> Option<Pool> {
         live_db_pool().or_else(|| {
-            eprintln!("skipping {test_name}: UAAS_TEST_MYSQL_URL not set");
+            eprintln!("skipping {test_name}: UAAS_TEST_POSTGRES_URL not set");
             None
         })
     }
@@ -313,8 +389,8 @@ mod tests {
         use super::*;
 
         #[test]
-        fn live_mysql_passes_health_check() {
-            let Some(pool) = skip_without_mysql("live_mysql_passes_health_check") else {
+        fn live_database_passes_health_check() {
+            let Some(pool) = skip_without_postgres("live_database_passes_health_check") else {
                 return;
             };
             check_database(&pool).expect("database health check should succeed");
@@ -350,7 +426,7 @@ mod tests {
 
     #[actix_web::test]
     async fn health_returns_ok_with_database() {
-        let Some(pool) = skip_without_mysql("health_returns_ok_with_database") else {
+        let Some(pool) = skip_without_postgres("health_returns_ok_with_database") else {
             return;
         };
 
@@ -404,7 +480,7 @@ mod tests {
 
     #[actix_web::test]
     async fn version_returns_package_version() {
-        let Some(pool) = skip_without_mysql("version_returns_package_version") else {
+        let Some(pool) = skip_without_postgres("version_returns_package_version") else {
             return;
         };
 
@@ -426,7 +502,7 @@ mod tests {
 
     #[actix_web::test]
     async fn health_does_not_require_api_key() {
-        let Some(pool) = skip_without_mysql("health_does_not_require_api_key") else {
+        let Some(pool) = skip_without_postgres("health_does_not_require_api_key") else {
             return;
         };
 
@@ -455,7 +531,8 @@ mod tests {
 
     #[actix_web::test]
     async fn broadcast_tx_requires_api_key_when_configured() {
-        let Some(pool) = skip_without_mysql("broadcast_tx_requires_api_key_when_configured") else {
+        let Some(pool) = skip_without_postgres("broadcast_tx_requires_api_key_when_configured")
+        else {
             return;
         };
 
@@ -494,7 +571,7 @@ mod tests {
 
     #[actix_web::test]
     async fn sec04_health_is_exempt_from_rate_limit() {
-        let Some(pool) = skip_without_mysql("sec04_health_is_exempt_from_rate_limit") else {
+        let Some(pool) = skip_without_postgres("sec04_health_is_exempt_from_rate_limit") else {
             return;
         };
 
@@ -526,7 +603,8 @@ mod tests {
     async fn bcast05_broadcast_tx_queues_valid_transaction() {
         use chain_gang::{messages::Tx, util::Serializable};
 
-        let Some(pool) = skip_without_mysql("bcast05_broadcast_tx_queues_valid_transaction") else {
+        let Some(pool) = skip_without_postgres("bcast05_broadcast_tx_queues_valid_transaction")
+        else {
             return;
         };
 
@@ -575,7 +653,7 @@ mod tests {
     // on an allocation of 281474976710656 bytes.
     #[actix_web::test]
     async fn bcast06_malformed_tx_is_rejected_without_reaching_the_deserialiser() {
-        let Some(pool) = skip_without_mysql(
+        let Some(pool) = skip_without_postgres(
             "bcast06_malformed_tx_is_rejected_without_reaching_the_deserialiser",
         ) else {
             return;
