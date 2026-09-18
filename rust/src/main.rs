@@ -59,7 +59,7 @@ fn main() {
         }
     }
 
-    if let Err(err) = actix_web::rt::System::new().block_on(run()) {
+    if let Err(err) = start() {
         eprintln!("Fatal startup error: {err}");
         process::exit(1);
     }
@@ -96,7 +96,23 @@ fn run_migrate(url_arg: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run() -> Result<(), String> {
+/// Brings the service up. Deliberately synchronous.
+///
+/// Every database access at startup has to happen before a runtime exists.
+/// r2d2 validates a connection as it hands it out — `PostgresConnectionManager`
+/// implements `is_valid` with a query — so `Pool::get` performs synchronous I/O
+/// on the *calling* thread, and the synchronous postgres client drives a tokio
+/// runtime of its own to do it. A `get` on a thread already inside a runtime
+/// therefore panics with "Cannot start a runtime from within a runtime", and
+/// the panic recurs in the client's destructor during cleanup, which turns it
+/// into an abort.
+///
+/// That rules out the whole startup sequence running inside `block_on`: the
+/// schema check and `Logic::new` both take connections. So the runtime is
+/// entered at the very end, for the web server alone — and the one place the
+/// web layer touches the pool, `rest_api::check_database`, already moves onto a
+/// plain thread to do it.
+fn start() -> Result<(), String> {
     // Log panics without terminating unrelated threads (for example the web server).
     let orig_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
@@ -126,6 +142,13 @@ async fn run() -> Result<(), String> {
         )
     })?;
 
+    // Keeps the pool alive past the runtime. Closing a postgres client blocks
+    // on its internal runtime exactly as `get` does, so the last `Pool` clone
+    // must not be dropped inside `block_on`. Holding one here means the web
+    // layer's clone drops to a live refcount, and the real teardown happens on
+    // this thread once the runtime is gone.
+    let _pool_guard = db_pool.clone();
+
     // Refuse to run against a schema this build does not understand, before any
     // query is issued. A mismatch here is a deployment mistake, and it should
     // say so rather than surface later as a column that has changed meaning.
@@ -144,7 +167,6 @@ async fn run() -> Result<(), String> {
         max_broadcast_tx_bytes,
         db_pool: db_pool.clone(),
     };
-    let web_state = web::Data::new(app_state);
 
     let mut logic = Logic::new(&config, db_pool)?;
     logic.setup();
@@ -155,7 +177,8 @@ async fn run() -> Result<(), String> {
 
     let ips = config.get_ips()?;
 
-    // Start the peer threads
+    // Start the peer threads. A plain thread, never inside a runtime, which is
+    // what lets the indexing side use the pool freely.
     let handle = thread::spawn(move || {
         catch_unwind_logged("peer manager", || {
             for ip in ips.into_iter().cycle() {
@@ -166,6 +189,26 @@ async fn run() -> Result<(), String> {
             }
         });
     });
+
+    actix_web::rt::System::new().block_on(serve(app_state, server_address, payload_limit, tx))?;
+
+    // Wait for peer threads
+    if handle.join().is_err() {
+        log::error!("Peer manager thread panicked during shutdown");
+    }
+
+    Ok(())
+}
+
+/// Runs the web server until shutdown. The only part of the service inside a
+/// tokio runtime.
+async fn serve(
+    app_state: AppState,
+    server_address: String,
+    payload_limit: usize,
+    tx_stop: mpsc::Sender<PeerEventMessage>,
+) -> Result<(), String> {
+    let web_state = web::Data::new(app_state);
 
     let server = HttpServer::new(move || {
         App::new()
@@ -183,7 +226,6 @@ async fn run() -> Result<(), String> {
     .run();
 
     let server_handle = server.handle();
-    let tx_stop = tx.clone();
 
     tokio::spawn(async move {
         wait_for_shutdown_signal().await;
@@ -201,14 +243,7 @@ async fn run() -> Result<(), String> {
 
     server
         .await
-        .map_err(|err| format!("web server error: {err}"))?;
-
-    // Wait for peer threads
-    if handle.join().is_err() {
-        log::error!("Peer manager thread panicked during shutdown");
-    }
-
-    Ok(())
+        .map_err(|err| format!("web server error: {err}"))
 }
 
 async fn wait_for_shutdown_signal() {
