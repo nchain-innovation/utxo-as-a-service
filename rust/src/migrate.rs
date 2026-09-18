@@ -48,7 +48,7 @@ use postgres::{Client, Transaction};
 
 /// The schema version this build expects. A database at any other version is
 /// refused rather than adapted to.
-pub const EXPECTED_VERSION: i64 = 10;
+pub const EXPECTED_VERSION: i64 = 11;
 
 struct Migration {
     version: i64,
@@ -69,6 +69,7 @@ const MIGRATIONS: &[Migration] = &[
     Migration { version: 8,  name: "collection",   sql: include_str!("../migrations/V8__collection.sql") },
     Migration { version: 9,  name: "addr",         sql: include_str!("../migrations/V9__addr.sql") },
     Migration { version: 10, name: "connect",      sql: include_str!("../migrations/V10__connect.sql") },
+    Migration { version: 11, name: "utxo_autovacuum", sql: include_str!("../migrations/V11__utxo_autovacuum.sql") },
 ];
 
 /// The bookkeeping table. Created outside a migration because it is what
@@ -446,8 +447,12 @@ mod tests {
         let err = assert_expected_version(&mut client)
             .expect_err("an empty database must not satisfy the assertion");
         let message = format!("{err:#}");
+        // Derived from the constant, not a literal: a hardcoded version here
+        // fails the moment a migration is added, which is noise rather than a
+        // finding.
         assert!(
-            message.contains("version 0") && message.contains("expects 10"),
+            message.contains("version 0")
+                && message.contains(&format!("expects {EXPECTED_VERSION}")),
             "the error must name both versions: {message}"
         );
     }

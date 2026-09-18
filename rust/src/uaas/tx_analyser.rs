@@ -5,7 +5,6 @@ use crate::db::{Pool, PooledConn};
 use chain_gang::{
     messages::{Block, Tx, TxOut},
     network::Network,
-    script::Script,
     util::Hash256,
 };
 
@@ -16,7 +15,7 @@ use crate::{
         collection::{CollectionDatabase, WorkingCollection},
         database::DBOperationType,
         txdb::TxDB,
-        utxo::Utxo,
+        utxo::{NewOutput, Utxo},
     },
 };
 /*
@@ -25,18 +24,6 @@ use crate::{
 */
 
 const NOT_IN_BLOCK: i32 = -1; // use -1 to indicate that this tx is not in block
-
-// Given a locking script return the hash of the public key, as hex str
-// Assuming "p2pkh", locking_script_pattern = "76a914[0-9a-f]{40}88ac"
-fn script_to_pubkeyhash(locking_script: &Script) -> String {
-    if locking_script.0.len() == 25 {
-        let hexstr = hex::encode(&locking_script.0);
-        if hexstr[0..6] == *"76a914" && hexstr[46..] == *"88ac" {
-            return hexstr[6..46].to_string();
-        }
-    }
-    "unknown".to_string()
-}
 
 pub struct TxAnalyser {
     save_txs: bool,
@@ -138,27 +125,86 @@ impl TxAnalyser {
         }
     }
 
-    fn process_tx_outputs(&mut self, tx: &Tx, height: i32) {
-        // process the tx outputs and place them in the utxo
+    /// Every monitor whose pattern selects this locking script, in
+    /// configuration order.
+    ///
+    /// Order matters twice: it decides which pattern's capture becomes the
+    /// output's identifier when several match, and it is what makes that choice
+    /// reproducible. `collection` is a Vec built from the config in order, so
+    /// the same script always yields the same identifier.
+    fn monitors_for(&self, script: &[u8]) -> Vec<String> {
+        self.collection
+            .iter()
+            .filter(|c| c.matches_script(script))
+            .map(|c| c.name().to_string())
+            .collect()
+    }
 
+    /// The identifier the first matching pattern captured, if any declared one.
+    fn identifier_for(&self, script: &[u8]) -> Option<Vec<u8>> {
+        self.collection
+            .iter()
+            .find_map(|c| c.identifier_in(script))
+            .map(<[u8]>::to_vec)
+    }
+
+    /// Records the spendable outputs of this transaction that a monitor
+    /// selected.
+    ///
+    /// **This is the change in what the service means.** It used to record
+    /// every spendable output of every transaction it saw — the whole UTXO set
+    /// of the chain. It now records only what a configured pattern selects, so
+    /// the table is what is being watched rather than everything that exists.
+    ///
+    /// Two consequences worth naming:
+    ///
+    /// * a prevout absent from the set no longer suggests anything is wrong. It
+    ///   is the ordinary case for almost every transaction, which is why
+    ///   conflict detection cannot be built on absence (CS-428);
+    /// * keeping the full locking script becomes affordable, because the volume
+    ///   is what the patterns select rather than the chain.
+    fn process_tx_outputs(&mut self, tx: &Tx, height: i32) {
         let hash = tx.hash();
-        // Process outputs - add to utxo
         for (index, vout) in tx.outputs.iter().enumerate() {
-            if self.is_spendable(vout) {
-                // Get public key hash from locking script
-                let pubkeyhash = script_to_pubkeyhash(&vout.lock_script);
-                self.utxo
-                    .add(hash, index, vout.satoshis, height, &pubkeyhash);
+            if !self.is_spendable(vout) {
+                continue;
             }
+            let script = &vout.lock_script.0;
+            let monitors = self.monitors_for(script);
+            if monitors.is_empty() {
+                continue;
+            }
+            self.utxo.add(NewOutput {
+                hash,
+                index,
+                satoshis: vout.satoshis,
+                height,
+                locking_script: script,
+                identifier: self.identifier_for(script),
+                monitors,
+            });
         }
     }
 
-    fn process_tx_inputs(&mut self, tx: &Tx, blockindex: usize) {
+    /// Records the spends this transaction makes.
+    ///
+    /// `height` is `NOT_IN_BLOCK` for a transaction seen in the mempool and the
+    /// block height otherwise, and that is the whole difference: an unmined
+    /// spend moves the outpoint to `utxo_spent` with a NULL height, a mined one
+    /// settles it. A spend is no longer a delete — the row moves rather than
+    /// disappearing, so the spend is still there to be reported after it
+    /// happens.
+    fn process_tx_inputs(&mut self, tx: &Tx, height: i32, blockindex: usize) {
         if blockindex == 0 {
             // if is coinbase (blockindex 0)- nothing to process as these won't be in the utxo
-        } else {
-            for vin in tx.inputs.iter() {
-                self.utxo.delete(&vin.prev_output);
+            return;
+        }
+        let spending_txid = tx.hash();
+        for vin in tx.inputs.iter() {
+            if height == NOT_IN_BLOCK {
+                self.utxo.spend(&vin.prev_output, spending_txid);
+            } else {
+                self.utxo.settle(&vin.prev_output, spending_txid, height);
             }
         }
     }
@@ -198,7 +244,7 @@ impl TxAnalyser {
         // Process tx as received in a block from a peer
 
         // process inputs
-        self.process_tx_inputs(tx, blockindex);
+        self.process_tx_inputs(tx, height, blockindex);
 
         // Process outputs
         // Note this will overwrite the utxo outpoints with height = NOT_IN_BLOCK(-1)
@@ -261,7 +307,7 @@ impl TxAnalyser {
         // Process inputs
         const NOT_A_COINBASE_TX: usize = 1;
 
-        self.process_tx_inputs(tx, NOT_A_COINBASE_TX);
+        self.process_tx_inputs(tx, NOT_IN_BLOCK, NOT_A_COINBASE_TX);
 
         // Process outputs
         self.process_tx_outputs(tx, NOT_IN_BLOCK);
@@ -336,8 +382,10 @@ impl TxAnalyser {
 mod tests {
     use super::*;
     use crate::config::tests::sample_config;
-    use crate::uaas::database::UtxoEntryDB;
+    use crate::uaas::database::SpendRecord;
+    use crate::uaas::database::{MonitorRecord, UtxoEntryDB};
     use chain_gang::messages::{Block, OutPoint, TxIn, TxOut};
+    use chain_gang::script::Script;
     use std::sync::mpsc::{self, Receiver, TryRecvError};
 
     // A 25-byte p2pkh locking script. `marker` fills the pubkeyhash so that
@@ -401,10 +449,25 @@ mod tests {
         }
     }
 
+    /// Every settle record a run of operations carries, with its height.
+    fn settles(ops: Vec<DBOperationType>) -> Vec<(SpendRecord, i32)> {
+        ops.into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoBatchSettle(spends, height) => Some((spends, height)),
+                _ => None,
+            })
+            .flat_map(|(spends, height)| spends.into_iter().map(move |s| (s, height)))
+            .collect()
+    }
+
+    fn is_outpoint(record: &SpendRecord, outpoint: &OutPoint) -> bool {
+        record.txid == outpoint.hash.0.to_vec() && record.vout == outpoint.index
+    }
+
     #[test]
-    fn utxo01_spending_a_block_tx_removes_the_outpoint_and_queues_the_delete() {
+    fn utxo01_spending_a_block_tx_moves_the_outpoint_and_queues_the_settle() {
         let Some((mut analyser, rx)) = analyser_with_live_db(
-            "utxo01_spending_a_block_tx_removes_the_outpoint_and_queues_the_delete",
+            "utxo01_spending_a_block_tx_moves_the_outpoint_and_queues_the_settle",
         ) else {
             return;
         };
@@ -423,27 +486,32 @@ mod tests {
             "funding output should be in the utxo set"
         );
 
-        analyser.process_block_tx(&spending_tx(outpoint.clone()), 101, 1);
+        let spender = spending_tx(outpoint.clone());
+        analyser.process_block_tx(&spender, 101, 1);
 
         assert_eq!(
             analyser.utxo.get_satoshis(&outpoint),
             None,
-            "spent outpoint should have been removed from the in-memory utxo set"
+            "spent outpoint should have left the in-memory spendable set"
         );
 
         analyser.utxo.update_db();
-        let deletes: Vec<OutPoint> = drain(&rx)
-            .into_iter()
-            .filter_map(|op| match op {
-                DBOperationType::UtxoBatchDelete(outpoints) => Some(outpoints),
-                _ => None,
-            })
-            .flatten()
-            .collect();
+        let settled = settles(drain(&rx));
 
-        assert!(
-            deletes.contains(&outpoint),
-            "spent outpoint should have been queued for deletion, got {deletes:?}"
+        // A settle, not a delete: the row moves to utxo_spent carrying the
+        // height that mined it and the txid that spent it, so the spend is
+        // still reportable afterwards.
+        let record = settled
+            .iter()
+            .find(|(record, _)| is_outpoint(record, &outpoint))
+            .unwrap_or_else(|| {
+                panic!("spent outpoint should have been queued to settle, got {settled:?}")
+            });
+        assert_eq!(record.1, 101, "settled at the height that mined the spend");
+        assert_eq!(
+            record.0.spending_txid,
+            spender.hash().0.to_vec(),
+            "the spending txid is recorded"
         );
     }
 
@@ -547,24 +615,229 @@ mod tests {
             "documents the phantom balance: 900 satoshis counted twice from 1000 funded"
         );
 
-        // And the conflict leaves no trace. `Utxo::delete` is guarded by
-        // `remove(..).is_some()`, so the second spend of an already-spent
-        // outpoint queues nothing at all — there is not even a duplicate
-        // delete for an operator to notice.
+        // And the conflict still leaves no trace. `Utxo::settle` records a
+        // spend only for an outpoint that was live or awaiting settlement; by
+        // the time the sibling arrives the first spend has taken it out of
+        // both, so the second queues nothing at all — not even a duplicate for
+        // an operator to notice.
+        //
+        // CS-421 changed the vocabulary here from delete to settle and changed
+        // nothing about the finding. Detecting the conflict is CS-428.
         analyser.utxo.update_db();
-        let deletes: Vec<OutPoint> = drain(&rx)
-            .into_iter()
-            .filter_map(|op| match op {
-                DBOperationType::UtxoBatchDelete(outpoints) => Some(outpoints),
-                _ => None,
-            })
-            .flatten()
-            .collect();
+        let settled = settles(drain(&rx));
         assert_eq!(
-            deletes.iter().filter(|o| **o == outpoint).count(),
+            settled
+                .iter()
+                .filter(|(record, _)| is_outpoint(record, &outpoint))
+                .count(),
             1,
             "the second spend of the same outpoint is silently discarded"
         );
+    }
+
+    /// Writes a run of operations carries.
+    fn writes(ops: Vec<DBOperationType>) -> Vec<UtxoEntryDB> {
+        ops.into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoBatchWrite(entries) => Some(entries),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    fn monitor_rows(ops: Vec<DBOperationType>) -> Vec<MonitorRecord> {
+        ops.into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoMonitorBatchWrite(records) => Some(records),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// A transaction paying one output to an arbitrary script.
+    fn tx_paying(script: Script) -> Tx {
+        Tx {
+            version: 1,
+            inputs: Vec::new(),
+            outputs: vec![TxOut {
+                satoshis: 1_000,
+                lock_script: script,
+            }],
+            lock_time: 0,
+        }
+    }
+
+    // The filter. Only what a pattern selects is recorded now, so a spendable
+    // output no monitor matched must leave no trace at all.
+    #[test]
+    fn utxo05_an_unmonitored_output_is_not_recorded() {
+        let Some((mut analyser, rx)) =
+            analyser_with_live_db("utxo05_an_unmonitored_output_is_not_recorded")
+        else {
+            return;
+        };
+
+        // OP_TRUE: spendable, and matched by none of sample_config's patterns.
+        let ignored = tx_paying(Script(vec![0x51]));
+        // A p2pkh output, which the `fixtures` monitor does select — present so
+        // this test cannot pass merely because nothing is ever recorded.
+        let watched = tx_paying(p2pkh_script(0x51));
+
+        analyser.process_block_tx(&ignored, 400, 1);
+        analyser.process_block_tx(&watched, 400, 2);
+
+        let ignored_out = OutPoint {
+            hash: ignored.hash(),
+            index: 0,
+        };
+        let watched_out = OutPoint {
+            hash: watched.hash(),
+            index: 0,
+        };
+        assert_eq!(
+            analyser.utxo.get_satoshis(&ignored_out),
+            None,
+            "an output no monitor selected must not enter the spendable set"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&watched_out),
+            Some(1_000),
+            "a monitored output must still be recorded"
+        );
+
+        analyser.utxo.update_db();
+        let written = writes(drain(&rx));
+        assert!(
+            written
+                .iter()
+                .all(|entry| entry.hash != ignored.hash().0.to_vec()),
+            "nothing should be queued for the unmonitored output"
+        );
+        assert!(
+            written
+                .iter()
+                .any(|entry| entry.hash == watched.hash().0.to_vec()),
+            "the monitored output should be queued"
+        );
+    }
+
+    // The identifier is the pattern's named capture, in raw bytes. The old
+    // stopgap produced a 40-character hex string of the same hash; 20 bytes is
+    // what distinguishes the capture from it.
+    #[test]
+    fn utxo06_the_identifier_is_the_patterns_captured_bytes() {
+        let Some((mut analyser, rx)) =
+            analyser_with_live_db("utxo06_the_identifier_is_the_patterns_captured_bytes")
+        else {
+            return;
+        };
+
+        let watched = tx_paying(p2pkh_script(0x7e));
+        analyser.process_block_tx(&watched, 401, 1);
+        analyser.utxo.update_db();
+
+        let written = writes(drain(&rx));
+        let entry = written
+            .iter()
+            .find(|entry| entry.hash == watched.hash().0.to_vec())
+            .expect("the monitored output is recorded");
+
+        assert_eq!(
+            entry.identifier.as_deref(),
+            Some(&[0x7e; 20][..]),
+            "the identifier is the 20 captured bytes, not 40 hex characters"
+        );
+        assert_eq!(
+            entry.locking_script,
+            p2pkh_script(0x7e).0,
+            "the full locking script is carried, not an empty placeholder"
+        );
+    }
+
+    // utxo_monitor is the many-to-many record of which patterns selected an
+    // outpoint. sample_config has two collections with patterns; only
+    // `fixtures` matches an arbitrary p2pkh script, so exactly one row.
+    #[test]
+    fn utxo07_utxo_monitor_records_the_monitors_that_matched() {
+        let Some((mut analyser, rx)) =
+            analyser_with_live_db("utxo07_utxo_monitor_records_the_monitors_that_matched")
+        else {
+            return;
+        };
+
+        let watched = tx_paying(p2pkh_script(0x6d));
+        analyser.process_block_tx(&watched, 402, 1);
+        analyser.utxo.update_db();
+
+        let rows = monitor_rows(drain(&rx));
+        let mine: Vec<&MonitorRecord> = rows
+            .iter()
+            .filter(|r| r.txid == watched.hash().0.to_vec() && r.vout == 0)
+            .collect();
+
+        assert_eq!(
+            mine.iter().map(|r| r.monitor.as_str()).collect::<Vec<_>>(),
+            vec!["fixtures"],
+            "every monitor whose pattern selected the output is recorded"
+        );
+    }
+
+    // CS-421 evidence, not a design test.
+    //
+    // CS-421's acceptance criteria say utxo03's assertion is inverted because
+    // the settle is keyed on the outpoint. This test is the reason that is not
+    // so. The two things CS-421 introduces on the output path are a filter on
+    // the locking script and an identifier captured from it — and a malleated
+    // pair pays byte-identical outputs, so neither can tell the siblings apart.
+    // Whatever the filter admits for one, it admits for the other.
+    //
+    // Keying the settle on the outpoint fixes a real and different bug: a spend
+    // seen in the mempool as A and mined as its sibling B settles, where a
+    // settle keyed on the spending txid matches nothing and leaves spent_height
+    // NULL forever. That is pinned separately, against the database.
+    //
+    // The doubling needs conflict detection — TODO(UAAS-18)'s provisional
+    // identity over the prevout and output sets — and is out of scope here.
+    #[test]
+    fn utxo04_monitored_output_filtering_cannot_separate_a_malleated_pair() {
+        let prev_output = OutPoint {
+            hash: funding_tx(0x41).hash(),
+            index: 0,
+        };
+        let (tx_a, tx_b) = malleated_pair(prev_output);
+
+        // The premise: different transactions, identical outputs.
+        assert_ne!(tx_a.hash(), tx_b.hash(), "the txids must differ");
+        assert_eq!(tx_a.outputs, tx_b.outputs, "both must pay the same outputs");
+
+        // The filter CS-421 adds, over the script the pair actually pays.
+        let matcher = crate::uaas::hex_pattern::ScriptMatcher::compile(
+            "76a914(?<identifier>[0-9a-f]{40})88ac",
+        )
+        .expect("pattern compiles");
+
+        let script_a = &tx_a.outputs[0].lock_script.0;
+        let script_b = &tx_b.outputs[0].lock_script.0;
+
+        assert_eq!(
+            matcher.is_match(script_a),
+            matcher.is_match(script_b),
+            "a filter on the locking script cannot distinguish malleated siblings"
+        );
+        assert!(
+            matcher.is_match(script_a),
+            "this fixture must actually be selected, or the test proves nothing"
+        );
+        assert_eq!(
+            matcher.identifier(script_a),
+            matcher.identifier(script_b),
+            "the captured identifier is the same for both siblings"
+        );
+
+        // So both siblings' outputs are admitted, and the phantom balance
+        // utxo03 documents survives monitored-output filtering unchanged.
     }
 
     #[test]
@@ -621,19 +894,5 @@ mod tests {
                 NOT_IN_BLOCK
             );
         }
-    }
-
-    #[test]
-    fn test_script_to_pubkeyhash() {
-        //fn script_to_pubkeyhash(locking_script: &Script) -> String {
-        //"asm": "OP_DUP OP_HASH160 7c78584493557fac782023a4ad591b64545929d9 OP_EQUALVERIFY OP_CHECKSIG",
-
-        let encoded_script = hex::decode("76a9147c78584493557fac782023a4ad591b64545929d988ac")
-            .expect("valid test locking script hex");
-        let locking_script = Script(encoded_script);
-        let result = script_to_pubkeyhash(&locking_script);
-        println!("{}", result);
-
-        assert_eq!(&result, "7c78584493557fac782023a4ad591b64545929d9");
     }
 }
