@@ -153,12 +153,25 @@ impl TxAnalyser {
         }
     }
 
-    fn process_tx_inputs(&mut self, tx: &Tx, blockindex: usize) {
+    /// Records the spends this transaction makes.
+    ///
+    /// `height` is `NOT_IN_BLOCK` for a transaction seen in the mempool and the
+    /// block height otherwise, and that is the whole difference: an unmined
+    /// spend moves the outpoint to `utxo_spent` with a NULL height, a mined one
+    /// settles it. A spend is no longer a delete — the row moves rather than
+    /// disappearing, so the spend is still there to be reported after it
+    /// happens.
+    fn process_tx_inputs(&mut self, tx: &Tx, height: i32, blockindex: usize) {
         if blockindex == 0 {
             // if is coinbase (blockindex 0)- nothing to process as these won't be in the utxo
-        } else {
-            for vin in tx.inputs.iter() {
-                self.utxo.delete(&vin.prev_output);
+            return;
+        }
+        let spending_txid = tx.hash();
+        for vin in tx.inputs.iter() {
+            if height == NOT_IN_BLOCK {
+                self.utxo.spend(&vin.prev_output, spending_txid);
+            } else {
+                self.utxo.settle(&vin.prev_output, spending_txid, height);
             }
         }
     }
@@ -198,7 +211,7 @@ impl TxAnalyser {
         // Process tx as received in a block from a peer
 
         // process inputs
-        self.process_tx_inputs(tx, blockindex);
+        self.process_tx_inputs(tx, height, blockindex);
 
         // Process outputs
         // Note this will overwrite the utxo outpoints with height = NOT_IN_BLOCK(-1)
@@ -261,7 +274,7 @@ impl TxAnalyser {
         // Process inputs
         const NOT_A_COINBASE_TX: usize = 1;
 
-        self.process_tx_inputs(tx, NOT_A_COINBASE_TX);
+        self.process_tx_inputs(tx, NOT_IN_BLOCK, NOT_A_COINBASE_TX);
 
         // Process outputs
         self.process_tx_outputs(tx, NOT_IN_BLOCK);
@@ -336,6 +349,7 @@ impl TxAnalyser {
 mod tests {
     use super::*;
     use crate::config::tests::sample_config;
+    use crate::uaas::database::SpendRecord;
     use crate::uaas::database::UtxoEntryDB;
     use chain_gang::messages::{Block, OutPoint, TxIn, TxOut};
     use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -401,10 +415,25 @@ mod tests {
         }
     }
 
+    /// Every settle record a run of operations carries, with its height.
+    fn settles(ops: Vec<DBOperationType>) -> Vec<(SpendRecord, i32)> {
+        ops.into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoBatchSettle(spends, height) => Some((spends, height)),
+                _ => None,
+            })
+            .flat_map(|(spends, height)| spends.into_iter().map(move |s| (s, height)))
+            .collect()
+    }
+
+    fn is_outpoint(record: &SpendRecord, outpoint: &OutPoint) -> bool {
+        record.txid == outpoint.hash.0.to_vec() && record.vout == outpoint.index
+    }
+
     #[test]
-    fn utxo01_spending_a_block_tx_removes_the_outpoint_and_queues_the_delete() {
+    fn utxo01_spending_a_block_tx_moves_the_outpoint_and_queues_the_settle() {
         let Some((mut analyser, rx)) = analyser_with_live_db(
-            "utxo01_spending_a_block_tx_removes_the_outpoint_and_queues_the_delete",
+            "utxo01_spending_a_block_tx_moves_the_outpoint_and_queues_the_settle",
         ) else {
             return;
         };
@@ -423,27 +452,32 @@ mod tests {
             "funding output should be in the utxo set"
         );
 
-        analyser.process_block_tx(&spending_tx(outpoint.clone()), 101, 1);
+        let spender = spending_tx(outpoint.clone());
+        analyser.process_block_tx(&spender, 101, 1);
 
         assert_eq!(
             analyser.utxo.get_satoshis(&outpoint),
             None,
-            "spent outpoint should have been removed from the in-memory utxo set"
+            "spent outpoint should have left the in-memory spendable set"
         );
 
         analyser.utxo.update_db();
-        let deletes: Vec<OutPoint> = drain(&rx)
-            .into_iter()
-            .filter_map(|op| match op {
-                DBOperationType::UtxoBatchDelete(outpoints) => Some(outpoints),
-                _ => None,
-            })
-            .flatten()
-            .collect();
+        let settled = settles(drain(&rx));
 
-        assert!(
-            deletes.contains(&outpoint),
-            "spent outpoint should have been queued for deletion, got {deletes:?}"
+        // A settle, not a delete: the row moves to utxo_spent carrying the
+        // height that mined it and the txid that spent it, so the spend is
+        // still reportable afterwards.
+        let record = settled
+            .iter()
+            .find(|(record, _)| is_outpoint(record, &outpoint))
+            .unwrap_or_else(|| {
+                panic!("spent outpoint should have been queued to settle, got {settled:?}")
+            });
+        assert_eq!(record.1, 101, "settled at the height that mined the spend");
+        assert_eq!(
+            record.0.spending_txid,
+            spender.hash().0.to_vec(),
+            "the spending txid is recorded"
         );
     }
 
@@ -547,21 +581,21 @@ mod tests {
             "documents the phantom balance: 900 satoshis counted twice from 1000 funded"
         );
 
-        // And the conflict leaves no trace. `Utxo::delete` is guarded by
-        // `remove(..).is_some()`, so the second spend of an already-spent
-        // outpoint queues nothing at all — there is not even a duplicate
-        // delete for an operator to notice.
+        // And the conflict still leaves no trace. `Utxo::settle` records a
+        // spend only for an outpoint that was live or awaiting settlement; by
+        // the time the sibling arrives the first spend has taken it out of
+        // both, so the second queues nothing at all — not even a duplicate for
+        // an operator to notice.
+        //
+        // CS-421 changed the vocabulary here from delete to settle and changed
+        // nothing about the finding. Detecting the conflict is CS-428.
         analyser.utxo.update_db();
-        let deletes: Vec<OutPoint> = drain(&rx)
-            .into_iter()
-            .filter_map(|op| match op {
-                DBOperationType::UtxoBatchDelete(outpoints) => Some(outpoints),
-                _ => None,
-            })
-            .flatten()
-            .collect();
+        let settled = settles(drain(&rx));
         assert_eq!(
-            deletes.iter().filter(|o| **o == outpoint).count(),
+            settled
+                .iter()
+                .filter(|(record, _)| is_outpoint(record, &outpoint))
+                .count(),
             1,
             "the second spend of the same outpoint is silently discarded"
         );

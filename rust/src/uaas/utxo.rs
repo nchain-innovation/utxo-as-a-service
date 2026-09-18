@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc;
 
 use std::time::Instant;
@@ -8,7 +8,7 @@ use chain_gang::util::Hash256;
 
 use crate::db::PooledConn;
 
-use super::database::{height_from_sql, DBOperationType, UtxoEntryDB};
+use super::database::{height_from_sql, DBOperationType, SpendRecord, UtxoEntryDB};
 
 // Used to store the unspent txs (UTXO)
 #[derive(Clone)]
@@ -32,8 +32,28 @@ pub struct Utxo {
     // Record for batch write to utxo table
     utxo_entries: HashMap<OutPoint, UtxoEntryDB>,
 
-    // Process inputs - remove from utxo
-    utxo_deletes: Vec<OutPoint>,
+    // Spends seen but not yet mined, pending a move to utxo_spent.
+    utxo_spends: Vec<SpendRecord>,
+
+    // Spends seen in a block, grouped by the height that settles them.
+    //
+    // A BTreeMap rather than one Vec and a single height: `update_db` is called
+    // per block today, so in practice there is one height, but `logic.rs` also
+    // flushes on its own schedule and nothing in the type system says the two
+    // cannot interleave. Keyed by height it cannot be wrong, and iterating a
+    // BTreeMap applies the heights in order — a HashMap would make the order of
+    // the emitted operations depend on hashing.
+    utxo_settles: BTreeMap<i32, Vec<SpendRecord>>,
+
+    // Outpoints we have recorded as spent but not yet settled.
+    //
+    // Needed because the settle must still find an outpoint whose mempool
+    // sighting already took it out of the live set — that is the ordinary path
+    // into a block, and skipping it there would leave the row unsettled for
+    // ever. Entries leave on settle; the ones that never do are what CS-423
+    // (mempool eviction) is about, and they leak here exactly as they leak in
+    // the table.
+    spent_unmined: HashSet<OutPoint>,
 
     // Channel to database
     tx: mpsc::Sender<DBOperationType>,
@@ -66,7 +86,9 @@ impl Utxo {
             utxo: HashMap::new(),
             conn,
             utxo_entries: HashMap::new(),
-            utxo_deletes: Vec::new(),
+            utxo_spends: Vec::new(),
+            utxo_settles: BTreeMap::new(),
+            spent_unmined: HashSet::new(),
             tx,
         }
     }
@@ -194,13 +216,49 @@ impl Utxo {
         self.utxo_entries.insert(outpoint, utxo_entry);
     }
 
-    pub fn delete(&mut self, outpoint: &OutPoint) {
-        // Remove from utxo
+    fn record(outpoint: &OutPoint, spending_txid: Hash256) -> SpendRecord {
+        SpendRecord {
+            txid: outpoint.hash.0.to_vec(),
+            vout: outpoint.index,
+            spending_txid: spending_txid.0.to_vec(),
+        }
+    }
+
+    /// A spend seen but not yet mined.
+    ///
+    /// Guarded on the outpoint being one we track: once only monitored outputs
+    /// are recorded, most prevouts the service sees belong to outputs it never
+    /// held, and queueing a statement for each of those would be work
+    /// proportional to the chain rather than to what is monitored.
+    ///
+    /// Note what this guard cannot do any more. It used to be the reason a
+    /// second spend of an already-spent outpoint queued nothing, which
+    /// `utxo03` documents. It is not a conflict check and must not be read as
+    /// one: an absent outpoint is now overwhelmingly the ordinary case rather
+    /// than a suspicious one. Detecting a conflicting spend is CS-428.
+    pub fn spend(&mut self, outpoint: &OutPoint, spending_txid: Hash256) {
         if self.utxo.remove(outpoint).is_some() {
-            // Remove from utxo table
-            self.utxo_deletes.push(outpoint.clone());
-            // also remove from utxo entries if present
             self.utxo_entries.remove(outpoint);
+            self.spent_unmined.insert(outpoint.clone());
+            self.utxo_spends.push(Self::record(outpoint, spending_txid));
+        }
+    }
+
+    /// A spend seen in a block, at `height`.
+    ///
+    /// Accepts an outpoint that is either still live or already recorded as
+    /// spent-but-unmined. The second case is the ordinary route into a block —
+    /// the spend was in the mempool first — and rejecting it here would leave
+    /// the row with a NULL `spent_height` for ever.
+    pub fn settle(&mut self, outpoint: &OutPoint, spending_txid: Hash256, height: i32) {
+        let was_live = self.utxo.remove(outpoint).is_some();
+        let was_unmined = self.spent_unmined.remove(outpoint);
+        if was_live || was_unmined {
+            self.utxo_entries.remove(outpoint);
+            self.utxo_settles
+                .entry(height)
+                .or_default()
+                .push(Self::record(outpoint, spending_txid));
         }
     }
 
@@ -215,9 +273,17 @@ impl Utxo {
         self.send_db_op(DBOperationType::UtxoBatchWrite(request));
         self.utxo_entries.clear();
 
-        // bulk/batch delete utxo table entries
-        self.send_db_op(DBOperationType::UtxoBatchDelete(self.utxo_deletes.clone()));
-        self.utxo_deletes.clear();
+        // Spends seen but not mined: move to utxo_spent, height still NULL.
+        if !self.utxo_spends.is_empty() {
+            let spends = std::mem::take(&mut self.utxo_spends);
+            self.send_db_op(DBOperationType::UtxoBatchSpend(spends));
+        }
+
+        // Settles, in height order. One operation per height, because each is
+        // a different pair of statements.
+        for (height, spends) in std::mem::take(&mut self.utxo_settles) {
+            self.send_db_op(DBOperationType::UtxoBatchSettle(spends, height));
+        }
     }
 
     pub fn handle_orphan_block(&mut self, height: u32) {
