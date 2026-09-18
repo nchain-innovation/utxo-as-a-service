@@ -32,6 +32,33 @@ services:
         - ./init_database:/docker-entrypoint-initdb.d/:ro
         - ./docker/mariadb/99-uaas.cnf:/etc/mysql/mariadb.conf.d/99-uaas.cnf:ro
 
+  # PostgreSQL — inert for now. The service still reads and writes MariaDB;
+  # this exists so the schema in rust/migrations/ and `uaas migrate` can be
+  # exercised against the engine they target, ahead of the data-layer swap.
+  postgres:
+    container_name: uaas_postgres
+    image: postgres:17
+    restart: always
+    ports:
+      - "5433:5432"
+    networks:
+      - uaas_network
+    environment:
+      # Local development only, same as the MariaDB credentials above.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      # Roles and databases only. The schema is applied by `uaas migrate`,
+      # because anything mounted here runs only on an empty data directory and
+      # so can never evolve a database that already exists.
+      - ./init_database/postgres:/docker-entrypoint-initdb.d/:ro
+
   # Basic GUI for interacting with database
   adminer:
     container_name: uaas_db_admin
