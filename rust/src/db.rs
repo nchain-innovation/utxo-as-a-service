@@ -26,6 +26,13 @@ pub type PooledConn = r2d2::PooledConnection<Manager>;
 ///
 /// r2d2 opens one connection eagerly to check the configuration, so a bad URL
 /// or an unreachable server fails here rather than at the first query.
+///
+/// **Must not be called from inside an async runtime.** The synchronous
+/// postgres client drives a runtime of its own, and nesting one panics with
+/// "Cannot start a runtime from within a runtime". `main` calls this before it
+/// enters the actix runtime, and handlers reach the pool through `web::block`,
+/// which is on a blocking thread. A test that needs a pool inside
+/// `#[actix_web::test]` has to build it on a plain thread.
 pub fn build_pool(url: &str) -> Result<Pool> {
     let config = url
         .parse()

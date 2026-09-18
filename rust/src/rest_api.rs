@@ -80,7 +80,24 @@ struct HealthResponse {
     database: Option<String>,
 }
 
+/// Probes the database on a thread of its own.
+///
+/// This cannot run on an actix worker *or* on a `web::block` thread. The
+/// synchronous postgres client drives a runtime internally, and tokio's
+/// blocking pool threads still carry the runtime context, so `block_on` there
+/// panics with "Cannot start a runtime from within a runtime". `mysql` had no
+/// such constraint, which is why `web::block` alone used to be enough.
+///
+/// The peer-manager side is unaffected: it is a plain `thread::spawn` and was
+/// never inside a runtime.
 fn check_database(pool: &Pool) -> Result<(), String> {
+    let pool = pool.clone();
+    std::thread::spawn(move || probe(&pool))
+        .join()
+        .map_err(|_| "database health check thread panicked".to_string())?
+}
+
+fn probe(pool: &Pool) -> Result<(), String> {
     let mut conn = pool.get().map_err(|err| err.to_string())?;
     // query_one rather than query_opt: `SELECT 1` returning no row would mean
     // the server answered something other than a working connection, which is
@@ -279,9 +296,29 @@ mod tests {
         std::env::var("UAAS_TEST_POSTGRES_URL").ok()
     }
 
+    /// Builds a pool on a plain thread, once for the whole test binary.
+    ///
+    /// Two constraints, both from the synchronous postgres client driving a
+    /// runtime of its own:
+    ///
+    /// * it cannot be *built* inside a runtime, because `Pool::new` connects
+    ///   eagerly — and `#[actix_web::test]` is a runtime;
+    /// * it cannot be *dropped* inside one either, because closing a client
+    ///   blocks the same way.
+    ///
+    /// A `OnceLock` satisfies both: built once on a plain thread, and never
+    /// dropped. In production neither arises — `main` builds the pool before
+    /// entering the runtime and holds it for the life of the process.
+    fn pool_off_runtime(url: String) -> Option<Pool> {
+        std::thread::spawn(move || crate::db::build_pool(&url).ok())
+            .join()
+            .ok()?
+    }
+
     fn live_db_pool() -> Option<Pool> {
-        let url = postgres_test_url()?;
-        Some(crate::db::build_pool(&url).expect("failed to connect to test database"))
+        static POOL: std::sync::OnceLock<Option<Pool>> = std::sync::OnceLock::new();
+        POOL.get_or_init(|| pool_off_runtime(postgres_test_url()?))
+            .clone()
     }
 
     fn invalid_credentials_pool() -> Option<Pool> {
@@ -299,7 +336,8 @@ mod tests {
                 format!("{scheme}://{user}:not-the-password@{host}")
             })
         })?;
-        crate::db::build_pool(&bad_url).ok()
+        static POOL: std::sync::OnceLock<Option<Pool>> = std::sync::OnceLock::new();
+        POOL.get_or_init(|| pool_off_runtime(bad_url)).clone()
     }
 
     fn skip_without_postgres(test_name: &str) -> Option<Pool> {

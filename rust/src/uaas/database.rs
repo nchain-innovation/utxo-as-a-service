@@ -833,9 +833,11 @@ mod test {
             .execute("SELECT 1 FROM utxo WHERE false", &[])
             .expect("utxo table must exist -- run `uaas migrate` against the test database");
 
-        // Ids well clear of the other tests' rows.
-        let spent = 0xdb00_0001u32;
-        let kept = 0xdb00_0002u32;
+        // Ids well clear of the other tests' rows, and inside i32 — vout is a
+        // signed `integer` column now, so the 0xdb00_0001 these used to use is
+        // out of range and utxo_batch_write correctly refuses it.
+        let spent = 0x0db0_0001u32;
+        let kept = 0x0db0_0002u32;
         for id in [spent, kept] {
             setup
                 .execute("DELETE FROM utxo WHERE txid = $1", &[&&hash_of(id).0[..]])
