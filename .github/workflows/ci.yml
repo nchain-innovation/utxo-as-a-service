@@ -14,21 +14,8 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     services:
-      mariadb:
-        image: mariadb:11.4
-        env:
-          MARIADB_ROOT_PASSWORD: mysql
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-          --health-start-period=30s
-      # Inert: the service under test still runs on MariaDB. This exists so the
-      # migration tests and `uaas migrate` run against the engine they target
-      # rather than being skipped.
+      # PostgreSQL is the engine the Rust service runs on now. There is no
+      # MariaDB service in this job any more: nothing in the crate speaks it.
       postgres:
         image: postgres:17
         env:
@@ -42,6 +29,19 @@ jobs:
           --health-retries=5
           --health-start-period=30s
 
+    env:
+      # Two databases, deliberately:
+      #
+      # * uaas_test_db  — the schema `cargo test` runs against, migrated below.
+      # * uaas_db       — left untouched until the smoke test, so that step
+      #                   exercises a migration from nothing through the shipped
+      #                   binary rather than finding the work already done.
+      #
+      # Both are owned by the unprivileged `uaas` role rather than the
+      # superuser, so a missing grant fails here rather than in a deployment.
+      UAAS_TEST_POSTGRES_URL: postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_test_db
+      UAAS_SMOKE_POSTGRES_URL: postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_db
+
     steps:
       - uses: actions/checkout@v7
 
@@ -50,24 +50,20 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config mariadb-client postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config postgresql-client
 
-      - name: Initialize database
+      # Roles and databases only. The schema belongs to rust/migrations/ and is
+      # applied by `uaas migrate` in the next step — creating tables here would
+      # put the schema in two places, which is what CS-419 removed.
+      - name: Initialize PostgreSQL
         run: |
-          mariadb -h 127.0.0.1 -u root -pmysql < init_database/01_init.sql
-          mariadb -h 127.0.0.1 -u root -pmysql main_uaas_db <<'EOF'
-          CREATE TABLE IF NOT EXISTS orphans (
-              height int unsigned not null,
-              hash varchar(64) not null,
-              version int unsigned not null,
-              prev_hash varchar(64) not null,
-              merkle_root varchar(64) not null,
-              timestamp int unsigned not null,
-              bits int unsigned not null,
-              nonce int unsigned not null,
-              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-          );
-          EOF
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres" \
+            -v ON_ERROR_STOP=1 -f init_database/postgres/01_roles_and_databases.sql
+          # Not in the init script: that file is the production bootstrap and a
+          # test database does not belong in it. Owned by `uaas` so the
+          # migration tests can CREATE SCHEMA in it.
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres" \
+            -v ON_ERROR_STOP=1 -c 'CREATE DATABASE uaas_test_db OWNER uaas'
 
       - name: cargo fmt
         working-directory: rust
@@ -80,30 +76,29 @@ jobs:
         # setup-rust-toolchain happens to set.
         run: cargo clippy --all-targets -- -D warnings
 
+      # Must precede `cargo test`. The tests that touch the database no longer
+      # create their own tables — the migrations own the schema — so without
+      # this they fail on a missing relation rather than skipping.
+      - name: Apply migrations to the test database
+        working-directory: rust
+        run: cargo run --quiet -- migrate "$UAAS_TEST_POSTGRES_URL"
+
       - name: cargo test
         working-directory: rust
-        env:
-          UAAS_TEST_MYSQL_URL: mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
-          # Without this the migration tests skip rather than fail, which looks
-          # identical to passing.
-          UAAS_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: cargo test
 
       # The tests call migrate::run directly. This runs the shipped binary end
-      # to end, which is what a deploy actually does, and asserts the schema
-      # version it leaves behind.
+      # to end against an unmigrated database, which is what a deploy actually
+      # does, and asserts the schema version it leaves behind.
       - name: uaas migrate smoke test
         working-directory: rust
         run: |
-          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres" \
-            -v ON_ERROR_STOP=1 -f ../init_database/postgres/01_roles_and_databases.sql
-          cargo run --quiet -- migrate "postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_db"
-          version=$(psql "postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_db" \
-            -tAc "SELECT max(version) FROM schema_migration")
+          cargo run --quiet -- migrate "$UAAS_SMOKE_POSTGRES_URL"
+          version=$(psql "$UAAS_SMOKE_POSTGRES_URL" -tAc "SELECT max(version) FROM schema_migration")
           echo "schema version: $version"
           test "$version" = "10"
           # A second run must be a no-op, not an error.
-          cargo run --quiet -- migrate "postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_db"
+          cargo run --quiet -- migrate "$UAAS_SMOKE_POSTGRES_URL"
 
   python:
     name: Python
