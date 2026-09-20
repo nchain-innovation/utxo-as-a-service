@@ -1,6 +1,11 @@
 FROM rust:bookworm AS builder
 
-COPY ./data/uaasr.toml /app/data/uaasr.toml
+# Only the source. The config is deliberately NOT copied: it carries database
+# credentials and the peer list, `cargo install` never reads it, and anything
+# that enters the builder can be recovered from the published image with
+# `docker history` or `docker save` even when a runtime mount hides it
+# (CS-401). `rust/migrations/` comes in with this, which `embed_migrations!`
+# needs at compile time.
 COPY ./rust /app/rust
 
 WORKDIR /app/rust
@@ -11,8 +16,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libssl3 curl \
     && rm -rf /var/lib/apt/lists/*
 
+# The binary and nothing else. /app/data must be supplied at run time:
+#
+#   docker run -v "$PWD/data:/app/data:ro" uaas-service
+#
+# docker-compose.yml already mounts it. Started without it, the service exits
+# naming the path it wanted. See docs/Development.md.
 COPY --from=builder /app/bin/uaas /app/bin/uaas
-COPY --from=builder /app/data /app/data
 WORKDIR /app/bin
 
 # env var to detect we are in a docker instance
