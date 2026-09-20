@@ -50,3 +50,30 @@ pub fn build_pool(url: &str) -> Result<Pool> {
     let manager = PostgresConnectionManager::new(config, NoTls);
     Pool::new(manager).context("could not connect to PostgreSQL")
 }
+
+/// One pool for the whole test binary.
+///
+/// `build_pool` fills a new pool to its maximum size eagerly, so a pool per
+/// test multiplies quickly: `cargo test` runs as many tests at once as there
+/// are cores, and twelve cores times ten connections is past a stock
+/// PostgreSQL's `max_connections` of 100. The suite then fails as a whole with
+/// "could not connect", which looks nothing like what it is.
+///
+/// Built once, shared, and sized for several `TxAnalyser`s at a time — each one
+/// holds four connections for its lifetime, so a pool of ten would deadlock on
+/// three concurrent tests rather than merely being slow.
+///
+/// `None` when `UAAS_TEST_POSTGRES_URL` is unset, which is a skip, not a
+/// failure.
+#[cfg(test)]
+pub(crate) fn shared_test_pool() -> Option<Pool> {
+    use std::sync::OnceLock;
+    static POOL: OnceLock<Option<Pool>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let url = std::env::var("UAAS_TEST_POSTGRES_URL").ok()?;
+        let config = url.parse().ok()?;
+        let manager = PostgresConnectionManager::new(config, NoTls);
+        Pool::builder().max_size(32).build(manager).ok()
+    })
+    .clone()
+}

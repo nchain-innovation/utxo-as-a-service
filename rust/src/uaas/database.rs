@@ -96,6 +96,9 @@ pub struct MempoolEntryDB {
     pub fee: i64,
     /// Seconds since the unix epoch when the transaction was first seen.
     pub age: u64,
+    /// The chain tip when the transaction was first seen. Eviction is measured
+    /// in blocks, not wall-clock: see V13.
+    pub seen_height: i32,
     /// Raw transaction bytes. Was hex in a `longtext`, so this is half the size
     /// and TOASTed by PostgreSQL once it passes the page threshold.
     pub tx: Vec<u8>,
@@ -173,7 +176,11 @@ pub enum DBOperationType {
     UtxoBatchWrite(Vec<UtxoEntryDB>),
     UtxoBatchDelete(Vec<OutPoint>),
     /// A spend seen but not yet mined: move utxo -> utxo_spent, height NULL.
-    UtxoBatchSpend(Vec<SpendRecord>),
+    /// The `i32` is the chain tip when it was seen, recorded in
+    /// `utxo_unmined_spend` so eviction can find spends that never confirm.
+    UtxoBatchSpend(Vec<SpendRecord>, i32),
+    /// Outpoints whose spend never confirmed: move them back to `utxo`.
+    UtxoBatchReclaim(Vec<OutPoint>),
     /// A spend seen in a block: settle it at that height.
     UtxoBatchSettle(Vec<SpendRecord>, i32),
     /// Which monitors selected which outpoints.
@@ -231,9 +238,17 @@ fn coalesce_operations(ops: Vec<DBOperationType>) -> Vec<DBOperationType> {
                 Some(DBOperationType::UtxoBatchDelete(acc)),
                 DBOperationType::UtxoBatchDelete(more),
             ) => acc.extend(more),
-            (Some(DBOperationType::UtxoBatchSpend(acc)), DBOperationType::UtxoBatchSpend(more)) => {
-                acc.extend(more)
-            }
+            // Only merged when the seen heights agree, for the same reason
+            // settle is: the height is written into utxo_unmined_spend, so two
+            // runs at different heights are different statements.
+            (
+                Some(DBOperationType::UtxoBatchSpend(acc, acc_height)),
+                DBOperationType::UtxoBatchSpend(more, more_height),
+            ) if *acc_height == more_height => acc.extend(more),
+            (
+                Some(DBOperationType::UtxoBatchReclaim(acc)),
+                DBOperationType::UtxoBatchReclaim(more),
+            ) => acc.extend(more),
             (
                 Some(DBOperationType::UtxoMonitorBatchWrite(acc)),
                 DBOperationType::UtxoMonitorBatchWrite(more),
@@ -384,7 +399,7 @@ impl Database {
     /// spend of the same outpoint must not overwrite the first sighting. First
     /// seen wins, and distinguishing a malleated sibling from a genuine
     /// double-spend is CS-428, not this.
-    fn utxo_batch_spend(&mut self, spends: Vec<SpendRecord>) {
+    fn utxo_batch_spend(&mut self, spends: Vec<SpendRecord>, seen_height: i32) {
         if spends.is_empty() {
             return;
         }
@@ -393,6 +408,22 @@ impl Database {
             if txids.is_empty() {
                 return Ok(());
             }
+            // One statement, three stages, because the last must record only
+            // what the first two actually did.
+            //
+            // Written as two statements first, and that was wrong: the second
+            // inserted a row for every outpoint in the batch, including ones
+            // the DELETE never found and ones the ON CONFLICT declined. Those
+            // rows name an outpoint with no `utxo_spent` row, so the eviction
+            // join never matches them and nothing ever deletes them — a
+            // permanent leak of exactly the kind this ticket exists to remove,
+            // in a brand new table. Chaining off `spent`'s RETURNING makes the
+            // record of a sighting conditional on the sighting being stored.
+            //
+            // Keyed on the outpoint, so a malleated re-announcement of the same
+            // spend updates nothing and the original `seen_height` stands: the
+            // age of a spend is the age of the *attempt*, and letting a
+            // rebroadcast reset it would make an outpoint unreclaimable.
             tx.execute(
                 "WITH moved AS ( \
                      DELETE FROM utxo u \
@@ -401,14 +432,80 @@ impl Database {
                      WHERE u.txid = i.txid AND u.vout = i.vout \
                      RETURNING u.txid, u.vout, u.satoshis, u.locking_script, \
                                u.identifier, u.created_height, i.spending_txid \
+                 ), spent AS ( \
+                     INSERT INTO utxo_spent (txid, vout, satoshis, locking_script, \
+                                             identifier, created_height, spent_txid, \
+                                             spent_height) \
+                     SELECT txid, vout, satoshis, locking_script, identifier, \
+                            created_height, spending_txid, NULL \
+                     FROM moved \
+                     ON CONFLICT (txid, vout) DO NOTHING \
+                     RETURNING txid, vout \
                  ) \
-                 INSERT INTO utxo_spent (txid, vout, satoshis, locking_script, \
-                                         identifier, created_height, spent_txid, spent_height) \
+                 INSERT INTO utxo_unmined_spend (txid, vout, seen_height) \
+                 SELECT txid, vout, $4 FROM spent \
+                 ON CONFLICT (txid, vout) DO NOTHING",
+                &[&txids, &vouts, &spending, &seen_height],
+            )?;
+            Ok(())
+        });
+    }
+
+    /// Outpoints whose spend was seen but never mined, returned to the
+    /// spendable set.
+    ///
+    /// Keyed on the outpoint, never the spending txid, for the same reason the
+    /// settle is.
+    ///
+    /// `spent_height IS NULL` is re-asserted here rather than trusted from the
+    /// caller's earlier SELECT. Operations reach this thread in order, so a
+    /// settle queued before the reclaim has already run by the time this
+    /// executes; without the guard, a spend that confirmed in the interval
+    /// would be un-settled and handed back as spendable.
+    fn utxo_batch_reclaim(&mut self, outpoints: Vec<OutPoint>) {
+        if outpoints.is_empty() {
+            return;
+        }
+        self.in_transaction("utxo batch reclaim", |tx| {
+            let mut txids: Vec<&[u8]> = Vec::with_capacity(outpoints.len());
+            let mut vouts: Vec<i32> = Vec::with_capacity(outpoints.len());
+            for outpoint in &outpoints {
+                let Some(vout) = checked::<u32, i32>(outpoint.index, "output index") else {
+                    continue;
+                };
+                txids.push(&outpoint.hash.0[..]);
+                vouts.push(vout);
+            }
+            if txids.is_empty() {
+                return Ok(());
+            }
+
+            tx.execute(
+                "WITH moved AS ( \
+                     DELETE FROM utxo_spent s \
+                     USING unnest($1::bytea[], $2::integer[]) AS i(txid, vout) \
+                     WHERE s.txid = i.txid AND s.vout = i.vout \
+                       AND s.spent_height IS NULL \
+                     RETURNING s.txid, s.vout, s.satoshis, s.locking_script, \
+                               s.identifier, s.created_height \
+                 ) \
+                 INSERT INTO utxo (txid, vout, satoshis, locking_script, \
+                                   identifier, created_height) \
                  SELECT txid, vout, satoshis, locking_script, identifier, \
-                        created_height, spending_txid, NULL \
+                        created_height \
                  FROM moved \
                  ON CONFLICT (txid, vout) DO NOTHING",
-                &[&txids, &vouts, &spending],
+                &[&txids, &vouts],
+            )?;
+
+            // Unconditional: whether or not the row above moved, this outpoint
+            // is no longer an unmined spend awaiting a decision. If the settle
+            // won the race the row is settled and must not be revisited.
+            tx.execute(
+                "DELETE FROM utxo_unmined_spend u \
+                 USING unnest($1::bytea[], $2::integer[]) AS i(txid, vout) \
+                 WHERE u.txid = i.txid AND u.vout = i.vout",
+                &[&txids, &vouts],
             )?;
             Ok(())
         });
@@ -466,6 +563,17 @@ impl Database {
                  FROM moved \
                  ON CONFLICT (txid, vout) DO NOTHING",
                 &[&txids, &vouts, &spending, &height],
+            )?;
+
+            // 3. Whichever route it took, the spend is mined, so it is no
+            //    longer a candidate for eviction. Keyed on the outpoint, so a
+            //    spend mined under a malleated txid still clears the record
+            //    the original announcement left.
+            tx.execute(
+                "DELETE FROM utxo_unmined_spend u \
+                 USING unnest($1::bytea[], $2::integer[]) AS i(txid, vout) \
+                 WHERE u.txid = i.txid AND u.vout = i.vout",
+                &[&txids, &vouts],
             )?;
             Ok(())
         });
@@ -529,8 +637,8 @@ impl Database {
         }
         self.in_transaction("mempool batch write", |db| {
             let stmt = db.prepare(
-                "INSERT INTO mempool (hash, locktime, fee, seen_at, tx) \
-                 VALUES ($1, $2, $3, $4, $5) \
+                "INSERT INTO mempool (hash, locktime, fee, seen_at, tx, seen_height) \
+                 VALUES ($1, $2, $3, $4, $5, $6) \
                  ON CONFLICT (hash) DO NOTHING",
             )?;
             for entry in &mempool_entries {
@@ -546,6 +654,7 @@ impl Database {
                         &entry.fee,
                         &seen_at,
                         &entry.tx,
+                        &entry.seen_height,
                     ],
                 )?;
             }
@@ -684,7 +793,10 @@ impl Database {
         match op {
             DBOperationType::UtxoBatchWrite(entries) => self.utxo_batch_write(entries),
             DBOperationType::UtxoBatchDelete(deletes) => self.utxo_batch_delete(deletes),
-            DBOperationType::UtxoBatchSpend(spends) => self.utxo_batch_spend(spends),
+            DBOperationType::UtxoBatchSpend(spends, seen_height) => {
+                self.utxo_batch_spend(spends, seen_height)
+            }
+            DBOperationType::UtxoBatchReclaim(outpoints) => self.utxo_batch_reclaim(outpoints),
             DBOperationType::UtxoMonitorBatchWrite(records) => {
                 self.utxo_monitor_batch_write(records)
             }
@@ -803,6 +915,7 @@ mod test {
                     locktime: *id,
                     fee: 0,
                     age: 0,
+                    seen_height: 0,
                     tx: Vec::new(),
                 })
                 .collect(),
@@ -824,8 +937,11 @@ mod test {
                 DBOperationType::UtxoBatchDelete(deletes) => {
                     out.extend(deletes.iter().map(|d| d.index))
                 }
-                DBOperationType::UtxoBatchSpend(spends) => {
+                DBOperationType::UtxoBatchSpend(spends, _) => {
                     out.extend(spends.iter().map(|s| s.vout))
+                }
+                DBOperationType::UtxoBatchReclaim(outpoints) => {
+                    out.extend(outpoints.iter().map(|o| o.index))
                 }
                 DBOperationType::UtxoMonitorBatchWrite(records) => {
                     out.extend(records.iter().map(|r| r.vout))
@@ -859,7 +975,8 @@ mod test {
             .map(|op| match op {
                 DBOperationType::UtxoBatchWrite(_) => "utxo_write",
                 DBOperationType::UtxoBatchDelete(_) => "utxo_delete",
-                DBOperationType::UtxoBatchSpend(_) => "utxo_spend",
+                DBOperationType::UtxoBatchSpend(_, _) => "utxo_spend",
+                DBOperationType::UtxoBatchReclaim(_) => "utxo_reclaim",
                 DBOperationType::UtxoMonitorBatchWrite(_) => "utxo_monitor_write",
                 DBOperationType::UtxoBatchSettle(_, _) => "utxo_settle",
                 DBOperationType::TxBatchWrite(_) => "tx_write",
@@ -1017,15 +1134,13 @@ mod test {
     // than failed without one.
     #[test]
     fn db07_delete_between_writes_reaches_the_database() {
-        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+        let Some(pool) = crate::db::shared_test_pool() else {
             eprintln!(
                 "skipping db07_delete_between_writes_reaches_the_database: \
                  UAAS_TEST_POSTGRES_URL not set"
             );
             return;
         };
-
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let mut setup = pool.get().expect("get connection for fixture setup");
 
         // The table is the migrations' now; this test no longer creates it. If
@@ -1148,22 +1263,24 @@ mod test {
 
     #[test]
     fn db08_a_spend_seen_unmined_moves_the_row_and_leaves_the_height_null() {
-        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+        let Some(pool) = crate::db::shared_test_pool() else {
             eprintln!("skipping db08: UAAS_TEST_POSTGRES_URL not set");
             return;
         };
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let mut conn = pool.get().expect("fixture connection");
 
         let (txid, vout, spender) = spend_fixture(0x0db1_0001, 0x0db1_00a1);
         seed_live_utxo(&mut conn, &txid, vout);
 
         let mut database = database_for(&pool);
-        database.utxo_batch_spend(vec![SpendRecord {
-            txid: txid.clone(),
-            vout: u32::try_from(vout).expect("vout fits"),
-            spending_txid: spender.clone(),
-        }]);
+        database.utxo_batch_spend(
+            vec![SpendRecord {
+                txid: txid.clone(),
+                vout: u32::try_from(vout).expect("vout fits"),
+                spending_txid: spender.clone(),
+            }],
+            0,
+        );
 
         assert_eq!(
             live_count(&mut conn, &txid),
@@ -1187,11 +1304,10 @@ mod test {
     // this test exists to make impossible to reintroduce.
     #[test]
     fn db09_the_settle_is_keyed_on_the_outpoint_not_the_spending_txid() {
-        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+        let Some(pool) = crate::db::shared_test_pool() else {
             eprintln!("skipping db09: UAAS_TEST_POSTGRES_URL not set");
             return;
         };
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let mut conn = pool.get().expect("fixture connection");
 
         let (txid, vout, announced) = spend_fixture(0x0db1_0002, 0x0db1_00a2);
@@ -1205,11 +1321,14 @@ mod test {
         let vout_u32 = u32::try_from(vout).expect("vout fits");
 
         // Seen in the mempool as A.
-        database.utxo_batch_spend(vec![SpendRecord {
-            txid: txid.clone(),
-            vout: vout_u32,
-            spending_txid: announced.clone(),
-        }]);
+        database.utxo_batch_spend(
+            vec![SpendRecord {
+                txid: txid.clone(),
+                vout: vout_u32,
+                spending_txid: announced.clone(),
+            }],
+            0,
+        );
         assert_eq!(
             settled_state(&mut conn, &txid),
             Some((announced, None)),
@@ -1237,11 +1356,10 @@ mod test {
     // outpoint is still live and statement 2 moves it already settled.
     #[test]
     fn db10_a_spend_never_seen_unmined_is_moved_and_settled_in_one_step() {
-        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+        let Some(pool) = crate::db::shared_test_pool() else {
             eprintln!("skipping db10: UAAS_TEST_POSTGRES_URL not set");
             return;
         };
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let mut conn = pool.get().expect("fixture connection");
 
         let (txid, vout, spender) = spend_fixture(0x0db1_0003, 0x0db1_00a3);
@@ -1267,12 +1385,10 @@ mod test {
 
     #[test]
     fn test_operation() {
-        let Some(url) = std::env::var("UAAS_TEST_POSTGRES_URL").ok() else {
+        let Some(pool) = crate::db::shared_test_pool() else {
             eprintln!("skipping database integration test: UAAS_TEST_POSTGRES_URL not set");
             return;
         };
-
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let conn = pool
             .get()
             .expect("get connection for database integration test");
@@ -1289,5 +1405,302 @@ mod test {
         database.orphan_block_header_write(block_header);
 
         //assert_eq!(datetime.timestamp(), 1684477516);
+    }
+
+    // --- CS-423: mempool eviction ----------------------------------------
+
+    fn unmined_seen_height(conn: &mut crate::db::PooledConn, txid: &[u8]) -> Option<i32> {
+        conn.query_opt(
+            "SELECT seen_height FROM utxo_unmined_spend WHERE txid = $1",
+            &[&txid],
+        )
+        .expect("read utxo_unmined_spend")
+        .map(|row| row.get(0))
+    }
+
+    fn outpoint_of(txid: &[u8], vout: i32) -> OutPoint {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(txid);
+        OutPoint {
+            hash: Hash256(bytes),
+            index: u32::try_from(vout).expect("vout fits"),
+        }
+    }
+
+    fn spend_record(txid: &[u8], vout: i32, spender: &[u8]) -> SpendRecord {
+        SpendRecord {
+            txid: txid.to_vec(),
+            vout: u32::try_from(vout).expect("vout fits"),
+            spending_txid: spender.to_vec(),
+        }
+    }
+
+    #[test]
+    fn db11_an_unmined_spend_is_recorded_with_the_height_it_was_seen_at() {
+        let Some(pool) = crate::db::shared_test_pool() else {
+            eprintln!("skipping db11: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db2_0001, 0x0db2_00a1);
+        seed_live_utxo(&mut conn, &txid, vout);
+        conn.execute("DELETE FROM utxo_unmined_spend WHERE txid = $1", &[&txid])
+            .expect("clear fixture");
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_spend(vec![spend_record(&txid, vout, &spender)], 900);
+
+        assert_eq!(
+            unmined_seen_height(&mut conn, &txid),
+            Some(900),
+            "the spend must be recorded against the height it was seen at"
+        );
+    }
+
+    #[test]
+    fn db12_reclaiming_returns_the_outpoint_to_the_spendable_set() {
+        let Some(pool) = crate::db::shared_test_pool() else {
+            eprintln!("skipping db12: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db2_0002, 0x0db2_00a2);
+        seed_live_utxo(&mut conn, &txid, vout);
+        conn.execute("DELETE FROM utxo_unmined_spend WHERE txid = $1", &[&txid])
+            .expect("clear fixture");
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_spend(vec![spend_record(&txid, vout, &spender)], 900);
+        assert_eq!(live_count(&mut conn, &txid), 0, "spent, so not live");
+
+        database.utxo_batch_reclaim(vec![outpoint_of(&txid, vout)]);
+
+        assert_eq!(
+            live_count(&mut conn, &txid),
+            1,
+            "the outpoint must be spendable again"
+        );
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            None,
+            "and must no longer be recorded as a spend at all"
+        );
+        assert_eq!(
+            unmined_seen_height(&mut conn, &txid),
+            None,
+            "and must no longer be a candidate for eviction"
+        );
+
+        // The row came back whole, not as a stub.
+        let (satoshis, created): (i64, Option<i32>) = conn
+            .query_one(
+                "SELECT satoshis, created_height FROM utxo WHERE txid = $1",
+                &[&txid],
+            )
+            .map(|row| (row.get(0), row.get(1)))
+            .expect("read the reclaimed row");
+        assert_eq!((satoshis, created), (1000, Some(300)));
+    }
+
+    #[test]
+    fn db13_a_settle_clears_the_eviction_candidate() {
+        let Some(pool) = crate::db::shared_test_pool() else {
+            eprintln!("skipping db13: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db2_0003, 0x0db2_00a3);
+        seed_live_utxo(&mut conn, &txid, vout);
+        conn.execute("DELETE FROM utxo_unmined_spend WHERE txid = $1", &[&txid])
+            .expect("clear fixture");
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_spend(vec![spend_record(&txid, vout, &spender)], 900);
+        assert_eq!(unmined_seen_height(&mut conn, &txid), Some(900));
+
+        database.utxo_batch_settle(vec![spend_record(&txid, vout, &spender)], 950);
+
+        assert_eq!(
+            unmined_seen_height(&mut conn, &txid),
+            None,
+            "a mined spend must stop being an eviction candidate"
+        );
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((spender, Some(950))),
+            "and must be settled"
+        );
+    }
+
+    /// The malleation case, keyed on the outpoint rather than the txid.
+    ///
+    /// The spend is announced as A and mined as its malleated sibling B. If
+    /// either statement keyed on the spending txid, the record left by A would
+    /// survive the settle and the outpoint would later be reclaimed — handing
+    /// back as spendable an output that a block has already spent.
+    #[test]
+    fn db14_a_spend_mined_under_a_malleated_txid_stops_being_a_candidate() {
+        let Some(pool) = crate::db::shared_test_pool() else {
+            eprintln!("skipping db14: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, announced) = spend_fixture(0x0db2_0004, 0x0db2_00a4);
+        let mined = hash_of(0x0db2_00b4).0.to_vec();
+        assert_ne!(announced, mined, "the fixture must be a malleated pair");
+
+        seed_live_utxo(&mut conn, &txid, vout);
+        conn.execute("DELETE FROM utxo_unmined_spend WHERE txid = $1", &[&txid])
+            .expect("clear fixture");
+
+        let mut database = database_for(&pool);
+        // Seen in the mempool as A.
+        database.utxo_batch_spend(vec![spend_record(&txid, vout, &announced)], 900);
+        // Mined as B.
+        database.utxo_batch_settle(vec![spend_record(&txid, vout, &mined)], 950);
+
+        assert_eq!(
+            unmined_seen_height(&mut conn, &txid),
+            None,
+            "the settle must clear the candidate left by the other txid"
+        );
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((mined, Some(950))),
+            "and record the txid the block actually carried"
+        );
+    }
+
+    /// Ordering, which is what makes the reclaim safe to queue behind a settle.
+    ///
+    /// A reclaim is decided from a SELECT taken before the writer has applied
+    /// everything queued ahead of it, so by the time it runs the spend may
+    /// already have been mined. The `spent_height IS NULL` guard in the
+    /// statement, not the caller's snapshot, is what must decide it.
+    #[test]
+    fn db15_a_reclaim_behind_a_settle_does_not_unspend_it() {
+        let Some(pool) = crate::db::shared_test_pool() else {
+            eprintln!("skipping db15: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db2_0005, 0x0db2_00a5);
+        seed_live_utxo(&mut conn, &txid, vout);
+        conn.execute("DELETE FROM utxo_unmined_spend WHERE txid = $1", &[&txid])
+            .expect("clear fixture");
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_spend(vec![spend_record(&txid, vout, &spender)], 900);
+        // The spend confirms while a reclaim for it is already in flight.
+        database.utxo_batch_settle(vec![spend_record(&txid, vout, &spender)], 950);
+        database.utxo_batch_reclaim(vec![outpoint_of(&txid, vout)]);
+
+        assert_eq!(
+            live_count(&mut conn, &txid),
+            0,
+            "a settled spend must not be handed back as spendable"
+        );
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((spender, Some(950))),
+            "and must keep the height it settled at"
+        );
+    }
+
+    /// Idempotence the other way round: the spend confirms *after* the reclaim.
+    #[test]
+    fn db16_a_spend_confirming_after_a_reclaim_settles_normally() {
+        let Some(pool) = crate::db::shared_test_pool() else {
+            eprintln!("skipping db16: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db2_0006, 0x0db2_00a6);
+        seed_live_utxo(&mut conn, &txid, vout);
+        conn.execute("DELETE FROM utxo_unmined_spend WHERE txid = $1", &[&txid])
+            .expect("clear fixture");
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_spend(vec![spend_record(&txid, vout, &spender)], 900);
+        database.utxo_batch_reclaim(vec![outpoint_of(&txid, vout)]);
+        assert_eq!(live_count(&mut conn, &txid), 1, "reclaimed");
+
+        // The slow spend finally confirms.
+        database.utxo_batch_settle(vec![spend_record(&txid, vout, &spender)], 1100);
+
+        assert_eq!(
+            live_count(&mut conn, &txid),
+            0,
+            "the late settle must take it out of the spendable set again"
+        );
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            Some((spender, Some(1100))),
+            "settled at the height that mined it"
+        );
+        // And reclaiming again must be a no-op rather than resurrecting it.
+        database.utxo_batch_reclaim(vec![outpoint_of(&txid, vout)]);
+        assert_eq!(
+            live_count(&mut conn, &txid),
+            0,
+            "a second reclaim must not undo the settle"
+        );
+    }
+
+    /// Spending an outpoint that is not in the spendable set must record
+    /// nothing at all.
+    ///
+    /// Written after getting it wrong: recording the sighting in its own
+    /// statement inserted a row for every outpoint in the batch, including the
+    /// ones the DELETE never found. Such a row names an outpoint with no
+    /// `utxo_spent` row, so the eviction join never matches it and nothing ever
+    /// deletes it — a permanent leak of exactly the kind CS-423 exists to
+    /// remove, in the table added to remove it.
+    ///
+    /// Chaining off `spent` rather than `moved` is the stricter of the two
+    /// correct-looking forms. They differ only when the DELETE finds a row and
+    /// the INSERT then declines it, which needs an outpoint present in both
+    /// `utxo` and `utxo_spent` at once; the schema invariant says that cannot
+    /// happen, so this test does not reach that case.
+    ///
+    /// Chaining off  rather than  is the stricter of the two
+    /// correct-looking forms: they differ only when the DELETE finds a row and
+    /// the INSERT then declines it, which needs an outpoint present in both
+    ///  and  at once. The schema invariant says that cannot
+    /// happen, so this test does not reach that case.
+    #[test]
+    fn db17_spending_an_outpoint_that_is_not_live_records_nothing() {
+        let Some(pool) = crate::db::shared_test_pool() else {
+            eprintln!("skipping db17: UAAS_TEST_POSTGRES_URL not set");
+            return;
+        };
+        let mut conn = pool.get().expect("fixture connection");
+
+        let (txid, vout, spender) = spend_fixture(0x0db2_0007, 0x0db2_00a7);
+        // Deliberately not seeded: the outpoint is in neither table.
+        for table in ["utxo", "utxo_spent", "utxo_unmined_spend"] {
+            conn.execute(&format!("DELETE FROM {table} WHERE txid = $1"), &[&txid])
+                .expect("clear fixture");
+        }
+
+        let mut database = database_for(&pool);
+        database.utxo_batch_spend(vec![spend_record(&txid, vout, &spender)], 900);
+
+        assert_eq!(
+            settled_state(&mut conn, &txid),
+            None,
+            "nothing was moved, so nothing must be recorded as spent"
+        );
+        assert_eq!(
+            unmined_seen_height(&mut conn, &txid),
+            None,
+            "and nothing must be left behind as an eviction candidate"
+        );
     }
 }
