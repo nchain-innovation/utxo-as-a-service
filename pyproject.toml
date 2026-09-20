@@ -8,7 +8,7 @@ dependencies = [
     "fastapi==0.141.1",
     "fastapi-utils==0.8.0",
     "uvicorn[standard]==0.52.4",
-    "mysql-connector-python==26.7.0",
+    "psycopg[binary,pool]==3.3.6",
     "requests==2.34.2",
 ]
 
@@ -16,7 +16,6 @@ dependencies = [
 dev = [
     "flake8==7.3.0",
     "mypy==2.3.1",
-    "docker==7.2.0",
     "pytest==9.1.1",
     "httpx==0.28.1",
     "types-toml==0.10.8.20260518",
@@ -28,6 +27,6 @@ package = false
 
 [tool.pytest.ini_options]
 markers = [
-    "integration: tests requiring MariaDB (set UAAS_TEST_MYSQL_URL)",
+    "integration: tests requiring PostgreSQL (set UAAS_TEST_POSTGRES_URL)",
 ]
 testpaths = ["python/tests"]
