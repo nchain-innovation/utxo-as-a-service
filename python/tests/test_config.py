@@ -48,8 +48,8 @@ save_blocks = false
 save_txs = false
 
 [database]
-mysql_url = "mysql://local"
-mysql_url_docker = "mysql://docker"
+postgres_url = "postgresql://local"
+postgres_url_docker = "postgresql://docker"
 ms_delay = 300
 retries = 3
 
