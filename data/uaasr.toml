@@ -21,14 +21,6 @@ block_request_period = 280
 startup_load_from_database = true
 # startup_load_from_database = false
 
-# Python database access
-# mysql_port is required here: database.py falls back to the connector default
-# of 3306 when it is absent, but docker-compose publishes the database on 3307.
-host = "host.docker.internal"
-mysql_port = 3307
-user = "maas"
-password = "maas-password"
-database = "main_uaas_db"
 
 # Used by Python and Rust
 block_file = "../data/main-block.dat"
@@ -68,22 +60,6 @@ timeout_period = 1000.0
 startup_load_from_database = true
 #startup_load_from_database = false
 
-
-# Python database access
-# mysql_port is required here: database.py falls back to the connector default
-# of 3306 when it is absent, but docker-compose publishes the database on 3307.
-host = "host.docker.internal"
-mysql_port = 3307
-user = "uaas"
-password = "uaas-password"
-database = "uaas_db"
-
-
-# Python database access
-#host = "host.docker.internal"
-#user = "maas"
-#password = "maas-password"
-#database = "main_uaas_db"
 
 # Used by Python and Rust
 block_file = "../data/test-net.dat"
@@ -134,7 +110,6 @@ locking_script_pattern = "006a[0-9a-f]{2}53417631[0-9a-f]*"
 # OP_0 OP_RETURN len DSAv1...
 
 
-
 [[collection]]
 name = "CoCv1"
 track_descendants = false
@@ -156,7 +131,6 @@ track_descendants = true
 # len OP_0 OP_IF  len o  r  d  OP_1 len a  p  p  l  i  c  a  t  i  o  n  /  b  s  v  -  2  0  OP_0                                                                OP_ENDIF
 # 62  00   63     03  6f 72 64 51   12  61 70 70 6c 69 63 61 74 69 6f 6e 2f 62 73 76 2d 32 30 00  45 7b2270223a226273762d3230222c226f70223a226465706c6f792b6d696e74222c2273796d223a226d757266222c22616d74223a2231303030222c22646563223a2230227d 68
 locking_script_pattern = "0063036f726451126170706c69636174696f6e2f6273762d323000[0-9a-f]*" 
-
 
 
 [web_interface]

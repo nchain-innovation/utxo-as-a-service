@@ -5,35 +5,7 @@ networks:
     name: uaas_network
 
 services:
-  # Database (MariaDB — MySQL-compatible, multi-arch including Apple Silicon)
-  database:
-    container_name: uaas_database
-    image: mariadb:11.4
-    cap_add:
-      - SYS_NICE
-    restart: always
-    ports:
-      - "3307:3306"
-    networks:
-      - uaas_network
-    environment:
-        # Sourced from a local .env file (see .env.example); falls back to the
-        # historical default so existing dev setups keep working.
-        MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-mysql}
-        MARIADB_DATABASE: db
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    volumes:
-        - ./data/mysql:/var/lib/mysql
-        - ./init_database:/docker-entrypoint-initdb.d/:ro
-        - ./docker/mariadb/99-uaas.cnf:/etc/mysql/mariadb.conf.d/99-uaas.cnf:ro
-
-  # PostgreSQL — the Rust service's data store. The Python web API still reads
-  # MariaDB below, so until that is swapped over it serves stale data.
+  # PostgreSQL — the one database. Both components read and write it.
   postgres:
     container_name: uaas_postgres
     image: postgres:17
@@ -43,7 +15,7 @@ services:
     networks:
       - uaas_network
     environment:
-      # Local development only, same as the MariaDB credentials above.
+      # Local development only, as documented in docs/Security.md.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -64,8 +36,6 @@ services:
     image: adminer
     restart: always
     depends_on:
-      database:
-        condition: service_healthy
       postgres:
         condition: service_healthy
     ports:
@@ -123,8 +93,7 @@ services:
       - ./data/uaasr.docker.toml:/app/data/uaasr.toml:ro
     restart: on-failure
 
-  # UaaS web API — still on MariaDB, which nothing writes to any more, so its
-  # responses are stale until the Python data layer is swapped over too.
+  # UaaS web API
   uaas_web:
     container_name: uaas_web
     image: uaas-web
@@ -133,8 +102,10 @@ services:
     networks:
       - uaas_network
     depends_on:
-      database:
+      postgres:
         condition: service_healthy
+      uaas_migrate:
+        condition: service_completed_successfully
       uaas_backend:
         condition: service_healthy
     healthcheck:
