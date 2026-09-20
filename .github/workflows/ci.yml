@@ -108,18 +108,23 @@ jobs:
     name: Python
     runs-on: ubuntu-latest
     services:
-      mariadb:
-        image: mariadb:11.4
+      postgres:
+        image: postgres:17
         env:
-          MARIADB_ROOT_PASSWORD: mysql
+          POSTGRES_PASSWORD: postgres
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-cmd="pg_isready -U postgres"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
           --health-start-period=30s
+
+    env:
+      # The name must contain "test": the integration helpers issue
+      # unconditional DELETEs and refuse a database whose name does not.
+      UAAS_TEST_POSTGRES_URL: postgresql://uaas:uaas-password@127.0.0.1:5432/uaas_test_db
 
     steps:
       - uses: actions/checkout@v7
@@ -128,25 +133,25 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Initialize database
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Initialize PostgreSQL
         run: |
-          mariadb -h 127.0.0.1 -u root -pmysql < init_database/01_init.sql
-          mariadb -h 127.0.0.1 -u root -pmysql main_uaas_db <<'EOF'
-          CREATE TABLE IF NOT EXISTS orphans (
-              height int unsigned not null,
-              hash varchar(64) not null,
-              version int unsigned not null,
-              prev_hash varchar(64) not null,
-              merkle_root varchar(64) not null,
-              timestamp int unsigned not null,
-              bits int unsigned not null,
-              nonce int unsigned not null,
-              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-          );
-          EOF
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres" \
+            -v ON_ERROR_STOP=1 -f init_database/postgres/01_roles_and_databases.sql
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres" \
+            -v ON_ERROR_STOP=1 -c 'CREATE DATABASE uaas_test_db OWNER uaas'
+
+      # The Python integration tests no longer define their own schema — the
+      # migrations own it, and the suite fails with an actionable message if it
+      # has not been applied. Applied by the Rust binary, which is the only
+      # thing that carries the migrations.
+      - name: Apply migrations to the test database
+        working-directory: rust
+        run: cargo run --quiet -- migrate "$UAAS_TEST_POSTGRES_URL"
 
       # `uv sync --frozen` resolves against the lock and exits 0 even when
       # the lock contradicts pyproject.toml, installing the stale locked
@@ -161,8 +166,6 @@ jobs:
         run: ./lint.sh
 
       - name: Test
-        env:
-          UAAS_TEST_MYSQL_URL: mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
         run: uv run pytest python/tests -v
 
   docker:
@@ -203,20 +206,25 @@ jobs:
           # uaas_migrate exits non-zero, since the backend depends on it
           # completing successfully.
           docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
-            -p uaas-smoke up -d --wait --wait-timeout 180 uaas_backend
+            -p uaas-smoke up -d --wait --wait-timeout 240 uaas_web
 
           echo "--- uaas_migrate ---"
           docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
             -p uaas-smoke logs uaas_migrate
 
           body=$(curl -sf --max-time 10 http://127.0.0.1:8081/health)
-          echo "/health -> $body"
+          echo "rust  /health -> $body"
           echo "$body" | grep -q '"status":"ok"'
+
+          # The Python side, which is what CS-398 asks for. Meaningful only now
+          # that it reads the database the indexer writes.
+          web=$(curl -sf --max-time 10 http://127.0.0.1:5010/health)
+          echo "python /health -> $web"
 
       - name: Smoke test teardown
         if: always()
         run: |
           docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
-            -p uaas-smoke logs --no-color uaas_backend || true
+            -p uaas-smoke logs --no-color uaas_backend uaas_web || true
           docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
             -p uaas-smoke down -v || true
