@@ -221,6 +221,65 @@ jobs:
           web=$(curl -sf --max-time 10 http://127.0.0.1:5010/health)
           echo "python /health -> $web"
 
+      # The step above only ever covers a *first* start: `down -v` drops the
+      # volume, so every run migrates from nothing into an empty database. The
+      # restart path had therefore never been exercised at all, which is how
+      # CS-429 shipped — the service panicked decoding its own mempool rows and
+      # died on every restart that had anything to load.
+      #
+      # A row, a restart, a health check. ~10s.
+      - name: Service restarts against a database with data in it
+        run: |
+          set -euo pipefail
+          # A synthetic mempool row, written with the same representation the
+          # indexer uses: a 32-byte txid as raw bytea, not hex. Inserted rather
+          # than indexed for real, because reaching a node is exactly what this
+          # suite must not do.
+          docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+            -p uaas-smoke exec -T postgres \
+            psql -v ON_ERROR_STOP=1 -U uaas -d uaas_db -c \
+            "INSERT INTO mempool (hash, locktime, fee, tx)
+             VALUES (decode(repeat('ab', 32), 'hex'), 0, 0, decode('deadbeef', 'hex'))
+             ON CONFLICT (hash) DO NOTHING"
+
+          rows=$(docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+            -p uaas-smoke exec -T postgres \
+            psql -tA -U uaas -d uaas_db -c "SELECT count(*) FROM mempool")
+          echo "mempool rows before restart: $rows"
+          # Guard the guard: a restart over an empty table proves nothing.
+          test "$rows" -ge 1
+
+          docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+            -p uaas-smoke restart uaas_backend
+
+          # The failure mode is a panic during startup, so poll rather than
+          # assuming the process is up: without the fix it is already gone.
+          for attempt in $(seq 1 20); do
+            if curl -sf --max-time 5 http://127.0.0.1:8081/health > /dev/null; then
+              echo "healthy after restart (attempt $attempt)"
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "service did not come back after restart with a non-empty mempool"
+              docker compose -f docker-compose.yml -f docker/ci/compose.smoke.yml \
+                -p uaas-smoke logs --no-color --tail 50 uaas_backend
+              exit 1
+            fi
+            sleep 3
+          done
+
+          # Not a log assertion. `release_max_level_warn` compiles `info!` out
+          # of release builds, so "Mempool tx Loaded" never reaches a container
+          # log however well the load went — see docs on the log-level trap.
+          #
+          # RestartCount is the release-safe signal. The service is
+          # `restart: on-failure`, and `docker compose restart` does not touch
+          # this counter, so it stays 0 unless the process actually died and
+          # the policy brought it back. With the CS-429 bug it climbs.
+          restarts=$(docker inspect -f '{{.RestartCount}}' uaas_backend)
+          echo "uaas_backend RestartCount: $restarts"
+          test "$restarts" -eq 0
+
       - name: Smoke test teardown
         if: always()
         run: |
