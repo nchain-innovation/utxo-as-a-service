@@ -5,7 +5,6 @@ import requests
 from database import database
 from block_manager import block_manager
 from config import ConfigType
-from mysql.connector.errors import ProgrammingError
 
 RUST_REQUEST_TIMEOUT = 30  # seconds
 LOGGER = logging.getLogger(__name__)
@@ -22,12 +21,11 @@ class Logic:
         self.rust_url = config["web_interface"]["rust_url"]
 
     def _get_no_of_entries(self, provided_query: str) -> int:
-        try:
-            result = database.query(provided_query)
-            return result[0][0]
-        except ProgrammingError as e:
-            LOGGER.error("MySQL ProgrammingError: %s", e)
-            return 0
+        # No guard for a missing table. The schema is versioned and the service
+        # refuses to start against the wrong version, so a schema fault must
+        # surface rather than be reported as a count of zero.
+        result = database.query(provided_query)
+        return result[0][0]
 
     def _get_version(self) -> str:
         url = self.rust_url + "/version"

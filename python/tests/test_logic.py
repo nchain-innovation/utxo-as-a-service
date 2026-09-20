@@ -1,18 +1,31 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from logic import Logic
 
 
 class TestLogic:
-    def test_get_no_of_entries_returns_zero_on_missing_table(self) -> None:
-        from mysql.connector.errors import ProgrammingError
+    def test_get_no_of_entries_propagates_a_database_error(self) -> None:
+        # This used to swallow a missing-table error and report zero entries.
+        # The schema is versioned now and the service refuses to start against
+        # a version it does not expect, so a schema fault here is a real fault:
+        # reporting it as "zero rows" hides a broken deployment behind a
+        # plausible number.
+        import psycopg
 
         logic = Logic()
         with patch(
             "logic.database.query",
-            side_effect=ProgrammingError("Table does not exist"),
+            side_effect=psycopg.errors.UndefinedTable("relation \"tx\" does not exist"),
         ):
-            assert logic._get_no_of_entries("SELECT COUNT(*) FROM tx;") == 0
+            with pytest.raises(psycopg.errors.UndefinedTable):
+                logic._get_no_of_entries("SELECT COUNT(*) FROM tx;")
+
+    def test_get_no_of_entries_returns_the_count(self) -> None:
+        logic = Logic()
+        with patch("logic.database.query", return_value=[(42,)]):
+            assert logic._get_no_of_entries("SELECT COUNT(*) FROM tx;") == 42
 
     def test_get_version_returns_unknown_when_rust_unreachable(self) -> None:
         import requests

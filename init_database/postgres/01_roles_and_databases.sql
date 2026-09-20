@@ -33,5 +33,5 @@ CREATE ROLE maas LOGIN PASSWORD 'maas-password';
 CREATE DATABASE uaas_db      OWNER uaas;
 CREATE DATABASE main_uaas_db OWNER maas;
 
--- Passwords are in the repository for local development only, exactly as the
--- MariaDB init script's are. docs/Security.md says so and that stays true.
+-- Passwords are in the repository for local development only.
+-- docs/Security.md says so and that stays true.

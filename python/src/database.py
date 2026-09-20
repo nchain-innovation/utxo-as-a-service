@@ -1,52 +1,61 @@
+import os
 from typing import Any, List, Optional, Sequence
 
-from mysql.connector.pooling import MySQLConnectionPool
+from psycopg_pool import ConnectionPool
 
 from config import ConfigType
 
-_WRITE_PREFIXES = (
-    "INSERT",
-    "UPDATE",
-    "DELETE",
-    "REPLACE",
-    "CREATE",
-    "DROP",
-    "ALTER",
-    "TRUNCATE",
-    "GRANT",
-    "REVOKE",
-)
 
+def connection_url(config: ConfigType) -> str:
+    """The libpq URL for this environment.
 
-def _requires_commit(query_string: str) -> bool:
-    """Return True when the statement mutates database state."""
-    normalized = query_string.lstrip()
-    if not normalized:
-        return False
-    first_token = normalized.split(None, 1)[0].upper()
-    return first_token in _WRITE_PREFIXES
+    Read from `[database]`, the same two keys the Rust service reads, chosen
+    the same way — `APP_ENV=docker` selects the in-container host. Before this,
+    the two components were configured separately: Rust from a URL and Python
+    from discrete host/port/user/password/database keys repeated under every
+    network section. Nothing kept them pointing at the same database, which is
+    what CS-407 was about.
+    """
+    try:
+        database = config["database"]
+    except KeyError as err:
+        raise RuntimeError(
+            "Config is missing the [database] section; it must set postgres_url "
+            "and postgres_url_docker."
+        ) from err
+
+    key = "postgres_url_docker" if os.environ.get("APP_ENV") else "postgres_url"
+    try:
+        return str(database[key])
+    except KeyError as err:
+        raise RuntimeError(f"Config section [database] is missing '{key}'.") from err
 
 
 class Database:
-    def __init__(self):
-        self._pool: MySQLConnectionPool | None = None
+    def __init__(self) -> None:
+        self._pool: ConnectionPool | None = None
 
-    def set_config(self, config: ConfigType):
-        network = config["service"]["network"]
-        network_config = config[network]
-        pool_kwargs: dict[str, Any] = {
-            "pool_name": "uaas_pool",
-            "pool_size": 5,
-            "pool_reset_session": True,
-            "host": network_config["host"],
-            "user": network_config["user"],
-            "password": network_config["password"],
-            "database": network_config["database"],
-        }
-        mysql_port = network_config.get("mysql_port")
-        if mysql_port is not None:
-            pool_kwargs["port"] = mysql_port
-        self._pool = MySQLConnectionPool(**pool_kwargs)
+    def set_config(self, config: ConfigType) -> None:
+        # `open=True` connects eagerly, so a bad URL or an unreachable server
+        # fails at startup rather than on the first request.
+        self._pool = ConnectionPool(
+            connection_url(config),
+            min_size=1,
+            max_size=5,
+            open=True,
+        )
+
+    def close(self) -> None:
+        """Shut the pool down.
+
+        The process holds one pool for its lifetime, so production never needs
+        this. Tests do: the pool runs background threads, and letting it be
+        collected at interpreter shutdown raises PythonFinalizationError from
+        its finaliser because those threads can no longer be joined.
+        """
+        if self._pool is not None:
+            self._pool.close()
+            self._pool = None
 
     def query(
         self,
@@ -56,19 +65,21 @@ class Database:
         if self._pool is None:
             raise RuntimeError("Database pool is not configured")
 
-        connection = self._pool.get_connection()
-        try:
-            cursor = connection.cursor()
-            try:
+        # psycopg commits when the `connection` block exits without an
+        # exception and rolls back when it does not. That replaces the
+        # `_requires_commit` helper this used to carry, which decided whether
+        # to commit by matching the statement's first word against a list of
+        # prefixes — a heuristic that got `WITH ... INSERT` wrong, and one more
+        # thing to keep in step with the SQL.
+        with self._pool.connection() as connection:
+            with connection.cursor() as cursor:
                 cursor.execute(query_string, params or ())
-                retval = list(cursor.fetchall())
-                if _requires_commit(query_string):
-                    connection.commit()
-                return retval
-            finally:
-                cursor.close()
-        finally:
-            connection.close()
+                # `description` is None for a statement that returns no rows.
+                # Calling fetchall() on one raises in psycopg rather than
+                # returning an empty list, as the MySQL connector did.
+                if cursor.description is None:
+                    return []
+                return list(cursor.fetchall())
 
 
 database = Database()

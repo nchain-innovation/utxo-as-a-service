@@ -1,90 +1,84 @@
-import os
-from typing import Any, MutableMapping
+"""Fixtures for the integration suite.
+
+**These helpers delete rows.** `clear_blocks` and `clear_utxo` issue
+unconditional DELETEs, so this suite must never be pointed at a database
+anything cares about. `guard_test_database` enforces that rather than trusting
+the reader: it refuses a database whose name does not look like a test one.
+
+No schema is defined here any more. It used to carry its own CREATE TABLE for
+blocks, tx, utxo and mempool — a fourth definition of the schema that had
+already drifted from the others. `rust/migrations/` owns the schema and
+`uaas migrate` applies it; this only checks that it has been.
+"""
+
+from typing import Any
 from urllib.parse import urlparse
 
+import psycopg
+import pytest
+
 from config import ConfigType, _validate_config
+from hashes import identifier_to_bytes, txid_to_bytes
+
+# Tables the suite reads or writes. Checked up front so a missing schema says
+# so once, rather than surfacing as an unrelated failure in each test.
+REQUIRED_TABLES = ("blocks", "tx", "utxo", "utxo_spent", "mempool", "collection")
+
+# Opt-out for someone who genuinely means to run this against a database whose
+# name does not look like a test one. Deliberately awkward.
+_OVERRIDE_ENV = "UAAS_TEST_ALLOW_DESTRUCTIVE"
 
 
-def parse_mysql_url(url: str) -> dict[str, Any]:
-    parsed = urlparse(url)
-    if parsed.scheme != "mysql" or not parsed.hostname or not parsed.path:
-        raise ValueError(f"Invalid MySQL URL: {url}")
-    return {
-        "host": parsed.hostname,
-        "port": parsed.port or 3306,
-        "user": parsed.username or "",
-        "password": parsed.password or "",
-        "database": parsed.path.lstrip("/"),
-    }
+def connect(url: str) -> psycopg.Connection:
+    return psycopg.connect(url)
 
 
-def verify_mysql_connection(mysql_url: str) -> None:
-    """Raise mysql.connector.Error if the test URL cannot connect."""
-    import mysql.connector
+def guard_test_database(url: str) -> None:
+    """Refuse a database this suite should not be deleting rows from.
 
-    db = parse_mysql_url(mysql_url)
-    connection = mysql.connector.connect(
-        host=db["host"],
-        port=db["port"],
-        user=db["user"],
-        password=db["password"],
-        database=db["database"],
-    )
-    connection.close()
-
-
-def ensure_test_user_grants(mysql_url: str) -> None:
-    """Ensure the integration-test user can connect from Docker bridge hosts.
-
-    Local docker-compose volumes created before maas@'%' was added only grant
-    maas@localhost. Host connections via 127.0.0.1:3307 appear as 172.x to MariaDB.
+    The suite truncates tables. Pointed at a running deployment it would
+    destroy indexed chain data, and the connection string differs from the
+    production one by a few characters. A name check is crude but it catches
+    the mistake that actually happens: reusing the URL from docker-compose.
     """
-    import mysql.connector
+    import os
 
-    db = parse_mysql_url(mysql_url)
-    root_password = os.environ.get("UAAS_TEST_MYSQL_ROOT_PASSWORD", "mysql")
-    root_user = os.environ.get("UAAS_TEST_MYSQL_ROOT_USER", "root")
-
-    connection = mysql.connector.connect(
-        host=db["host"],
-        port=db["port"],
-        user=root_user,
-        password=root_password,
-    )
-    cursor = connection.cursor()
-    try:
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{db['database']}`")
-        cursor.execute(
-            "CREATE USER IF NOT EXISTS %s@'%%' IDENTIFIED BY %s",
-            (db["user"], db["password"]),
+    if os.environ.get(_OVERRIDE_ENV):
+        return
+    name = urlparse(url).path.lstrip("/")
+    if "test" not in name.lower():
+        pytest.skip(
+            f"refusing to run destructive integration tests against database "
+            f"'{name}': its name does not contain 'test'. Point "
+            f"UAAS_TEST_POSTGRES_URL at a throwaway database, or set "
+            f"{_OVERRIDE_ENV}=1 if you really mean it."
         )
-        cursor.execute(
-            f"GRANT ALL PRIVILEGES ON `{db['database']}`.* TO %s@'%%'",
-            (db["user"],),
+
+
+def verify_schema(url: str) -> None:
+    """Fail, with something actionable, if the migrations have not been run.
+
+    Reachable-but-unmigrated is a setup mistake, not a reason to skip: skipping
+    looks identical to passing.
+    """
+    with connect(url) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = current_schema()"
+            )
+            present = {row[0] for row in cursor.fetchall()}
+    missing = [t for t in REQUIRED_TABLES if t not in present]
+    if missing:
+        raise AssertionError(
+            f"the test database is missing {', '.join(missing)}. "
+            "Run `cargo run -- migrate \"$UAAS_TEST_POSTGRES_URL\"` from rust/ "
+            "first: the schema lives in rust/migrations/ and is not created by "
+            "the tests."
         )
-        cursor.execute("FLUSH PRIVILEGES")
-        connection.commit()
-    finally:
-        cursor.close()
-        connection.close()
 
 
-def prepare_mysql_for_tests(mysql_url: str) -> None:
-    """Verify test DB access, repairing common Docker grant issues when possible."""
-    import mysql.connector
-
-    try:
-        verify_mysql_connection(mysql_url)
-    except mysql.connector.Error:
-        try:
-            ensure_test_user_grants(mysql_url)
-        except mysql.connector.Error:
-            raise
-        verify_mysql_connection(mysql_url)
-
-
-def build_integration_config(mysql_url: str) -> ConfigType:
-    db = parse_mysql_url(mysql_url)
+def build_integration_config(url: str) -> ConfigType:
     config: ConfigType = {
         "service": {
             "user_agent": "/Bitcoin SV:1.0.11/",
@@ -98,11 +92,6 @@ def build_integration_config(mysql_url: str) -> ConfigType:
             "start_block_height": 1,
             "timeout_period": 240.0,
             "startup_load_from_database": False,
-            "host": db["host"],
-            "user": db["user"],
-            "password": db["password"],
-            "database": db["database"],
-            "mysql_port": db["port"],
             "block_file": "../data/main-block.dat",
             "save_blocks": False,
             "save_txs": False,
@@ -114,18 +103,16 @@ def build_integration_config(mysql_url: str) -> ConfigType:
             "start_block_height": 1,
             "timeout_period": 240.0,
             "startup_load_from_database": False,
-            "host": db["host"],
-            "user": db["user"],
-            "password": db["password"],
-            "database": db["database"],
-            "mysql_port": db["port"],
             "block_file": "../data/test-net.dat",
             "save_blocks": False,
             "save_txs": False,
         },
+        # The per-network host/user/password/database/mysql_port keys are gone.
+        # Both components read these two, chosen by APP_ENV. Same value here:
+        # the tests run against one database either way.
         "database": {
-            "mysql_url": mysql_url,
-            "mysql_url_docker": mysql_url,
+            "postgres_url": url,
+            "postgres_url_docker": url,
             "ms_delay": 300,
             "retries": 3,
         },
@@ -145,150 +132,62 @@ def build_integration_config(mysql_url: str) -> ConfigType:
     return config
 
 
-def init_integration_schema(mysql_url: str) -> None:
-    import mysql.connector
+def _execute(url: str, statements: list[tuple[str, tuple[Any, ...]]]) -> None:
+    with connect(url) as connection:
+        with connection.cursor() as cursor:
+            for sql, params in statements:
+                cursor.execute(sql, params)
 
-    db = parse_mysql_url(mysql_url)
-    connection = mysql.connector.connect(
-        host=db["host"],
-        port=db["port"],
-        user=db["user"],
-        password=db["password"],
-        database=db["database"],
+
+def fetch(url: str, sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
+    """Run one statement and return its rows, for tests that need to look at
+    the database directly rather than through the service layer."""
+    with connect(url) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            if cursor.description is None:
+                return []
+            return list(cursor.fetchall())
+
+
+def clear_blocks(url: str) -> None:
+    # tx first: it is read via a join on blocks.height, and leaving orphaned
+    # rows behind makes the next test's failure hard to read.
+    _execute(url, [("DELETE FROM tx", ()), ("DELETE FROM blocks", ())])
+
+
+def clear_utxo(url: str) -> None:
+    _execute(
+        url,
+        [
+            ("DELETE FROM utxo_monitor", ()),
+            ("DELETE FROM utxo_spent", ()),
+            ("DELETE FROM utxo", ()),
+        ],
     )
-    cursor = connection.cursor()
-    try:
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS blocks (
-                height int unsigned not null,
-                hash varchar(64) not null,
-                version int unsigned not null,
-                prev_hash varchar(64) not null,
-                merkle_root varchar(64) not null,
-                timestamp int unsigned not null,
-                bits int unsigned not null,
-                nonce int unsigned not null,
-                `offset` bigint unsigned not null,
-                blocksize int unsigned not null,
-                numtxs int unsigned not null,
-                PRIMARY KEY (hash),
-                INDEX idx_blocks_height (height)
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tx (
-                hash varchar(64) not null,
-                height int unsigned not null,
-                blockindex int unsigned not null,
-                txsize int unsigned not null,
-                satoshis bigint unsigned not null,
-                PRIMARY KEY (hash),
-                INDEX idx_tx_height_blockindex (height, blockindex)
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS utxo (
-                hash varchar(64) not null,
-                pos int unsigned not null,
-                satoshis bigint unsigned not null,
-                height int not null,
-                pubkeyhash varchar(64),
-                PRIMARY KEY (hash, pos),
-                INDEX speed_key (pubkeyhash),
-                INDEX idx_utxo_height (height)
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS mempool (
-                hash varchar(64) not null,
-                locktime int unsigned not null,
-                fee bigint unsigned not null,
-                time int unsigned not null,
-                tx longtext not null,
-                PRIMARY KEY (hash)
-            )
-            """
-        )
-        connection.commit()
-    finally:
-        cursor.close()
-        connection.close()
 
 
-def clear_blocks(mysql_url: str) -> None:
-    import mysql.connector
+def insert_sample_block(url: str, height: int, block_hash: str) -> None:
+    """A block row, from a txid as the API states it.
 
-    db = parse_mysql_url(mysql_url)
-    connection = mysql.connector.connect(
-        host=db["host"],
-        port=db["port"],
-        user=db["user"],
-        password=db["password"],
-        database=db["database"],
-    )
-    cursor = connection.cursor()
-    try:
-        cursor.execute("DELETE FROM tx")
-        cursor.execute("DELETE FROM blocks")
-        connection.commit()
-    finally:
-        cursor.close()
-        connection.close()
-
-
-def clear_utxo(mysql_url: str) -> None:
-    import mysql.connector
-
-    db = parse_mysql_url(mysql_url)
-    connection = mysql.connector.connect(
-        host=db["host"],
-        port=db["port"],
-        user=db["user"],
-        password=db["password"],
-        database=db["database"],
-    )
-    cursor = connection.cursor()
-    try:
-        cursor.execute("DELETE FROM utxo")
-        connection.commit()
-    finally:
-        cursor.close()
-        connection.close()
-
-
-def insert_sample_block(mysql_url: str, height: int, block_hash: str) -> None:
-    import mysql.connector
-
-    db = parse_mysql_url(mysql_url)
-    connection = mysql.connector.connect(
-        host=db["host"],
-        port=db["port"],
-        user=db["user"],
-        password=db["password"],
-        database=db["database"],
-    )
-    cursor = connection.cursor()
-    try:
-        cursor.execute(
+    The hash columns are bytea in internal order, so the display hex the tests
+    pass has to be reversed on the way in — exactly as the service does it.
+    """
+    _execute(
+        url,
+        [(
             """
             INSERT INTO blocks
-            (height, hash, version, prev_hash, merkle_root, timestamp, bits, nonce,
-             `offset`, blocksize, numtxs)
+            (height, hash, version, prev_hash, merkle_root, block_time, bits,
+             nonce, file_offset, blocksize, numtxs)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 height,
-                block_hash,
+                txid_to_bytes(block_hash),
                 1,
-                "b" * 64,
-                "c" * 64,
+                txid_to_bytes("b" * 64),
+                txid_to_bytes("c" * 64),
                 1_700_000_000,
                 0x1D00FFFF,
                 0,
@@ -296,41 +195,42 @@ def insert_sample_block(mysql_url: str, height: int, block_hash: str) -> None:
                 1000,
                 1,
             ),
-        )
-        connection.commit()
-    finally:
-        cursor.close()
-        connection.close()
+        )],
+    )
 
 
 def insert_sample_utxo(
-    mysql_url: str,
+    url: str,
     tx_hash: str,
     pubkeyhash: str,
     height: int,
     satoshis: int,
     pos: int = 0,
 ) -> None:
-    import mysql.connector
+    """A live utxo row.
 
-    db = parse_mysql_url(mysql_url)
-    connection = mysql.connector.connect(
-        host=db["host"],
-        port=db["port"],
-        user=db["user"],
-        password=db["password"],
-        database=db["database"],
-    )
-    cursor = connection.cursor()
-    try:
-        cursor.execute(
+    `pubkeyhash` populates `identifier`, which is what replaced it: for the
+    p2pkh pattern the captured bytes are the pubkeyhash. It is not reversed —
+    an identifier comes from the locking script as written.
+
+    `height` of -1 means "not in a block", which is NULL now rather than a
+    sentinel. `locking_script` is NOT NULL, so a minimal p2pkh prefix stands in.
+    """
+    _execute(
+        url,
+        [(
             """
-            INSERT INTO utxo (hash, pos, satoshis, height, pubkeyhash)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO utxo
+            (txid, vout, satoshis, locking_script, identifier, created_height)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (tx_hash, pos, satoshis, height, pubkeyhash),
-        )
-        connection.commit()
-    finally:
-        cursor.close()
-        connection.close()
+            (
+                txid_to_bytes(tx_hash),
+                pos,
+                satoshis,
+                b"\x76\xa9\x14",
+                identifier_to_bytes(pubkeyhash),
+                None if height < 0 else height,
+            ),
+        )],
+    )

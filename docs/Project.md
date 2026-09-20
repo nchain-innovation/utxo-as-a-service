@@ -152,7 +152,7 @@ This section contains project status related notes.
 
 * If searching tx fails check the collections
 
-* Speed up mysql database, see what can be done in config
+* Tune PostgreSQL for the indexing workload, see what can be done in config
 * Add configuration item to enable/disable blockfiles
 
 * Store blocks in multiple files

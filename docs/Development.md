@@ -159,9 +159,13 @@ To run tests:
 ```
 uv run pytest python/tests -v
 ```
-Integration tests require MariaDB and are skipped unless `UAAS_TEST_MYSQL_URL` is set:
+Integration tests require PostgreSQL with the schema applied, and are skipped
+unless `UAAS_TEST_POSTGRES_URL` is set. **They delete rows**, so the database
+name must contain `test`; the suite refuses anything else rather than trusting
+you to have read this:
 ```
-export UAAS_TEST_MYSQL_URL=mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
+export UAAS_TEST_POSTGRES_URL=postgresql://uaas:uaas-password@127.0.0.1:5433/uaas_test_db
+(cd rust && cargo run -- migrate "$UAAS_TEST_POSTGRES_URL")
 uv run pytest python/tests -v
 ```
 This requires dev dependencies from `pyproject.toml` (`dependency-groups.dev`).

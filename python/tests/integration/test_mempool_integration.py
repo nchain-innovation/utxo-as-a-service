@@ -1,34 +1,28 @@
+from helpers import fetch
+
+
 class TestMempoolRequirements:
-    def test_sync04_mempool_table_accepts_transaction_row(self, mysql_url: str) -> None:
-        import mysql.connector
+    def test_sync04_mempool_table_accepts_transaction_row(self, postgres_url: str) -> None:
+        from hashes import txid_to_bytes
 
-        from helpers import parse_mysql_url
-
-        db = parse_mysql_url(mysql_url)
-        connection = mysql.connector.connect(
-            host=db["host"],
-            port=db["port"],
-            user=db["user"],
-            password=db["password"],
-            database=db["database"],
-        )
-        cursor = connection.cursor()
         tx_hash = "1" * 64
+        raw = txid_to_bytes(tx_hash)
         try:
-            cursor.execute(
-                """
-                INSERT INTO mempool (hash, locktime, fee, time, tx)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (tx_hash, 0, 500, 1_700_000_000, "0100000001"),
+            # `time` became `seen_at`, an int unix timestamp became a
+            # timestamptz, and the tx column is bytea rather than hex text.
+            fetch(
+                postgres_url,
+                "INSERT INTO mempool (hash, locktime, fee, seen_at, tx) "
+                "VALUES (%s, %s, %s, to_timestamp(%s), %s)",
+                (raw, 0, 500, 1_700_000_000, bytes.fromhex("0100000001")),
             )
-            connection.commit()
-            cursor.execute("SELECT fee, time FROM mempool WHERE hash = %s", (tx_hash,))
-            fee, added_time = cursor.fetchone()
+            rows = fetch(
+                postgres_url,
+                "SELECT fee, extract(epoch FROM seen_at)::bigint FROM mempool WHERE hash = %s",
+                (raw,),
+            )
+            fee, seen_at_epoch = rows[0]
             assert fee == 500
-            assert added_time == 1_700_000_000
+            assert seen_at_epoch == 1_700_000_000
         finally:
-            cursor.execute("DELETE FROM mempool WHERE hash = %s", (tx_hash,))
-            connection.commit()
-            cursor.close()
-            connection.close()
+            fetch(postgres_url, "DELETE FROM mempool WHERE hash = %s", (raw,))

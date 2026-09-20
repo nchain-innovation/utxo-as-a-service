@@ -34,3 +34,54 @@ class TestP2PSourceRequirements:
         source = (REPO_ROOT / "rust/src/main.rs").read_text(encoding="utf-8")
         assert "wait_for_shutdown_signal" in source
         assert "PeerEventType::Stop" in source
+
+
+class TestConfigSourceRequirements:
+    """CS-407: both components must read the same database configuration.
+
+    A source-contract test in the style of the P2P ones above. The two halves
+    used to read different keys — Rust a URL from `[database]`, Python discrete
+    host/port/user/password/database keys repeated under each network — and
+    nothing kept them in agreement. `mysql_port` was set in no config file at
+    all, so Python fell back to 3306 while Rust connected on 3307.
+
+    They now read the same two keys, and this fails if either side stops.
+    """
+
+    KEYS = ("postgres_url", "postgres_url_docker")
+
+    def test_cfg07_rust_reads_the_shared_database_keys(self) -> None:
+        source = (REPO_ROOT / "rust/src/config.rs").read_text(encoding="utf-8")
+        for key in self.KEYS:
+            assert key in source, f"rust/src/config.rs no longer names {key}"
+
+    def test_cfg07_python_reads_the_shared_database_keys(self) -> None:
+        source = (REPO_ROOT / "python/src/database.py").read_text(encoding="utf-8")
+        for key in self.KEYS:
+            assert key in source, f"python/src/database.py no longer names {key}"
+
+    def test_cfg07_both_configs_define_them_and_nothing_else(self) -> None:
+        import toml
+
+        for name in ("uaasr.toml", "uaasr.docker.toml"):
+            config = toml.loads((REPO_ROOT / "data" / name).read_text(encoding="utf-8"))
+            database = config["database"]
+            for key in self.KEYS:
+                assert key in database, f"{name} is missing [database].{key}"
+            # The per-network keys are what allowed the two halves to diverge.
+            network = config[config["service"]["network"]]
+            for dead in ("host", "user", "password", "database", "mysql_port"):
+                assert dead not in network, (
+                    f"{name} still has a per-network '{dead}' key; that is the "
+                    "second source of truth CS-407 removed"
+                )
+
+    def test_cfg07_both_choose_the_docker_url_the_same_way(self) -> None:
+        # APP_ENV selects the in-container URL on both sides. If one changed to
+        # a different signal they would silently target different databases.
+        rust = (REPO_ROOT / "rust/src/config.rs").read_text(encoding="utf-8")
+        python = (REPO_ROOT / "python/src/database.py").read_text(encoding="utf-8")
+        # Quoted, so this is the whole variable name. A bare substring check
+        # passes for APP_ENVIRONMENT, which is a different variable.
+        assert '"APP_ENV"' in rust
+        assert '"APP_ENV"' in python

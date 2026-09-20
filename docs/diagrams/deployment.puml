@@ -41,16 +41,16 @@ package Service {
     uaasr.toml ..> UaaS :on_startup
     uaasr.toml ..> WebService :on_startup
 
-    UaaS --> MySQL : write_data
-    WebService <-- MySQL : query_data
+    UaaS --> PostgreSQL : write_data
+    WebService <-- PostgreSQL : query_data
 
     UaaS ~~> blocks.dat :write_block
     WebService <~~ blocks.dat: read_block
 
 }
 
-package DockerContainer_MySQL {
-    database MySQL  {
+package DockerContainer_PostgreSQL {
+    database PostgreSQL  {
         file txs
         file utxo
         file blocks

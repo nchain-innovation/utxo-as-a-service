@@ -32,10 +32,10 @@ class TestRestApiIntegration:
     def test_status_returns_database_counts(
         self,
         client: TestClient,
-        mysql_url: str,
+        postgres_url: str,
         clean_blocks,
     ) -> None:
-        insert_sample_block(mysql_url, SAMPLE_HEIGHT, SAMPLE_HASH)
+        insert_sample_block(postgres_url, SAMPLE_HEIGHT, SAMPLE_HASH)
 
         response = client.get("/status")
         assert response.status_code == 200
@@ -49,10 +49,10 @@ class TestRestApiIntegration:
     def test_block_height_roundtrip(
         self,
         client: TestClient,
-        mysql_url: str,
+        postgres_url: str,
         clean_blocks,
     ) -> None:
-        insert_sample_block(mysql_url, SAMPLE_HEIGHT, SAMPLE_HASH)
+        insert_sample_block(postgres_url, SAMPLE_HEIGHT, SAMPLE_HASH)
 
         response = client.get("/block/height", params={"height": SAMPLE_HEIGHT})
         assert response.status_code == 200
@@ -63,10 +63,10 @@ class TestRestApiIntegration:
     def test_block_hash_lookup(
         self,
         client: TestClient,
-        mysql_url: str,
+        postgres_url: str,
         clean_blocks,
     ) -> None:
-        insert_sample_block(mysql_url, SAMPLE_HEIGHT, SAMPLE_HASH)
+        insert_sample_block(postgres_url, SAMPLE_HEIGHT, SAMPLE_HASH)
 
         response = client.get("/block/hash", params={"hash": SAMPLE_HASH})
         assert response.status_code == 200
@@ -88,10 +88,10 @@ class TestRestApiIntegration:
     def test_block_latest_and_last(
         self,
         client: TestClient,
-        mysql_url: str,
+        postgres_url: str,
         clean_blocks,
     ) -> None:
-        insert_sample_block(mysql_url, SAMPLE_HEIGHT, SAMPLE_HASH)
+        insert_sample_block(postgres_url, SAMPLE_HEIGHT, SAMPLE_HASH)
 
         latest = client.get("/block/latest")
         assert latest.status_code == 200
@@ -124,20 +124,20 @@ class TestRestApiIntegration:
     def test_balance_splits_confirmed_and_unconfirmed(
         self,
         client: TestClient,
-        mysql_url: str,
+        postgres_url: str,
         clean_blocks,
         clean_utxo,
     ) -> None:
-        insert_sample_block(mysql_url, SAMPLE_HEIGHT, SAMPLE_HASH)
+        insert_sample_block(postgres_url, SAMPLE_HEIGHT, SAMPLE_HASH)
         insert_sample_utxo(
-            mysql_url,
+            postgres_url,
             SAMPLE_TX_HASH,
             TESTNET_PUBKEYHASH,
             height=90,
             satoshis=100,
         )
         insert_sample_utxo(
-            mysql_url,
+            postgres_url,
             "e" * 64,
             TESTNET_PUBKEYHASH,
             height=99,

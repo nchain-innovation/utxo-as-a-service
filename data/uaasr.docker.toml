@@ -24,14 +24,6 @@ block_request_period = 280
 startup_load_from_database = true
 # startup_load_from_database = false
 
-# Python database access
-# Explicit so the port never depends on the connector default again.
-# Inside the compose network this is the container port, not the published one.
-host = "database"
-mysql_port = 3306
-user = "maas"
-password = "maas-password"
-database = "main_uaas_db"
 
 # Used by Python and Rust
 block_file = "../data/main-block.dat"
@@ -64,22 +56,13 @@ startup_load_from_database = true
 #startup_load_from_database = false
 
 
-# Python database access
-# Explicit so the port never depends on the connector default again.
-# Inside the compose network this is the container port, not the published one.
-host = "database"
-mysql_port = 3306
-user = "uaas"
-password = "uaas-password"
-database = "uaas_db"
-
 # Used by Python and Rust
 block_file = "../data/test-net.dat"
 save_blocks = false
 save_txs = false
 
 [database]
-postgres_url = "postgresql://uaas:uaas-password@localhost:5432/uaas_db"
+postgres_url = "postgresql://uaas:uaas-password@localhost:5433/uaas_db"
 postgres_url_docker = "postgresql://uaas:uaas-password@postgres:5432/uaas_db"
 
 ms_delay = 300
