@@ -146,6 +146,13 @@ These directories contain the following:
 * `rust/src` - Rust service source code (P2P sync, UTXO maintenance, internal API)
 * `rust/fuzz` - Fuzz targets over the collection matcher. A separate crate on its own toolchain; not part of an ordinary build
 
+## Gotchas
+
+Before changing how this service reads or writes the database, read
+[docs/Gotchas.md](docs/Gotchas.md). It collects the things that fail **silently**
+— a reversed txid, a pool checkout on the wrong thread — with a pointer to where
+each is enforced.
+
 ## Development
 The following diagram shows how the Rust UaaS processes individual `transactions` and `blocks` from peer nodes.
 ![Usecase](docs/diagrams/usecase.png)
