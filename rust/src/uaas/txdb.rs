@@ -11,13 +11,17 @@ use super::database::{DBOperationType, MempoolEntryDB, TxEntryWriteDB};
 
 // Used for loading tx from mempool table
 pub struct MempoolEntryReadDB {
-    _hash: String,
+    _hash: Vec<u8>,
 }
 
 // Used for loading tx from tx table
+//
+// `height` is the column's own type. `tx.height` is a signed `integer`, and
+// the postgres crate maps Rust's `u32` to `oid`, not `int4` — decoding one
+// straight into a `u32` panics. Narrowed after the read, like block_manager.
 struct TxEntryDB {
-    hash: String,
-    height: u32,
+    hash: Vec<u8>,
+    height: i32,
 }
 
 // TxDB - wraps interface to tx and mempool database tables
@@ -52,11 +56,32 @@ impl TxDB {
         }
     }
 
-    fn decode_stored_hash(value: &str) -> Option<Hash256> {
-        match Hash256::decode(value) {
-            Ok(hash) => Some(hash),
-            Err(err) => {
-                log::error!("Invalid stored tx hash {value}: {err:?}");
+    /// Narrows a signed column to the unsigned value the rest of the service
+    /// uses, dropping the row rather than wrapping if it does not fit.
+    fn unsigned_from_column(label: &str, value: i32) -> Option<u32> {
+        u32::try_from(value)
+            .map_err(|_| {
+                log::error!("Stored {label} is negative ({value}); row skipped");
+            })
+            .ok()
+    }
+
+    /// Stored hashes are raw `bytea` in internal order, not display-order hex.
+    ///
+    /// Both halves of that matter. The column is `bytea`, so reading it into a
+    /// `String` does not fail — it *panics* inside `row.get`, which took the
+    /// process down on every restart with a non-empty table (CS-429). And the
+    /// write side binds `hash.0`, so even as text the order would have been
+    /// reversed: `Hash256::decode` parses display order. Construct the hash
+    /// from the bytes as stored, exactly as `utxo` and `collection` do.
+    fn decode_stored_hash(label: &str, value: &[u8]) -> Option<Hash256> {
+        match <[u8; 32]>::try_from(value) {
+            Ok(bytes) => Some(Hash256(bytes)),
+            Err(_) => {
+                log::error!(
+                    "Stored {label} hash is {} bytes, expected 32; row skipped",
+                    value.len()
+                );
                 None
             }
         }
@@ -97,10 +122,13 @@ impl TxDB {
         };
 
         for tx in txs {
-            let Some(hash) = Self::decode_stored_hash(&tx.hash) else {
+            let Some(hash) = Self::decode_stored_hash("tx", &tx.hash) else {
                 continue;
             };
-            self.txs.insert(hash, tx.height);
+            let Some(height) = Self::unsigned_from_column("tx height", tx.height) else {
+                continue;
+            };
+            self.txs.insert(hash, height);
         }
         log::info!(
             "{} txs loaded in {} seconds",
@@ -129,7 +157,7 @@ impl TxDB {
         };
 
         for tx in txs {
-            let Some(hash) = Self::decode_stored_hash(&tx._hash) else {
+            let Some(hash) = Self::decode_stored_hash("mempool", &tx._hash) else {
                 continue;
             };
             self.mempool.insert(hash, hash);
@@ -271,5 +299,147 @@ impl TxDB {
 
         // Remove transactions at this height
         self.txs.retain(|_hash, tx_height| *tx_height != height);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uaas::database::Database;
+
+    /// A txid as the REST API states it, and the same txid as the database
+    /// stores it. The same pair as `rust/tests/hash_order.rs`, deliberately:
+    /// this module is the place the order was got wrong.
+    const DISPLAY: &str = "00000000000000000545267003727771023c9822756f187cbee83a5329ffecd8";
+    const STORED: &str = "d8ecff29533ae8be7c186f7522983c0271777203702645050000000000000000";
+
+    #[test]
+    fn txdb01_a_stored_hash_is_read_as_written_not_reversed() {
+        let written = Hash256::decode(DISPLAY).expect("a valid txid decodes");
+        // What the write side binds.
+        let stored: Vec<u8> = written.0.to_vec();
+        assert_eq!(
+            hex::encode(&stored),
+            STORED,
+            "fixture pins the stored order"
+        );
+
+        let read = TxDB::decode_stored_hash("test", &stored).expect("32 bytes decode");
+        assert_eq!(read, written);
+        // The reversal that `Hash256::decode` would have applied must not have
+        // happened. Without this the test passes on a palindrome.
+        assert_ne!(hex::encode(read.0), DISPLAY);
+    }
+
+    #[test]
+    fn txdb02_a_hash_of_the_wrong_length_is_skipped_not_a_panic() {
+        assert!(TxDB::decode_stored_hash("test", &[0u8; 31]).is_none());
+        assert!(TxDB::decode_stored_hash("test", &[0u8; 33]).is_none());
+        assert!(TxDB::decode_stored_hash("test", &[]).is_none());
+        assert!(TxDB::decode_stored_hash("test", &[0u8; 32]).is_some());
+    }
+
+    /// Distinct from every other fixture id in the suite.
+    fn fixture_hash(tag: u8) -> Hash256 {
+        let mut bytes = [0u8; 32];
+        bytes[0] = 0xdb;
+        bytes[1] = 0x0c;
+        bytes[31] = tag;
+        Hash256(bytes)
+    }
+
+    /// Writes through the real writer loop, then reads through the real load
+    /// path. This is the round trip that the type mismatch broke: `row.get`
+    /// panicked rather than erroring, so nothing short of executing both halves
+    /// against a server can see it.
+    ///
+    /// Needs PostgreSQL with the schema applied, and skips rather than fails
+    /// without one — same contract as `db07`.
+    fn round_trip(ops: Vec<DBOperationType>, load: impl FnOnce(&mut TxDB)) -> Option<TxDB> {
+        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+            eprintln!("skipping txdb round trip: UAAS_TEST_POSTGRES_URL not set");
+            return None;
+        };
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
+
+        let (tx, rx) = mpsc::channel();
+        for op in ops {
+            tx.send(op).expect("send operation");
+        }
+        drop(tx);
+
+        let config = crate::config::tests::sample_config();
+        let mut database = Database::new(pool.get().expect("connection for writer"), rx, &config);
+        database.perform_db_operations();
+
+        let (unused_tx, _unused_rx) = mpsc::channel();
+        let mut txdb = TxDB::new(pool.get().expect("connection for reader"), unused_tx, true);
+        load(&mut txdb);
+        Some(txdb)
+    }
+
+    fn clear(table: &str, hash: Hash256) {
+        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+            return;
+        };
+        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
+        let mut conn = pool.get().expect("connection for fixture cleanup");
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE hash = $1"),
+            &[&&hash.0[..]],
+        )
+        .expect("clear fixture row");
+    }
+
+    #[test]
+    fn txdb03_a_mempool_row_is_read_back_as_the_txid_that_was_written() {
+        let hash = fixture_hash(0x01);
+        clear("mempool", hash);
+
+        let entry = MempoolEntryDB {
+            hash,
+            locktime: 0,
+            fee: 7,
+            age: 1_700_000_000,
+            tx: vec![0xde, 0xad, 0xbe, 0xef],
+        };
+        let Some(txdb) = round_trip(
+            vec![DBOperationType::MempoolBatchWrite(vec![entry])],
+            |txdb| txdb.load_mempool(),
+        ) else {
+            return;
+        };
+
+        assert!(
+            txdb.mempool.contains_key(&hash),
+            "the mempool row written by the writer must load back as the same txid"
+        );
+        clear("mempool", hash);
+    }
+
+    #[test]
+    fn txdb04_a_tx_row_is_read_back_as_the_txid_that_was_written() {
+        let hash = fixture_hash(0x02);
+        clear("tx", hash);
+
+        let entry = TxEntryWriteDB {
+            hash,
+            height: 4242,
+            blockindex: 1,
+            size: 200,
+            satoshis: 1000,
+        };
+        let Some(txdb) = round_trip(vec![DBOperationType::TxBatchWrite(vec![entry])], |txdb| {
+            txdb.load_tx()
+        }) else {
+            return;
+        };
+
+        assert_eq!(
+            txdb.txs.get(&hash),
+            Some(&4242),
+            "the tx row written by the writer must load back as the same txid"
+        );
+        clear("tx", hash);
     }
 }
