@@ -95,8 +95,12 @@ jobs:
         run: |
           cargo run --quiet -- migrate "$UAAS_SMOKE_POSTGRES_URL"
           version=$(psql "$UAAS_SMOKE_POSTGRES_URL" -tAc "SELECT max(version) FROM schema_migration")
-          echo "schema version: $version"
-          test "$version" = "10"
+          # Compared against the files on disk rather than a literal, so adding
+          # a migration does not silently leave this asserting a stale number.
+          # mig01 already pins the file list to the embedded one.
+          expected=$(ls migrations/*.sql | wc -l | tr -d ' ')
+          echo "schema version: $version (expected $expected)"
+          test "$version" = "$expected"
           # A second run must be a no-op, not an error.
           cargo run --quiet -- migrate "$UAAS_SMOKE_POSTGRES_URL"
 

@@ -248,6 +248,15 @@ pub(crate) mod tests {
             track_descendants = false
             address = "mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5"
 
+            # Selects any p2pkh output and captures the hash160 as the
+            # identifier. Present because CS-421 records only what a monitor
+            # selects: without a pattern that matches them, the utxo fixtures
+            # would be filtered out and the tests would assert nothing.
+            [[collection]]
+            name = "fixtures"
+            track_descendants = false
+            locking_script_pattern = "76a914(?<identifier>[0-9a-f]{40})88ac"
+
             [utxo]
             complete = 6
         "#;
