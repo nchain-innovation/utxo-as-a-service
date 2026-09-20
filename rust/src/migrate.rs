@@ -48,7 +48,7 @@ use postgres::{Client, Transaction};
 
 /// The schema version this build expects. A database at any other version is
 /// refused rather than adapted to.
-pub const EXPECTED_VERSION: i64 = 11;
+pub const EXPECTED_VERSION: i64 = 13;
 
 struct Migration {
     version: i64,
@@ -70,6 +70,8 @@ const MIGRATIONS: &[Migration] = &[
     Migration { version: 9,  name: "addr",         sql: include_str!("../migrations/V9__addr.sql") },
     Migration { version: 10, name: "connect",      sql: include_str!("../migrations/V10__connect.sql") },
     Migration { version: 11, name: "utxo_autovacuum", sql: include_str!("../migrations/V11__utxo_autovacuum.sql") },
+    Migration { version: 12, name: "utxo_unmined_spend", sql: include_str!("../migrations/V12__utxo_unmined_spend.sql") },
+    Migration { version: 13, name: "mempool_seen_height", sql: include_str!("../migrations/V13__mempool_seen_height.sql") },
 ];
 
 /// The bookkeeping table. Created outside a migration because it is what
@@ -324,6 +326,7 @@ mod tests {
             "utxo",
             "utxo_monitor",
             "utxo_spent",
+            "utxo_unmined_spend",
         ];
         expected.sort();
         assert_eq!(table_names(&mut client), expected);
