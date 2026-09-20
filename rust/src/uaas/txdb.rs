@@ -256,7 +256,7 @@ impl TxDB {
         self.send_db_op(DBOperationType::MempoolBatchWrite(entries));
     }
 
-    pub fn add_to_mempool(&mut self, tx: &Tx, fee: i64) {
+    pub fn add_to_mempool(&mut self, tx: &Tx, fee: i64, seen_height: i32) {
         let hash = tx.hash();
         let age = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -282,10 +282,55 @@ impl TxDB {
             locktime: tx.lock_time,
             fee,
             age,
+            seen_height,
             tx: b,
         };
 
         self.mempool_entries.push(mempool_entry);
+    }
+
+    /// Mempool rows for transactions that were never mined (CS-423).
+    ///
+    /// The mempool has never been pruned. A row is only metadata, so the cost
+    /// used to be a little space; it is still unbounded growth, and the table
+    /// is read in full at every startup.
+    ///
+    /// `cutoff` is a height, matching `Utxo::reclaim_unmined_spends`, so a
+    /// transaction and the outpoints it spent are evicted on the same pass.
+    /// A row written before V13 has a NULL `seen_height`; it is evictable,
+    /// because such a row has by definition survived a restart.
+    ///
+    /// Returns how many rows were evicted.
+    pub fn evict_stale_mempool(&mut self, cutoff: i32) -> usize {
+        let rows = match self.conn.query(
+            "SELECT hash FROM mempool \
+              WHERE seen_height IS NULL OR seen_height <= $1",
+            &[&cutoff],
+        ) {
+            Ok(rows) => rows,
+            Err(err) => {
+                log::error!("Unable to read stale mempool rows for eviction: {err:?}");
+                return 0;
+            }
+        };
+
+        let mut stale: Vec<Hash256> = Vec::with_capacity(rows.len());
+        for row in rows.iter() {
+            let stored: Vec<u8> = row.get(0);
+            let Some(hash) = Self::decode_stored_hash("mempool", &stored) else {
+                continue;
+            };
+            self.mempool.remove(&hash);
+            stale.push(hash);
+        }
+
+        let count = stale.len();
+        if count > 0 {
+            // The existing delete operation, so eviction and the ordinary
+            // mined-tx removal take exactly the same path.
+            self.send_db_op(DBOperationType::MempoolBatchDelete(stale));
+        }
+        count
     }
 
     pub fn tx_exists(&self, hash: Hash256) -> bool {
@@ -356,11 +401,10 @@ mod tests {
     /// Needs PostgreSQL with the schema applied, and skips rather than fails
     /// without one — same contract as `db07`.
     fn round_trip(ops: Vec<DBOperationType>, load: impl FnOnce(&mut TxDB)) -> Option<TxDB> {
-        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+        let Some(pool) = crate::db::shared_test_pool() else {
             eprintln!("skipping txdb round trip: UAAS_TEST_POSTGRES_URL not set");
             return None;
         };
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
 
         let (tx, rx) = mpsc::channel();
         for op in ops {
@@ -379,10 +423,9 @@ mod tests {
     }
 
     fn clear(table: &str, hash: Hash256) {
-        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+        let Some(pool) = crate::db::shared_test_pool() else {
             return;
         };
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let mut conn = pool.get().expect("connection for fixture cleanup");
         conn.execute(
             &format!("DELETE FROM {table} WHERE hash = $1"),
@@ -401,6 +444,7 @@ mod tests {
             locktime: 0,
             fee: 7,
             age: 1_700_000_000,
+            seen_height: 0,
             tx: vec![0xde, 0xad, 0xbe, 0xef],
         };
         let Some(txdb) = round_trip(

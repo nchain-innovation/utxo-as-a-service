@@ -36,6 +36,13 @@ pub struct TxAnalyser {
     collection_db: CollectionDatabase,
     dynamic_config: DynamicConfig,
     network: Network,
+    /// The height of the last block processed, or of the last one loaded at
+    /// startup. Recorded because a mempool sighting has no height of its own
+    /// and eviction measures age in blocks.
+    chain_tip: i32,
+    /// Blocks an unconfirmed spend may go unmined before it is given up on.
+    /// `0` disables eviction (CS-423).
+    eviction_blocks: i32,
 }
 
 impl TxAnalyser {
@@ -90,6 +97,8 @@ impl TxAnalyser {
             collection_db: CollectionDatabase::new(collection_conn, config),
             dynamic_config: dynamic_config.clone(),
             network,
+            chain_tip: NOT_IN_BLOCK,
+            eviction_blocks: config.mempool.eviction_blocks,
         })
     }
 
@@ -202,7 +211,8 @@ impl TxAnalyser {
         let spending_txid = tx.hash();
         for vin in tx.inputs.iter() {
             if height == NOT_IN_BLOCK {
-                self.utxo.spend(&vin.prev_output, spending_txid);
+                self.utxo
+                    .spend(&vin.prev_output, spending_txid, self.chain_tip);
             } else {
                 self.utxo.settle(&vin.prev_output, spending_txid, height);
             }
@@ -267,6 +277,60 @@ impl TxAnalyser {
 
         // Do db writes here
         self.flush_database_cache();
+
+        // After the flush, so this block's own settles are already queued
+        // ahead of any reclaim and a spend mined in this very block is never
+        // handed back as spendable.
+        self.set_chain_tip(height);
+        self.evict_unconfirmed();
+    }
+
+    /// The height eviction measures against.
+    ///
+    /// Set from the last block loaded at startup as well as from each block
+    /// processed, so the first mempool transaction after a restart is recorded
+    /// against a real height rather than against nothing.
+    pub fn set_chain_tip(&mut self, height: i32) {
+        if height > self.chain_tip {
+            self.chain_tip = height;
+        }
+    }
+
+    /// Gives up on spends that were broadcast and never mined (CS-423).
+    ///
+    /// Returns the counts so a caller can assert on them; the logging is here
+    /// because this is the only place that knows both halves belong together.
+    pub fn evict_unconfirmed(&mut self) -> (usize, usize) {
+        if self.eviction_blocks <= 0 || self.chain_tip == NOT_IN_BLOCK {
+            return (0, 0);
+        }
+        // Saturating: a chain tip below the threshold during early sync gives a
+        // cutoff of 0 rather than wrapping to a huge positive height, which
+        // would reclaim everything.
+        let cutoff = self.chain_tip.saturating_sub(self.eviction_blocks);
+        if cutoff <= 0 {
+            return (0, 0);
+        }
+
+        let outpoints = self.utxo.reclaim_unmined_spends(cutoff);
+        let rows = self.txdb.evict_stale_mempool(cutoff);
+
+        if outpoints > 0 || rows > 0 {
+            // `warn`, not `info`. This is the counter an operator alerts on,
+            // and `release_max_level_warn` compiles `info!` out of release
+            // builds — a count logged at info would be invisible in exactly
+            // the deployment that needs it. Logged only when something
+            // happened, so a quiet chain stays quiet.
+            log::warn!(
+                "Mempool eviction at height {}: reclaimed {} outpoint(s) whose spend never \
+                 confirmed, removed {} mempool row(s), threshold {} blocks",
+                self.chain_tip,
+                outpoints,
+                rows,
+                self.eviction_blocks
+            );
+        }
+        (outpoints, rows)
     }
 
     pub fn flush_database_cache(&mut self) {
@@ -302,7 +366,7 @@ impl TxAnalyser {
         // Note standalone tx are txs that are not in a block.
         let fee = self.calc_fee(tx);
 
-        self.txdb.add_to_mempool(tx, fee);
+        self.txdb.add_to_mempool(tx, fee, self.chain_tip);
 
         // Process inputs
         const NOT_A_COINBASE_TX: usize = 1;
@@ -429,14 +493,27 @@ mod tests {
     // reachable server. Same convention as the schema and rest_api tests:
     // skip when UAAS_TEST_POSTGRES_URL is unset rather than fail.
     fn analyser_with_live_db(test_name: &str) -> Option<(TxAnalyser, Receiver<DBOperationType>)> {
-        let Ok(url) = std::env::var("UAAS_TEST_POSTGRES_URL") else {
+        analyser_and_pool(test_name).map(|(analyser, rx, _pool)| (analyser, rx))
+    }
+
+    /// As `analyser_with_live_db`, but hands back the pool.
+    ///
+    /// r2d2 fills a new pool to its max size eagerly — ten connections by
+    /// default — so building a second one per test is how the suite runs the
+    /// server out of connections and every test then fails on r2d2's 30s
+    /// checkout timeout. Tests that need to drive the writer as well share
+    /// this one.
+    fn analyser_and_pool(
+        test_name: &str,
+    ) -> Option<(TxAnalyser, Receiver<DBOperationType>, crate::db::Pool)> {
+        let Some(pool) = crate::db::shared_test_pool() else {
             eprintln!("skipping {test_name}: UAAS_TEST_POSTGRES_URL not set");
             return None;
         };
-        let pool = crate::db::build_pool(&url).expect("connect to UAAS_TEST_POSTGRES_URL");
         let (tx, rx) = mpsc::channel();
-        let analyser = TxAnalyser::new(&sample_config(), pool, tx).expect("construct TxAnalyser");
-        Some((analyser, rx))
+        let analyser =
+            TxAnalyser::new(&sample_config(), pool.clone(), tx).expect("construct TxAnalyser");
+        Some((analyser, rx, pool))
     }
 
     fn drain(rx: &Receiver<DBOperationType>) -> Vec<DBOperationType> {
@@ -458,6 +535,22 @@ mod tests {
             })
             .flat_map(|(spends, height)| spends.into_iter().map(move |s| (s, height)))
             .collect()
+    }
+
+    /// Applies queued operations through the real writer, so a test that then
+    /// queries the tables sees what the service would have written.
+    fn apply_all(pool: &crate::db::Pool, ops: Vec<DBOperationType>) {
+        let (tx, rx) = mpsc::channel();
+        for op in ops {
+            tx.send(op).expect("queue operation");
+        }
+        drop(tx);
+        let mut database = crate::uaas::database::Database::new(
+            pool.get().expect("writer connection"),
+            rx,
+            &sample_config(),
+        );
+        database.perform_db_operations();
     }
 
     fn is_outpoint(record: &SpendRecord, outpoint: &OutPoint) -> bool {
@@ -894,5 +987,198 @@ mod tests {
                 NOT_IN_BLOCK
             );
         }
+    }
+
+    // --- CS-423: mempool eviction policy ---------------------------------
+    //
+    // Every one of these seeds a spend that *is* strandable before asserting
+    // that nothing was reclaimed. Against empty tables `(0, 0)` is true however
+    // the policy is written, so the first draft of these passed with the
+    // threshold replaced by a hard-coded literal — they proved nothing. The
+    // fixture is what makes a negative assertion evidence.
+
+    /// A funded output whose spend is broadcast and never mined.
+    ///
+    /// Flushed either side of the spend, as the service does it: `process_block`
+    /// flushes at the end of every block, so a mempool spend always arrives
+    /// after the output it spends has been written. Run together in one flush,
+    /// `spend` cancels the pending write, the output never reaches `utxo`, and
+    /// there is nothing to strand.
+    fn seed_stranded_spend(
+        analyser: &mut TxAnalyser,
+        pool: &crate::db::Pool,
+        rx: &Receiver<DBOperationType>,
+        marker: u8,
+        funded_at: i32,
+    ) -> (OutPoint, Tx) {
+        let funding = funding_tx(marker);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+        analyser.process_block_tx(&funding, funded_at, 0);
+        analyser.flush_database_cache();
+        apply_all(pool, drain(rx));
+
+        let spender = spending_tx(outpoint.clone());
+        analyser.process_standalone_tx(&spender, false);
+        analyser.flush_database_cache();
+        apply_all(pool, drain(rx));
+
+        (outpoint, spender)
+    }
+
+    /// Turning eviction off is a supported setting, not an accident.
+    #[test]
+    fn evict01_a_zero_threshold_disables_eviction() {
+        let Some((mut analyser, rx, pool)) = analyser_and_pool("evict01_a_zero_threshold_disables")
+        else {
+            return;
+        };
+        analyser.set_chain_tip(1_000);
+        let (outpoint, spender) = seed_stranded_spend(&mut analyser, &pool, &rx, 0x31, 1_000);
+
+        // Far enough past that any non-zero threshold would reclaim it.
+        analyser.eviction_blocks = 0;
+        analyser.set_chain_tip(900_000);
+
+        assert_eq!(analyser.evict_unconfirmed(), (0, 0));
+        assert!(
+            analyser.utxo.get_satoshis(&outpoint).is_none(),
+            "a zero threshold must leave a stranded outpoint stranded"
+        );
+        assert!(
+            analyser.txdb.mempool.contains_key(&spender.hash()),
+            "and must leave its mempool row alone"
+        );
+    }
+
+    /// Before any block is seen there is no height to age against, and a cutoff
+    /// derived from nothing would be a cutoff of everything.
+    #[test]
+    fn evict02_nothing_is_evicted_before_a_block_is_seen() {
+        let Some((mut analyser, rx, pool)) = analyser_and_pool("evict02_nothing_before_a_block")
+        else {
+            return;
+        };
+        // Deliberately never calls set_chain_tip: process_block_tx does not.
+        assert_eq!(analyser.chain_tip, NOT_IN_BLOCK, "the fixture starts blind");
+        let (outpoint, _spender) = seed_stranded_spend(&mut analyser, &pool, &rx, 0x32, 1_000);
+
+        analyser.eviction_blocks = 144;
+        assert_eq!(analyser.evict_unconfirmed(), (0, 0));
+        assert!(
+            analyser.utxo.get_satoshis(&outpoint).is_none(),
+            "an unknown chain tip must not be treated as a height of zero"
+        );
+    }
+
+    /// A tip below the threshold must give a cutoff of zero, not a wrapped
+    /// height that would reclaim the whole table.
+    #[test]
+    fn evict03_a_tip_below_the_threshold_evicts_nothing() {
+        let Some((mut analyser, rx, pool)) = analyser_and_pool("evict03_tip_below_threshold")
+        else {
+            return;
+        };
+        analyser.set_chain_tip(5);
+        let (outpoint, _spender) = seed_stranded_spend(&mut analyser, &pool, &rx, 0x33, 5);
+
+        analyser.eviction_blocks = 144;
+        analyser.set_chain_tip(10);
+
+        assert_eq!(analyser.evict_unconfirmed(), (0, 0));
+        assert!(
+            analyser.utxo.get_satoshis(&outpoint).is_none(),
+            "10 - 144 must saturate to a cutoff that evicts nothing, not wrap"
+        );
+    }
+
+    /// The tip only ever moves forward. A reorg rewinds `block_manager`'s
+    /// height, and letting that pull the cutoff backwards would stall eviction
+    /// rather than let it catch up.
+    #[test]
+    fn evict04_the_chain_tip_does_not_go_backwards() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("evict04_tip_monotonic") else {
+            return;
+        };
+        analyser.set_chain_tip(1_000);
+        analyser.set_chain_tip(900);
+        assert_eq!(analyser.chain_tip, 1_000);
+    }
+
+    /// The whole policy in one pass: the threshold is read from configuration
+    /// rather than baked in, and the pass discriminates on age.
+    ///
+    /// Three passes over the same two fixtures. The first two must reclaim
+    /// nothing — which is what makes the third mean something, and what a
+    /// hard-coded threshold fails.
+    #[test]
+    fn evict05_the_threshold_is_configuration_and_the_pass_discriminates_on_age() {
+        let Some((mut analyser, rx, pool)) = analyser_and_pool("evict05_threshold_and_age") else {
+            return;
+        };
+
+        analyser.set_chain_tip(1_000);
+        let (old_outpoint, old_spender) =
+            seed_stranded_spend(&mut analyser, &pool, &rx, 0x21, 1_000);
+
+        analyser.set_chain_tip(1_190);
+        let (new_outpoint, new_spender) =
+            seed_stranded_spend(&mut analyser, &pool, &rx, 0x22, 1_190);
+
+        // Both are spent-but-unmined to begin with.
+        assert!(analyser.utxo.get_satoshis(&old_outpoint).is_none());
+        assert!(analyser.utxo.get_satoshis(&new_outpoint).is_none());
+
+        analyser.set_chain_tip(1_200);
+
+        // A threshold wider than the chain is old: nothing is old enough yet.
+        // Fails if the threshold is a literal rather than this field.
+        analyser.eviction_blocks = 10_000;
+        analyser.evict_unconfirmed();
+        assert!(
+            analyser.utxo.get_satoshis(&old_outpoint).is_none(),
+            "a 10000-block threshold must reclaim nothing at height 1200"
+        );
+
+        // 1200 - 500 = 700, and the older spend was seen at 1000, so it is
+        // still inside the threshold. A second configured value, so the test
+        // cannot pass on an implementation that happens to ignore one of them.
+        analyser.eviction_blocks = 500;
+        analyser.evict_unconfirmed();
+        assert!(
+            analyser.utxo.get_satoshis(&old_outpoint).is_none(),
+            "a 500-block threshold must still reclaim nothing at height 1200"
+        );
+
+        // 1200 - 144 = 1056: past the old spend, well short of the new one.
+        analyser.eviction_blocks = 144;
+        let (outpoints, rows) = analyser.evict_unconfirmed();
+
+        // Counted, not equated: the pass is table-wide and these tests share a
+        // database, so the totals include whatever else is present. The
+        // properties below are about these two outpoints.
+        assert!(outpoints >= 1, "the stranded outpoint must be reclaimed");
+        assert!(rows >= 1, "and its mempool row removed");
+
+        assert_eq!(
+            analyser.utxo.get_satoshis(&old_outpoint),
+            Some(1_000),
+            "the spend that never confirmed must return its outpoint, with its value"
+        );
+        assert!(
+            !analyser.txdb.mempool.contains_key(&old_spender.hash()),
+            "and must leave the in-memory mempool"
+        );
+
+        assert!(
+            analyser.utxo.get_satoshis(&new_outpoint).is_none(),
+            "a spend still well inside the threshold must not be given up on"
+        );
+        assert!(
+            analyser.txdb.mempool.contains_key(&new_spender.hash()),
+            "and must keep its mempool row"
+        );
     }
 }

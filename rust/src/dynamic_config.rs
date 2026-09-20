@@ -81,7 +81,7 @@ mod tests {
     use super::*;
     use crate::config::{
         CollectionConfig, Config, DatabaseConfig, DynamicConfigConfig as RootDynamicConfigConfig,
-        LoggingConfig, NetworkSettings, OrphanConfig, Service, WebInterfaceConfig,
+        LoggingConfig, MempoolConfig, NetworkSettings, OrphanConfig, Service, WebInterfaceConfig,
     };
 
     fn sample_root_config(filename: &str) -> Config {
@@ -129,6 +129,7 @@ mod tests {
             dynamic_config: RootDynamicConfigConfig {
                 filename: filename.to_string(),
             },
+            mempool: MempoolConfig::default(),
             web_interface: WebInterfaceConfig::default(),
             collection: Vec::new(),
         }

@@ -48,8 +48,12 @@ pub struct Utxo {
     // Which monitors selected which outpoints, pending write.
     utxo_monitors: Vec<MonitorRecord>,
 
-    // Spends seen but not yet mined, pending a move to utxo_spent.
-    utxo_spends: Vec<SpendRecord>,
+    // Spends seen but not yet mined, grouped by the chain tip when they were
+    // seen. Keyed by height for the same reason `utxo_settles` is: the height
+    // is written to the database, so two runs at different heights are
+    // different statements, and a BTreeMap emits them in a fixed order where a
+    // HashMap would make it depend on hashing.
+    utxo_spends: BTreeMap<i32, Vec<SpendRecord>>,
 
     // Spends seen in a block, grouped by the height that settles them.
     //
@@ -103,7 +107,7 @@ impl Utxo {
             conn,
             utxo_entries: HashMap::new(),
             utxo_monitors: Vec::new(),
-            utxo_spends: Vec::new(),
+            utxo_spends: BTreeMap::new(),
             utxo_settles: BTreeMap::new(),
             spent_unmined: HashSet::new(),
             tx,
@@ -249,11 +253,14 @@ impl Utxo {
     /// `utxo03` documents. It is not a conflict check and must not be read as
     /// one: an absent outpoint is now overwhelmingly the ordinary case rather
     /// than a suspicious one. Detecting a conflicting spend is CS-428.
-    pub fn spend(&mut self, outpoint: &OutPoint, spending_txid: Hash256) {
+    pub fn spend(&mut self, outpoint: &OutPoint, spending_txid: Hash256, seen_height: i32) {
         if self.utxo.remove(outpoint).is_some() {
             self.utxo_entries.remove(outpoint);
             self.spent_unmined.insert(outpoint.clone());
-            self.utxo_spends.push(Self::record(outpoint, spending_txid));
+            self.utxo_spends
+                .entry(seen_height)
+                .or_default()
+                .push(Self::record(outpoint, spending_txid));
         }
     }
 
@@ -292,9 +299,9 @@ impl Utxo {
         }
 
         // Spends seen but not mined: move to utxo_spent, height still NULL.
-        if !self.utxo_spends.is_empty() {
-            let spends = std::mem::take(&mut self.utxo_spends);
-            self.send_db_op(DBOperationType::UtxoBatchSpend(spends));
+        // One operation per seen height, each a different statement.
+        for (seen_height, spends) in std::mem::take(&mut self.utxo_spends) {
+            self.send_db_op(DBOperationType::UtxoBatchSpend(spends, seen_height));
         }
 
         // Settles, in height order. One operation per height, because each is
@@ -302,6 +309,90 @@ impl Utxo {
         for (height, spends) in std::mem::take(&mut self.utxo_settles) {
             self.send_db_op(DBOperationType::UtxoBatchSettle(spends, height));
         }
+    }
+
+    /// Outpoints whose spend was seen but never mined, returned to the
+    /// spendable set (CS-423).
+    ///
+    /// Without this, a spend that is broadcast and then dropped — a fee too low
+    /// to be mined, or the losing side of a double-spend — leaves a row in
+    /// `utxo_spent` with a NULL `spent_height` for ever. The outpoint is then
+    /// in neither the spendable set nor a settled spend, and the UTXO set is
+    /// under-reported permanently, with nothing logged.
+    ///
+    /// `cutoff` is a height: every unmined spend first seen at or before it is
+    /// reclaimed. Height rather than wall-clock age because the clock keeps
+    /// running while the service is stopped, so an outage would be
+    /// indistinguishable from a chain that had moved on.
+    ///
+    /// Returns how many outpoints were reclaimed.
+    pub fn reclaim_unmined_spends(&mut self, cutoff: i32) -> usize {
+        // Bounds one pass, not the backlog: the pass runs per block, so a
+        // larger backlog drains over several blocks instead of stalling one.
+        const MAX_PER_PASS: i64 = 10_000;
+
+        // Joined to utxo_spent rather than read from it alone, because
+        // utxo_unmined_spend is what carries the age and utxo_spent is what
+        // carries the row. `spent_height IS NULL` is asserted here and again in
+        // the write, which is the authority.
+        let rows = match self.conn.query(
+            "SELECT u.txid, u.vout, s.satoshis, s.identifier, s.created_height \
+               FROM utxo_unmined_spend u \
+               JOIN utxo_spent s ON s.txid = u.txid AND s.vout = u.vout \
+              WHERE u.seen_height <= $1 AND s.spent_height IS NULL \
+              ORDER BY u.seen_height, u.txid, u.vout \
+              LIMIT $2",
+            &[&cutoff, &MAX_PER_PASS],
+        ) {
+            Ok(rows) => rows,
+            Err(err) => {
+                log::error!("Unable to read unmined spends for eviction: {err:?}");
+                return 0;
+            }
+        };
+
+        let mut reclaimed: Vec<OutPoint> = Vec::with_capacity(rows.len());
+        for row in rows.iter() {
+            let stored: Vec<u8> = row.get(0);
+            let Some(hash) = Self::decode_stored_hash(&stored) else {
+                continue;
+            };
+            let vout: i32 = row.get(1);
+            let Ok(index) = u32::try_from(vout) else {
+                log::error!("Unmined spend vout {vout} is negative; row skipped");
+                continue;
+            };
+            let outpoint = OutPoint { hash, index };
+
+            // A settle for this outpoint queued earlier in this same flush has
+            // not reached the writer yet, so the SELECT above still sees the
+            // row as unmined. The write re-checks and will decline it; skipping
+            // here keeps the in-memory set agreeing with what the write does.
+            if self.utxo_settles.values().any(|spends| {
+                spends
+                    .iter()
+                    .any(|spend| spend.txid == hash.0 && spend.vout == index)
+            }) {
+                continue;
+            }
+
+            self.spent_unmined.remove(&outpoint);
+            self.utxo.insert(
+                outpoint.clone(),
+                UtxoEntry {
+                    satoshis: row.get(2),
+                    height: height_from_sql(row.get(4)),
+                    identifier: row.get(3),
+                },
+            );
+            reclaimed.push(outpoint);
+        }
+
+        let count = reclaimed.len();
+        if count > 0 {
+            self.send_db_op(DBOperationType::UtxoBatchReclaim(reclaimed));
+        }
+        count
     }
 
     pub fn handle_orphan_block(&mut self, height: u32) {
