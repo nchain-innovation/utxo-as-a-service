@@ -3,7 +3,7 @@
  The UTXO as a Service (UaaS) monitors BSV Node Peer to Peer (P2P) messages and builds its own UTXO set that can be queried to obtain non-standard transactions.
 
 This service is implemented in Rust with a Python REST API web interface.
-The two components read the same configuration file and a shared data directory. The Rust indexer stores its data in **PostgreSQL**; the Python REST API still reads MariaDB, so until it is moved across it serves whatever was last written there rather than current data.
+The two components read the same configuration file and a shared data directory, and both store their data in **PostgreSQL**.
 The diagram also shows the Docker containers that make up the service.
 ![Service Deployment](docs/diagrams/deployment.png)
 
@@ -28,7 +28,7 @@ Then start the system:
 ```bash
 docker-compose up -d
 ```
-Compose publishes PostgreSQL on host port **5433** and MariaDB on **3307**, both off their default ports to avoid conflicting with other local databases. A one-shot `uaas_migrate` service applies the schema before the indexer starts.
+Compose publishes PostgreSQL on host port **5433**, off the default to avoid conflicting with other local databases. A one-shot `uaas_migrate` service applies the schema before the indexer starts.
 
 To stop the system:
 ```bash
@@ -69,7 +69,7 @@ To run this:
 cd python/src
 ./web.py
 ```
-Note again that this is dependent on the MariaDB database, not the PostgreSQL one the indexer writes.
+Note again that this is dependent on the PostgreSQL database.
 
 This will provide a REST API with a Swagger interface at http://localhost:5010/docs
 
@@ -92,12 +92,12 @@ It is safe to run repeatedly — migrations already applied are skipped — and 
 
 Nothing creates tables at startup any more. The service asserts the schema version it expects and refuses to run against anything else, rather than creating what it finds missing.
 
-The Python REST API has not moved yet: it still reads MariaDB, which nothing writes to any more. See [docs/Database.md](docs/Database.md).
+Both components read the same database and the same connection URL. See [docs/Database.md](docs/Database.md).
 
 ## Docker
 Encapsulating the service in Docker removes the need to install the project dependencies on the host machine.
 Only Docker is required to build and run the service and web interface.
-Note that the PostgreSQL and MariaDB docker images are still required.
+Note that the PostgreSQL docker image is still required.
 ### 1) Build The Docker Image
 To build the docker image associated with the service, run the following command in the project directory.
 ```bash

@@ -23,7 +23,7 @@ UaaS indexes the Bitcoin SV (BSV) blockchain by:
 |------|--------|-------------------|
 | **AUT-R** | Rust unit / Actix tests | `cd rust && cargo test` |
 | **AUT-P** | Python unit / smoke tests | `uv run pytest python/tests --ignore=python/tests/integration` |
-| **AUT-I** | Python integration tests | `UAAS_TEST_MYSQL_URL=... uv run pytest python/tests/integration` |
+| **AUT-I** | Python integration tests | `UAAS_TEST_POSTGRES_URL=... uv run pytest python/tests/integration` |
 | **AUT-S** | Source-contract tests | `python/tests/test_requirements_source.py` |
 | **CI** | GitHub Actions | `.github/workflows/ci.yml` (verified by `python/tests/test_ci.py`) |
 
@@ -156,8 +156,9 @@ uv sync --all-groups
 ./lint.sh
 uv run pytest python/tests --ignore=python/tests/integration -v
 
-# Python integration (requires MariaDB)
-export UAAS_TEST_MYSQL_URL=mysql://maas:maas-password@127.0.0.1:3306/main_uaas_db
+# Python integration (requires PostgreSQL with the schema applied; the
+# database name must contain "test" — the suite deletes rows)
+export UAAS_TEST_POSTGRES_URL=postgresql://uaas:uaas-password@127.0.0.1:5433/uaas_test_db
 uv run pytest python/tests/integration -v
 ```
 

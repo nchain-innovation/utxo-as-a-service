@@ -61,8 +61,9 @@ docker compose stop uaas_backend uaas_web
 
 ### 2. Truncate the affected tables
 
-Dialect: **PostgreSQL 17**. Unlike MariaDB, where `TRUNCATE` is DDL that
-commits implicitly and cannot be rolled back, PostgreSQL's DDL is transactional
+Dialect: **PostgreSQL 17**. Unlike MySQL-family engines, where `TRUNCATE` is
+DDL that commits implicitly and cannot be rolled back, PostgreSQL's DDL is
+transactional
 — wrap these in `BEGIN`/`COMMIT` and a mistake is recoverable with `ROLLBACK`
 until you commit. Take a dump anyway if the `blocks` table is expensive to
 rebuild.
@@ -80,8 +81,8 @@ COMMIT;
 them while the transaction is open. That is why the service is stopped first
 rather than relying on the lock to serialise against it.
 
-Truncating `blocks` and `tx` is now a choice rather than a requirement. Under
-MariaDB the writer used a plain `INSERT` against the primary key on `hash`, so
+Truncating `blocks` and `tx` is a choice rather than a requirement. The writer
+used to issue a plain `INSERT` against the primary key on `hash`, so
 replaying a block into a populated table failed on a duplicate key. Every
 insert on this path is now `ON CONFLICT (hash) DO NOTHING`
 (`database.rs:322`, `:429`), and `utxo` is `ON CONFLICT (txid, vout) DO UPDATE`
