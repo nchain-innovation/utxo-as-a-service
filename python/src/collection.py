@@ -12,6 +12,7 @@ from io import BytesIO
 from p2p_framework.object import CTransaction
 
 from database import database
+from hashes import txid_from_bytes, txid_to_bytes
 from tx_analyser import tx_analyser
 from config import ConfigType
 
@@ -85,8 +86,13 @@ class Collection:
         }
 
     def get_tx_as_hex(self, hash: str) -> List[Any]:
-        # Read tx from database
-        return database.query("SELECT tx FROM collection WHERE hash = %s;", (hash,))
+        # The tx column is bytea now, not hex in a longtext, so the hex this
+        # method is named for is produced here rather than stored.
+        result = database.query(
+            "SELECT tx FROM collection WHERE hash = %s;",
+            (txid_to_bytes(hash),),
+        )
+        return [(bytes(x[0]).hex(),) for x in result]
 
     def is_valid_collection(self, cname: str) -> bool:
         return cname in self.static_names or cname in self.dynamic_names
@@ -95,10 +101,14 @@ class Collection:
         """ Return the collection hashes associated with this collection name """
         if not self.is_valid_collection(monitor_name):
             raise ValueError(f"Unknown collection '{monitor_name}'")
-        return database.query(
-            "SELECT hash FROM collection WHERE name = %s;",
+        # The column is `monitor`, not `name`: it holds a monitor's name and
+        # `name` said nothing about which name. This query was already wrong
+        # against the new schema and would have failed outright.
+        result = database.query(
+            "SELECT hash FROM collection WHERE monitor = %s;",
             (monitor_name,),
         )
+        return [(txid_from_bytes(x[0]),) for x in result]
 
     def add_monitor(self, monitor: Monitor):
         if self.is_valid_collection(monitor.name):

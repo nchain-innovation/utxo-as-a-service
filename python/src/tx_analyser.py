@@ -1,4 +1,3 @@
-import datetime
 import logging
 from typing import List, Dict, Any, Optional
 
@@ -7,7 +6,7 @@ from blockfile import blockfile
 from merkle import create_merkle_branch
 from p2p_framework.object import CTransaction
 from config import ConfigType
-from mysql.connector.errors import ProgrammingError
+from hashes import identifier_to_bytes, txid_from_bytes, txid_to_bytes
 
 LOGGER = logging.getLogger(__name__)
 
@@ -16,14 +15,6 @@ _TX_EXIST_QUERY = """
 SELECT 1 FROM (
     SELECT hash FROM tx WHERE hash = %s
     UNION ALL
-    SELECT hash FROM mempool WHERE hash = %s
-    UNION ALL
-    SELECT hash FROM collection WHERE hash = %s
-) AS matches LIMIT 1
-"""
-
-_TX_EXIST_WITHOUT_TX_TABLE_QUERY = """
-SELECT 1 FROM (
     SELECT hash FROM mempool WHERE hash = %s
     UNION ALL
     SELECT hash FROM collection WHERE hash = %s
@@ -39,14 +30,18 @@ class TxAnalyser:
         self.complete = config['utxo']['complete']
 
     def _read_mempool(self) -> List[Dict[str, Any]]:
-        # Read mempool from databaseß
-        result = database.query("SELECT * FROM mempool")
-        retval = [{
-            "hash": f"{x[0]}", "locktime": x[1], "fee": x[2],
-            "time": datetime.datetime.fromtimestamp(x[3]).strftime('%Y-%m-%d %H:%M:%S')
+        # Named columns, not SELECT *: positional decoding breaks silently when
+        # a migration changes the column order, and this table's did.
+        result = database.query(
+            "SELECT hash, locktime, fee, seen_at FROM mempool"
+        )
+        # seen_at is timestamptz now, so the driver hands back a datetime. It
+        # was an int unix timestamp that fromtimestamp() had to convert — and
+        # that would have overflowed in 2106.
+        return [{
+            "hash": txid_from_bytes(x[0]), "locktime": x[1], "fee": x[2],
+            "time": x[3].strftime('%Y-%m-%d %H:%M:%S')
         } for x in result]
-
-        return retval
 
     def get_mempool(self) -> Dict[str, List[Dict[str, Any]]]:
         """ Return a dictionary of mempool"""
@@ -55,13 +50,22 @@ class TxAnalyser:
         }
 
     def _read_utxo(self, hash: str) -> List[Dict[str, Any]]:
-        # Read utxo from database
-        result = database.query("SELECT * FROM utxo WHERE hash = %s;", (hash,))
-        retval = [{
-            "hash": f"{x[0]}", "pos": x[1], "satoshi": x[2],
+        result = database.query(
+            "SELECT txid, vout, satoshis, created_height FROM utxo WHERE txid = %s;",
+            (txid_to_bytes(hash),),
+        )
+        return [{
+            "hash": txid_from_bytes(x[0]), "pos": x[1], "satoshi": x[2],
             "height": x[3]
         } for x in result]
-        return retval
+
+    def _read_spent_vouts(self, hash: str) -> List[int]:
+        """The outputs of this transaction that are recorded as spent."""
+        result = database.query(
+            "SELECT vout FROM utxo_spent WHERE txid = %s;",
+            (txid_to_bytes(hash),),
+        )
+        return [x[0] for x in result]
 
     def get_utxo_entry(self, hash: str) -> Dict[str, List[Dict[str, Any]]]:
         """ Return the utxo entry identified by hash"""
@@ -72,8 +76,8 @@ class TxAnalyser:
     def get_utxo_by_outpoint(self, hash: str, pos: int) -> Dict[str, Any]:
         # Read utxo from database
         result = database.query(
-            "SELECT * FROM utxo WHERE hash = %s AND pos = %s;",
-            (hash, pos),
+            "SELECT txid FROM utxo WHERE txid = %s AND vout = %s;",
+            (txid_to_bytes(hash), pos),
         )
         return {"result": len(result) > 0}
 
@@ -81,14 +85,14 @@ class TxAnalyser:
         # Return the UTXO associated with a particular pubkeyhash
 
         result = database.query(
-            "SELECT hash, pos, satoshis, height FROM utxo WHERE pubkeyhash = %s;",
-            (pubkeyhash,),
+            "SELECT txid, vout, satoshis, created_height FROM utxo WHERE identifier = %s;",
+            (identifier_to_bytes(pubkeyhash),),
         )
 
         retval = [{
             "height": x[3],
             "tx_pos": x[1],
-            "tx_hash": f"{x[0]}",
+            "tx_hash": txid_from_bytes(x[0]),
             "value": x[2],
         } for x in result]
 
@@ -99,13 +103,23 @@ class TxAnalyser:
     def get_balance(self, pubkeyhash: str, blockheight: int) -> Dict[str, Any]:
         # Return the UTXO balance with a particular pubkeyhash
         result = database.query(
-            "SELECT satoshis, height FROM utxo WHERE pubkeyhash = %s;",
-            (pubkeyhash,),
+            "SELECT satoshis, created_height FROM utxo WHERE identifier = %s;",
+            (identifier_to_bytes(pubkeyhash),),
         )
         confirmed_height = blockheight - self.complete
 
-        confirmed = sum([x[0] for x in result if x[1] >= 0 and x[1] <= confirmed_height])
-        unconfirmed = sum([x[0] for x in result if x[1] < 0 or x[1] > confirmed_height])
+        # created_height is NULL for an output whose transaction is not in a
+        # block. That used to be the sentinel -1, so the old comparisons read
+        # `>= 0` and `< 0`; a NULL arrives as None and comparing it with an int
+        # raises rather than sorting itself out.
+        confirmed = sum(
+            x[0] for x in result
+            if x[1] is not None and x[1] <= confirmed_height
+        )
+        unconfirmed = sum(
+            x[0] for x in result
+            if x[1] is None or x[1] > confirmed_height
+        )
         return {
             "confirmed": confirmed,
             "unconfirmed": unconfirmed,
@@ -114,8 +128,9 @@ class TxAnalyser:
     def _read_block_offset(self, hash: str) -> Optional[int]:
         # Read block offset based on tx hash from database
         result = database.query(
-            "SELECT blocks.`offset` FROM blocks INNER JOIN tx on tx.height = blocks.height WHERE tx.hash = %s;",
-            (hash,),
+            "SELECT blocks.file_offset FROM blocks "
+            "INNER JOIN tx on tx.height = blocks.height WHERE tx.hash = %s;",
+            (txid_to_bytes(hash),),
         )
         try:
             return result[0][0]
@@ -123,14 +138,10 @@ class TxAnalyser:
             return None
 
     def _read_tx_height_and_blockindex(self, hash: str) -> Optional[List[int]]:
-        try:
-            result = database.query(
-                "SELECT height, blockindex FROM tx WHERE hash = %s;",
-                (hash,),
-            )
-        except ProgrammingError as e:
-            LOGGER.error("MySQL ProgrammingError: %s", e)
-            return None
+        result = database.query(
+            "SELECT height, blockindex FROM tx WHERE hash = %s;",
+            (txid_to_bytes(hash),),
+        )
         try:
             return result[0]
         except IndexError:
@@ -141,12 +152,17 @@ class TxAnalyser:
         """
         tx_as_dict = tx.to_dict()
 
-        # Get utxo
-        utxo_entry = self._read_utxo(hash)
-        # Create a list of unspent pos
-        utxo = list(map(lambda x: x['pos'], utxo_entry))
+        # Read spent-ness from utxo_spent rather than inferring it from absence
+        # in utxo. Since CS-421 the service records only outputs a monitor
+        # selected, so "not in utxo" means "spent OR never tracked" — and the
+        # old inference reported every unmonitored output as spent.
+        #
+        # This still cannot speak for an output the service does not track: it
+        # is reported unspent, because nothing says otherwise. That is a false
+        # negative where the old code gave a false positive.
+        spent_vouts = self._read_spent_vouts(hash)
         for pos, vout in enumerate(tx_as_dict['vout']):
-            vout["spent"] = pos not in utxo
+            vout["spent"] = pos in spent_vouts
 
         height_and_blockindex = self._read_tx_height_and_blockindex(hash)
         if height_and_blockindex is None:
@@ -195,11 +211,12 @@ class TxAnalyser:
 
     def tx_exist(self, hash: str) -> bool:
         # Return true if txid is in txs, mempool, or collection (single round trip).
-        try:
-            result = database.query(_TX_EXIST_QUERY, (hash, hash, hash))
-        except ProgrammingError as e:
-            LOGGER.error("MySQL ProgrammingError: %s", e)
-            result = database.query(_TX_EXIST_WITHOUT_TX_TABLE_QUERY, (hash, hash))
+        # No fallback for a missing `tx` table. The schema is versioned and the
+        # service refuses to start against the wrong version, so a missing
+        # table is a fault to surface rather than to paper over with a query
+        # that quietly answers a different question.
+        raw = txid_to_bytes(hash)
+        result = database.query(_TX_EXIST_QUERY, (raw, raw, raw))
         return len(result) > 0
 
     def get_tx_merkle_proof(self, hash: str) -> Dict[str, Any]:
@@ -208,26 +225,24 @@ class TxAnalyser:
         block = database.query(
             "SELECT blocks.height, blocks.hash, merkle_root FROM blocks "
             "INNER JOIN tx on tx.height = blocks.height WHERE tx.hash = %s;",
-            (hash,),
+            (txid_to_bytes(hash),),
         )
         try:
             height = block[0][0]
-            block_hash = block[0][1]
-            merkle_root = block[0][2]
+            block_hash = txid_from_bytes(block[0][1])
+            merkle_root = txid_from_bytes(block[0][2])
         except IndexError:
             return {
                 "status": f"Transaction {hash} not found in block"
             }
         # Get the txs in the block
-        try:
-            result = database.query(
-                "SELECT hash FROM tx WHERE height = %s ORDER BY blockindex ASC;",
-                (height,),
-            )
-            txs = [x[0] for x in result]
-        except ProgrammingError as e:
-            LOGGER.error("MySQL ProgrammingError: %s", e)
-            txs = []
+        result = database.query(
+            "SELECT hash FROM tx WHERE height = %s ORDER BY blockindex ASC;",
+            (height,),
+        )
+        # create_merkle_branch works in display order, the same order the API
+        # states txids in.
+        txs = [txid_from_bytes(x[0]) for x in result]
 
         # Create merkle proof
         branches = create_merkle_branch(hash, txs)

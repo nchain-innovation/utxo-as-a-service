@@ -7,6 +7,7 @@ sys.path.append('..')
 
 from blockfile import load_block_at_offset
 from database import database
+from hashes import txid_from_bytes, txid_to_bytes
 from config import load_config
 from p2p_framework.object import CBlock
 
@@ -23,9 +24,11 @@ def quick_test(offset):
 
 
 def find_0_offset_blocks() -> List[str]:
-    retval = database.query("SELECT hash FROM blocks WHERE `offset` = 0;")
-    retval = list(map(lambda x: x[0], retval))
-    return retval
+    # `offset` is a reserved word and was backtick-quoted, which is MySQL
+    # syntax and a parse error in PostgreSQL. The column is file_offset now,
+    # so no quoting is needed at all.
+    retval = database.query("SELECT hash FROM blocks WHERE file_offset = 0;")
+    return [txid_from_bytes(x[0]) for x in retval]
 
 
 def load_blockhash_and_offset(fname: str) -> Dict[str, int]:
@@ -69,9 +72,9 @@ def main():
 
     for hash in zero_offset_blocks:
         offset = hash_to_offset[hash]
-        query = "UPDATE blocks SET `offset` = %s WHERE hash = %s;"
+        query = "UPDATE blocks SET file_offset = %s WHERE hash = %s;"
         print(query, offset, hash)
-        r = database.query(query, (offset, hash))
+        r = database.query(query, (offset, txid_to_bytes(hash)))
         print(r)
 
 
