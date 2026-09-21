@@ -1,9 +1,9 @@
-use std::{cmp, sync::mpsc};
+use std::{cmp, collections::HashMap, sync::mpsc};
 
 use crate::db::{Pool, PooledConn};
 
 use chain_gang::{
-    messages::{Block, Tx, TxOut},
+    messages::{Block, OutPoint, Tx, TxOut},
     network::Network,
     util::Hash256,
 };
@@ -14,8 +14,9 @@ use crate::{
     uaas::{
         collection::{CollectionDatabase, WorkingCollection},
         database::DBOperationType,
+        spend_id::{provisional_id, SpendId},
         txdb::TxDB,
-        utxo::{NewOutput, Utxo},
+        utxo::{Conflict, NewOutput, Utxo},
     },
 };
 /*
@@ -43,6 +44,16 @@ pub struct TxAnalyser {
     /// Blocks an unconfirmed spend may go unmined before it is given up on.
     /// `0` disables eviction (CS-423).
     eviction_blocks: i32,
+    /// Outpoints spent by transactions already seen in the block being
+    /// processed, and which transaction spent each (CS-428).
+    ///
+    /// Separate from the unmined claims because a mined spend is settled
+    /// immediately and leaves no claim behind, so two conflicting
+    /// transactions in one block would otherwise be invisible. Bounded by the
+    /// block, and cleared when the height changes.
+    block_spends: HashMap<OutPoint, Hash256>,
+    /// The height `block_spends` describes.
+    block_spends_height: i32,
 }
 
 impl TxAnalyser {
@@ -99,6 +110,8 @@ impl TxAnalyser {
             network,
             chain_tip: NOT_IN_BLOCK,
             eviction_blocks: config.mempool.eviction_blocks,
+            block_spends: HashMap::new(),
+            block_spends_height: NOT_IN_BLOCK,
         })
     }
 
@@ -203,19 +216,105 @@ impl TxAnalyser {
     /// settles it. A spend is no longer a delete — the row moves rather than
     /// disappearing, so the spend is still there to be reported after it
     /// happens.
-    fn process_tx_inputs(&mut self, tx: &Tx, height: i32, blockindex: usize) {
+    fn process_tx_inputs(
+        &mut self,
+        tx: &Tx,
+        height: i32,
+        blockindex: usize,
+        spend_id: SpendId,
+    ) -> Result<(), Conflict> {
         if blockindex == 0 {
             // if is coinbase (blockindex 0)- nothing to process as these won't be in the utxo
-            return;
+            return Ok(());
         }
         let spending_txid = tx.hash();
+
+        // Two passes. Detection first, over every input, so a transaction is
+        // either applied whole or not at all — a conflict found on the second
+        // input must not leave the first one spent.
+        for vin in tx.inputs.iter() {
+            if Self::is_null_prevout(&vin.prev_output) {
+                continue;
+            }
+            if let Some(conflict) =
+                self.utxo
+                    .conflict_for(&vin.prev_output, spending_txid, &spend_id)
+            {
+                return Err(conflict);
+            }
+            if height != NOT_IN_BLOCK {
+                if let Some(claimed_by) = self.block_spends.get(&vin.prev_output) {
+                    if *claimed_by != spending_txid {
+                        // Two transactions in one block spending one outpoint.
+                        // A valid block cannot contain this, so it is reported
+                        // as the more serious kind whatever the identities say.
+                        return Err(Conflict::DoubleSpend {
+                            outpoint: vin.prev_output.clone(),
+                            claimed_by: *claimed_by,
+                        });
+                    }
+                }
+            }
+        }
+
         for vin in tx.inputs.iter() {
             if height == NOT_IN_BLOCK {
                 self.utxo
-                    .spend(&vin.prev_output, spending_txid, self.chain_tip);
+                    .spend(&vin.prev_output, spending_txid, spend_id, self.chain_tip);
             } else {
                 self.utxo.settle(&vin.prev_output, spending_txid, height);
+                if !Self::is_null_prevout(&vin.prev_output) {
+                    self.block_spends
+                        .insert(vin.prev_output.clone(), spending_txid);
+                }
             }
+        }
+        Ok(())
+    }
+
+    /// Whether this input references nothing.
+    ///
+    /// A coinbase input carries an all-zero txid by convention, and no real
+    /// output can have one — it would take a SHA256d preimage of zero. Such an
+    /// input spends nothing, so it cannot conflict with anything and must not
+    /// be recorded as claiming an outpoint. Without this, every non-coinbase
+    /// transaction built with a default input looks like a double spend of the
+    /// same null outpoint.
+    ///
+    /// `blockindex == 0` already skips the real coinbase; this covers the rest.
+    fn is_null_prevout(outpoint: &OutPoint) -> bool {
+        outpoint.hash.0 == [0u8; 32]
+    }
+
+    /// Reports a refused spend, and says which kind it was.
+    ///
+    /// `warn`, not `info`: this is the counter an operator alerts on, and
+    /// `release_max_level_warn` compiles `info!` out of release builds, so a
+    /// count logged at info would be invisible in the deployment that needs
+    /// it. A genuine double-spend is `error` — it means someone tried to
+    /// spend one coin twice, which is a different thing from two encodings of
+    /// one spend.
+    fn report_conflict(&self, tx: &Tx, conflict: &Conflict) {
+        let outpoint = conflict.outpoint();
+        match conflict {
+            Conflict::Malleated { .. } => log::warn!(
+                "Malleated sibling refused: {:?} spends {:?}:{} which {:?} already claims. \
+                 Same prevouts and outputs, so it is one spend under two encodings; its \
+                 outputs are not added to the UTXO set.",
+                tx.hash(),
+                outpoint.hash,
+                outpoint.index,
+                conflict.claimed_by()
+            ),
+            Conflict::DoubleSpend { .. } => log::error!(
+                "Double spend refused: {:?} spends {:?}:{} which {:?} already claims, paying \
+                 different outputs. Two spends of one coin; the second is not added to the \
+                 UTXO set.",
+                tx.hash(),
+                outpoint.hash,
+                outpoint.index,
+                conflict.claimed_by()
+            ),
         }
     }
 
@@ -253,8 +352,24 @@ impl TxAnalyser {
     pub fn process_block_tx(&mut self, tx: &Tx, height: i32, blockindex: usize) {
         // Process tx as received in a block from a peer
 
+        // `block_spends` describes one block. Cleared here rather than only in
+        // `process_block` so that a caller driving transactions directly — the
+        // tests do — still gets per-height behaviour.
+        if height != self.block_spends_height {
+            self.block_spends.clear();
+            self.block_spends_height = height;
+        }
+
         // process inputs
-        self.process_tx_inputs(tx, height, blockindex);
+        if let Err(conflict) = self.process_tx_inputs(tx, height, blockindex, provisional_id(tx)) {
+            self.report_conflict(tx, &conflict);
+            // Deliberately still collected: a refused spend is evidence, and a
+            // collection is a record of transactions seen, not of the
+            // spendable set. What must not happen is its outputs entering the
+            // UTXO set, which is the doubling this ticket is about.
+            self.process_collection(tx, false);
+            return;
+        }
 
         // Process outputs
         // Note this will overwrite the utxo outpoints with height = NOT_IN_BLOCK(-1)
@@ -371,7 +486,14 @@ impl TxAnalyser {
         // Process inputs
         const NOT_A_COINBASE_TX: usize = 1;
 
-        self.process_tx_inputs(tx, NOT_IN_BLOCK, NOT_A_COINBASE_TX);
+        if let Err(conflict) =
+            self.process_tx_inputs(tx, NOT_IN_BLOCK, NOT_A_COINBASE_TX, provisional_id(tx))
+        {
+            self.report_conflict(tx, &conflict);
+            self.process_collection(tx, is_uaas_broadcast_tx);
+            self.txdb.batch_write_mempool();
+            return;
+        }
 
         // Process outputs
         self.process_tx_outputs(tx, NOT_IN_BLOCK);
@@ -654,9 +776,9 @@ mod tests {
     }
 
     #[test]
-    fn utxo03_a_malleated_sibling_doubles_the_utxo_set_today() {
+    fn utxo03_a_malleated_sibling_does_not_double_the_utxo_set() {
         let Some((mut analyser, rx)) =
-            analyser_with_live_db("utxo03_a_malleated_sibling_doubles_the_utxo_set_today")
+            analyser_with_live_db("utxo03_a_malleated_sibling_does_not_double")
         else {
             return;
         };
@@ -679,6 +801,11 @@ mod tests {
         );
         assert_eq!(tx_a.outputs, tx_b.outputs, "both must pay the same outputs");
         assert_eq!(tx_a.version, tx_b.version);
+        assert_eq!(
+            provisional_id(&tx_a),
+            provisional_id(&tx_b),
+            "and so they are one spend under two encodings"
+        );
 
         analyser.process_block_tx(&tx_a, 301, 1);
         assert_eq!(
@@ -689,8 +816,8 @@ mod tests {
 
         analyser.process_block_tx(&tx_b, 301, 2);
 
-        // The finding. One output was funded and one output was spent, but the
-        // utxo set now carries both siblings' outputs as live and unrelated.
+        // The fix. 1000 satoshis were funded and one spend of them is
+        // recorded; the sibling's outputs do not enter the set a second time.
         let out_a = OutPoint {
             hash: tx_a.hash(),
             index: 0,
@@ -704,18 +831,14 @@ mod tests {
                 analyser.utxo.get_satoshis(&out_a),
                 analyser.utxo.get_satoshis(&out_b)
             ),
-            (Some(900), Some(900)),
-            "documents the phantom balance: 900 satoshis counted twice from 1000 funded"
+            (Some(900), None),
+            "the first encoding's outputs are live; the sibling's are refused"
         );
 
-        // And the conflict still leaves no trace. `Utxo::settle` records a
-        // spend only for an outpoint that was live or awaiting settlement; by
-        // the time the sibling arrives the first spend has taken it out of
-        // both, so the second queues nothing at all — not even a duplicate for
-        // an operator to notice.
-        //
-        // CS-421 changed the vocabulary here from delete to settle and changed
-        // nothing about the finding. Detecting the conflict is CS-428.
+        // And exactly one spend of the funding outpoint is recorded, as
+        // before — the difference is that the second is now refused
+        // deliberately and reported, rather than discarded by an accident of
+        // control flow.
         analyser.utxo.update_db();
         let settled = settles(drain(&rx));
         assert_eq!(
@@ -723,8 +846,283 @@ mod tests {
                 .iter()
                 .filter(|(record, _)| is_outpoint(record, &outpoint))
                 .count(),
-            1,
-            "the second spend of the same outpoint is silently discarded"
+            1
+        );
+    }
+
+    // --- CS-428: conflicting spends -------------------------------------
+
+    /// Two spends of one outpoint paying *different* outputs. Not malleation:
+    /// one coin, two destinations.
+    fn double_spend_pair(prev_output: OutPoint) -> (Tx, Tx) {
+        let build = |satoshis: i64, marker: u8| Tx {
+            version: 2,
+            inputs: vec![TxIn {
+                prev_output: prev_output.clone(),
+                unlock_script: Script(vec![0x51]),
+                ..TxIn::default()
+            }],
+            outputs: vec![TxOut {
+                satoshis,
+                lock_script: p2pkh_script(marker),
+            }],
+            lock_time: 0,
+        };
+        (build(900, 0xcc), build(800, 0xdd))
+    }
+
+    /// The distinction the ticket asks for: same prevout, different outputs
+    /// is a different event from same prevout, same outputs.
+    #[test]
+    fn conflict01_a_double_spend_is_distinguished_from_a_malleated_sibling() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("conflict01_double_vs_malleated")
+        else {
+            return;
+        };
+
+        let funding = funding_tx(0x41);
+        analyser.process_block_tx(&funding, 400, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let (malleated_a, malleated_b) = malleated_pair(outpoint.clone());
+        let (double_a, double_b) = double_spend_pair(outpoint.clone());
+
+        assert_eq!(provisional_id(&malleated_a), provisional_id(&malleated_b));
+        assert_ne!(
+            provisional_id(&double_a),
+            provisional_id(&double_b),
+            "paying different outputs is a different spend"
+        );
+
+        // Seen in the mempool, so the first leaves a claim behind.
+        analyser.process_standalone_tx(&malleated_a, false);
+
+        assert!(
+            matches!(
+                analyser.utxo.conflict_for(
+                    &outpoint,
+                    malleated_b.hash(),
+                    &provisional_id(&malleated_b)
+                ),
+                Some(Conflict::Malleated { .. })
+            ),
+            "the sibling is one spend under two encodings"
+        );
+        assert!(
+            matches!(
+                analyser
+                    .utxo
+                    .conflict_for(&outpoint, double_b.hash(), &provisional_id(&double_b)),
+                Some(Conflict::DoubleSpend { .. })
+            ),
+            "a different payment from the same coin is a double spend"
+        );
+    }
+
+    /// A conflicting mempool spend must not add its outputs.
+    #[test]
+    fn conflict02_a_conflicting_mempool_spend_adds_no_outputs() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("conflict02_mempool_conflict") else {
+            return;
+        };
+
+        let funding = funding_tx(0x42);
+        analyser.process_block_tx(&funding, 400, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let (first, second) = double_spend_pair(outpoint);
+        analyser.process_standalone_tx(&first, false);
+        analyser.process_standalone_tx(&second, false);
+
+        assert_eq!(
+            analyser.utxo.get_satoshis(&OutPoint {
+                hash: first.hash(),
+                index: 0
+            }),
+            Some(900),
+            "the first spend stands"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&OutPoint {
+                hash: second.hash(),
+                index: 0
+            }),
+            None,
+            "the second is refused"
+        );
+    }
+
+    /// Re-announcing the *same* transaction is not a conflict. Without this
+    /// the detector would refuse every duplicate relay.
+    #[test]
+    fn conflict03_the_same_transaction_twice_is_not_a_conflict() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("conflict03_same_tx_twice") else {
+            return;
+        };
+
+        let funding = funding_tx(0x43);
+        analyser.process_block_tx(&funding, 400, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+        let (spend, _) = double_spend_pair(outpoint.clone());
+
+        analyser.process_standalone_tx(&spend, false);
+        assert!(analyser
+            .utxo
+            .conflict_for(&outpoint, spend.hash(), &provisional_id(&spend))
+            .is_none());
+
+        // And processing it again leaves the outputs exactly as they were.
+        analyser.process_standalone_tx(&spend, false);
+        assert_eq!(
+            analyser.utxo.get_satoshis(&OutPoint {
+                hash: spend.hash(),
+                index: 0
+            }),
+            Some(900)
+        );
+    }
+
+    /// A conflict on a later input must not leave an earlier one spent. The
+    /// detection pass runs over every input before anything is applied.
+    #[test]
+    fn conflict04_a_refused_transaction_spends_none_of_its_inputs() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("conflict04_all_or_nothing") else {
+            return;
+        };
+
+        // Two funded outpoints.
+        let funding_one = funding_tx(0x44);
+        let funding_two = funding_tx(0x45);
+        analyser.process_block_tx(&funding_one, 400, 0);
+        analyser.process_block_tx(&funding_two, 401, 0);
+        let one = OutPoint {
+            hash: funding_one.hash(),
+            index: 0,
+        };
+        let two = OutPoint {
+            hash: funding_two.hash(),
+            index: 0,
+        };
+
+        // Something already claims the *second* outpoint.
+        let (claimer, _) = double_spend_pair(two.clone());
+        analyser.process_standalone_tx(&claimer, false);
+
+        // A transaction spending both. The conflict is on its second input.
+        let both = Tx {
+            version: 2,
+            inputs: vec![
+                TxIn {
+                    prev_output: one.clone(),
+                    unlock_script: Script(vec![0x51]),
+                    ..TxIn::default()
+                },
+                TxIn {
+                    prev_output: two,
+                    unlock_script: Script(vec![0x51]),
+                    ..TxIn::default()
+                },
+            ],
+            outputs: vec![TxOut {
+                satoshis: 1_500,
+                lock_script: p2pkh_script(0xee),
+            }],
+            lock_time: 0,
+        };
+        analyser.process_standalone_tx(&both, false);
+
+        assert_eq!(
+            analyser.utxo.get_satoshis(&one),
+            Some(1_000),
+            "the first input must be untouched: the transaction was refused whole"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&OutPoint {
+                hash: both.hash(),
+                index: 0
+            }),
+            None,
+            "and it adds no outputs"
+        );
+    }
+
+    /// A coinbase-style null input spends nothing, so several transactions
+    /// carrying one are not spending the same coin.
+    ///
+    /// Pinned explicitly because it is a deliberate rule, not a side effect:
+    /// without it every non-coinbase transaction built with a default input
+    /// looks like a double spend of the all-zero outpoint, which is how this
+    /// first broke `utxo02`.
+    #[test]
+    fn conflict06_a_null_prevout_is_not_a_spend() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("conflict06_null_prevout") else {
+            return;
+        };
+
+        // Two ordinary transactions, both with a default (null) input, in one
+        // block at blockindex 1 and 2 — neither is the coinbase.
+        let one = funding_tx(0x51);
+        let two = funding_tx(0x52);
+        assert_eq!(
+            one.inputs[0].prev_output.hash,
+            Hash256([0u8; 32]),
+            "the fixture must carry a null prevout"
+        );
+
+        analyser.process_block_tx(&one, 500, 1);
+        analyser.process_block_tx(&two, 500, 2);
+
+        for (label, tx) in [("first", &one), ("second", &two)] {
+            assert_eq!(
+                analyser.utxo.get_satoshis(&OutPoint {
+                    hash: tx.hash(),
+                    index: 0
+                }),
+                Some(1_000),
+                "{label} transaction must be recorded: a null input claims nothing"
+            );
+        }
+    }
+
+    /// Detection must not rest on the prevout being absent from the UTXO set,
+    /// which CS-421 made meaningless. An ordinary spend of an outpoint the
+    /// service never recorded must pass straight through.
+    #[test]
+    fn conflict05_an_unmonitored_prevout_is_not_a_conflict() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("conflict05_unknown_prevout") else {
+            return;
+        };
+
+        // Never funded, so never in the utxo set — the ordinary case for
+        // almost every transaction the service sees.
+        let unknown = OutPoint {
+            hash: Hash256([0x99; 32]),
+            index: 0,
+        };
+        let (spend, _) = double_spend_pair(unknown.clone());
+
+        assert!(analyser
+            .utxo
+            .conflict_for(&unknown, spend.hash(), &provisional_id(&spend))
+            .is_none());
+
+        analyser.process_standalone_tx(&spend, false);
+        assert_eq!(
+            analyser.utxo.get_satoshis(&OutPoint {
+                hash: spend.hash(),
+                index: 0
+            }),
+            Some(900),
+            "an unremarkable spend of an unmonitored output is still recorded"
         );
     }
 
