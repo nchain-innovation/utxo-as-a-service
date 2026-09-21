@@ -190,9 +190,31 @@ The Rust component of the service is constructed of the following components.
 
 
 # Service Configuration
-The Rust component of the service uses the following configuration components.
 
-![Structs](diagrams/config_structure.png)
+The Rust component reads one TOML file, `data/uaasr.toml`, into `Config`.
+
+| Section | Struct | Fields |
+|---|---|---|
+| `[service]` | `Service` | `user_agent`, `network`, `rust_address` |
+| `[mainnet]`, `[testnet]` | `NetworkSettings` | `ip`, `port`, `timeout_period`, `start_block_hash`, `start_block_height`, `startup_load_from_database`, `block_file`, `save_blocks`, `save_txs` |
+| `[database]` | `DatabaseConfig` | `postgres_url`, `postgres_url_docker`, `ms_delay`, `retries` |
+| `[orphan]` | `OrphanConfig` | `detect`, `threshold` |
+| `[mempool]` | `MempoolConfig` | `eviction_blocks` |
+| `[logging]` | `LoggingConfig` | `level` |
+| `[dynamic_config]` | `DynamicConfigConfig` | `filename` |
+| `[web_interface]` | `WebInterfaceConfig` | `api_key`, `rate_limit_per_minute`, `max_broadcast_tx_bytes` |
+| `[[collection]]` | `CollectionConfig` | `name`, `track_descendants`, `address`, `locking_script_pattern` |
+
+Three things that are easy to get wrong:
+
+* **The database URL is under `[database]`, not per network.** One database
+  serves both networks and both components read the same URL.
+* `[mempool]`, `[web_interface]` and `[[collection]]` are `#[serde(default)]`,
+  so a file that omits them still loads. The rest are required, and a missing
+  one is a startup failure rather than a default.
+* `CollectionConfig` is not only the TOML shape. It is also the
+  `POST /collection/monitor` request body and the serialised form of the
+  dynamic monitor file, so a field added here lands in all three.
 
 
 # Configuration is mounted, never baked in

@@ -5,7 +5,39 @@
 This service is implemented in Rust with a Python REST API web interface.
 The two components read the same configuration file and a shared data directory, and both store their data in **PostgreSQL**.
 The diagram also shows the Docker containers that make up the service.
-![Service Deployment](docs/diagrams/deployment.png)
+```mermaid
+flowchart TB
+    user([user])
+    peer((BSV PeerNode))
+
+    subgraph compose["docker compose"]
+        direction TB
+        migrate["uaas_migrate<br/><i>one-shot: applies rust/migrations/</i>"]
+        web["uaas_web<br/><i>REST API, Python</i>"]
+        rust["uaas_backend<br/><i>indexer, Rust</i>"]
+        db[("uaas_postgres<br/>PostgreSQL")]
+    end
+
+    user -->|HTTP| web
+    peer <-->|P2P messages| rust
+    web -->|broadcast_tx| rust
+    migrate ==>|schema first| db
+    rust -->|writes| db
+    db -->|queries| web
+```
+
+`uaas_migrate` runs to completion before the indexer starts, and the indexer
+refuses to run against a schema version it does not expect — nothing creates
+tables at startup.
+
+Both components read the same `uaasr.toml` from `/app/data`, which is
+**mounted**: the published image deliberately carries no configuration. The
+same directory holds `blocks.dat`, which the indexer writes and the web service
+reads.
+
+The database holds eleven tables: `blocks`, `orphans`, `tx`, `mempool`, `utxo`,
+`utxo_spent`, `utxo_unmined_spend`, `utxo_monitor`, `collection`, `addr` and
+`connect`. See [docs/Database.md](docs/Database.md).
 
 The service stores blocks and can return transactions from those blocks.
 
@@ -73,7 +105,6 @@ Note again that this is dependent on the PostgreSQL database.
 
 This will provide a REST API with a Swagger interface at http://localhost:5010/docs
 
-![Rest Api](docs/diagrams/UaaS_REST_API.png)
 
 
 ## Database
