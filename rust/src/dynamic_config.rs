@@ -32,14 +32,54 @@ fn save_dynamic_config(filename: &str, clients: &[CollectionConfig]) -> std::io:
     Ok(())
 }
 
+/// How loudly to report a failure to read the dynamic config.
+///
+/// A missing file is the ordinary state of a fresh deployment:
+/// `data/dynamic.toml` holds monitors added at runtime through
+/// `POST /collection/monitor`, and until one is added it does not exist.
+/// Reporting that at `error` on every first run — and on every run of the test
+/// suite — teaches operators that `error` lines are noise, which is exactly
+/// when a real one gets scrolled past.
+///
+/// Anything else is worth an error and must stay one. A file that exists but
+/// cannot be read, or that is there but will not parse, means the operator's
+/// monitors have silently vanished; the service carries on with an empty
+/// collection list either way, so the log line is the only evidence.
+///
+/// A TOML parse failure arrives here as `InvalidData`, from the conversion in
+/// [`read_dynamic_config`].
+///
+/// A separate function because the branch is the whole point of this change
+/// and `log::error!` leaves nothing a test can assert on.
+fn level_for(err: &io::Error) -> log::Level {
+    match err.kind() {
+        io::ErrorKind::NotFound => log::Level::Info,
+        _ => log::Level::Error,
+    }
+}
+
 impl DynamicConfig {
     pub fn new(config: &Config) -> Self {
         let filename = config.dynamic_config.filename.clone();
 
         let collection = match read_dynamic_config(&filename) {
             Ok(clients) => clients,
-            Err(e) => {
-                log::error!("Error reading dynamic config file {:?}", e);
+            Err(err) => {
+                // One call site, two levels, so the message and the level
+                // cannot drift apart.
+                log::log!(
+                    level_for(&err),
+                    "{}",
+                    match err.kind() {
+                        io::ErrorKind::NotFound => format!(
+                            "No dynamic config at {filename}; starting with no runtime monitors"
+                        ),
+                        _ => format!(
+                            "Unable to read dynamic config {filename}, so any monitors it \
+                             held are not loaded: {err:?}"
+                        ),
+                    }
+                );
                 Vec::new()
             }
         };
@@ -151,5 +191,72 @@ mod tests {
         });
         let saved = std::fs::read_to_string(&path).expect("dynamic config file");
         assert!(saved.contains("runtime-monitor"));
+    }
+
+    /// A fresh deployment has no `data/dynamic.toml` until a monitor is added
+    /// through the API. That is not a failure, and reporting it as one on
+    /// every first run devalues every other error line.
+    #[test]
+    fn cfg07_a_missing_dynamic_config_is_not_an_error() {
+        let missing = std::env::temp_dir().join(format!(
+            "uaas_dynamic_config_absent_{}/dynamic.toml",
+            std::process::id()
+        ));
+        assert!(!missing.exists(), "the fixture must not exist");
+
+        let err = read_dynamic_config(missing.to_str().unwrap())
+            .expect_err("reading a file that is not there must fail");
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert_eq!(level_for(&err), log::Level::Info);
+    }
+
+    /// The other half, and the one that must not be quietened: a file that is
+    /// present but unreadable or malformed means the operator's monitors have
+    /// silently vanished. The service carries on with an empty collection
+    /// either way, so the log line is the only evidence there is.
+    #[test]
+    fn cfg08_a_malformed_dynamic_config_is_still_an_error() {
+        let dir = std::env::temp_dir().join(format!(
+            "uaas_dynamic_config_malformed_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("dynamic.toml");
+        std::fs::write(&path, "this is not toml = = =").expect("write malformed fixture");
+
+        let err =
+            read_dynamic_config(path.to_str().unwrap()).expect_err("unparseable TOML must fail");
+        assert_ne!(
+            err.kind(),
+            io::ErrorKind::NotFound,
+            "a parse failure must not be mistaken for an absent file"
+        );
+        assert_eq!(level_for(&err), log::Level::Error);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A permissions failure is not a parse failure and not an absent file,
+    /// and it means the same thing as a malformed one: monitors lost.
+    #[test]
+    fn cfg09_an_unreadable_dynamic_config_is_an_error() {
+        // Constructed rather than provoked: making a file genuinely unreadable
+        // needs a chmod that does nothing when the suite runs as root, which
+        // it does in some CI images.
+        let err = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert_eq!(level_for(&err), log::Level::Error);
+    }
+
+    /// Construction against a missing file still yields a usable, empty
+    /// config — the reporting changed, the behaviour did not.
+    #[test]
+    fn cfg10_a_missing_file_still_starts_with_no_monitors() {
+        let missing = std::env::temp_dir().join(format!(
+            "uaas_dynamic_config_absent_new_{}/dynamic.toml",
+            std::process::id()
+        ));
+        let config = sample_root_config(missing.to_str().unwrap());
+        let dynamic = DynamicConfig::new(&config);
+        assert!(dynamic.collection.is_empty());
     }
 }
