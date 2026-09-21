@@ -213,6 +213,35 @@ fn read_config(filename: &str) -> std::io::Result<Config> {
 // BNAR_CONFIG='{"user_agent": "/Bitcoin SV:1.0.9/","ip": ["18.157.234.254",  "65.21.201.45" ], "port": 8333, "network": "Mainnet", "timeout_period": 60.0}'
 // cargo run
 
+/// An absolute, `..`-free rendering of `filename`, for an error message.
+///
+/// `std::path::absolute` joins with the working directory but leaves `..` in
+/// place, so the container default comes out as `/app/bin/../data/uaasr.toml`
+/// — accurate and useless to someone reading a crash log. `canonicalize` would
+/// tidy it but requires the file to exist, which at this call site is the one
+/// thing known to be false.
+///
+/// Purely lexical, so it is wrong if a component is a symlink to elsewhere.
+/// That is acceptable for a message; nothing opens this path.
+fn display_path(filename: &str) -> String {
+    use std::path::{Component, PathBuf};
+
+    let Ok(absolute) = std::path::absolute(filename) else {
+        return filename.to_string();
+    };
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out.display().to_string()
+}
+
 pub fn get_config(env_var: &str, filename: &str) -> Result<Config, String> {
     match env::var_os(env_var) {
         Some(content) => {
@@ -222,7 +251,25 @@ pub fn get_config(env_var: &str, filename: &str) -> Result<Config, String> {
             serde_json::from_str(&val)
                 .map_err(|err| format!("error parsing JSON environment variable {env_var}: {err}"))
         }
-        None => read_config(filename).map_err(|err| format!("error reading config file: {err}")),
+        None => read_config(filename).map_err(|err| {
+            // Names the path and what to do about it. The published image
+            // carries no config at all (CS-401), so "not found" here is
+            // ordinarily a missing mount rather than a missing file, and the
+            // bare io::Error does not say which file it was looking for.
+            if err.kind() == io::ErrorKind::NotFound {
+                // Resolved, because the default is relative and
+                // "../data/uaasr.toml" tells an operator looking at a
+                // container nothing.
+                let resolved = display_path(filename);
+                format!(
+                    "no configuration at {resolved}. The image ships without one: mount a \
+                     directory containing uaasr.toml at /app/data, or set {env_var} to the \
+                     configuration as JSON."
+                )
+            } else {
+                format!("error reading config file {filename}: {err}")
+            }
+        }),
     }
 }
 
@@ -400,5 +447,68 @@ filename = "../data/dynamic.toml"
         let config = sample_config();
         assert!(!config.testnet.startup_load_from_database);
         assert!(config.mainnet.startup_load_from_database);
+    }
+
+    /// The published image ships no configuration (CS-401), so a service that
+    /// starts without a mount must say so in terms an operator can act on.
+    #[test]
+    fn cfg11_a_missing_config_file_names_the_path_and_the_remedy() {
+        let missing = std::env::temp_dir().join(format!(
+            "uaas_absent_config_{}/uaasr.toml",
+            std::process::id()
+        ));
+        let path = missing.to_str().expect("temp path is utf-8");
+        assert!(!missing.exists(), "the fixture must not exist");
+
+        let err = get_config("UAAS_CONFIG_ENV_THAT_IS_NOT_SET", path)
+            .expect_err("a missing config file must fail");
+
+        assert!(err.contains(path), "the message must name the file: {err}");
+        assert!(err.contains("/app/data"), "and where to mount one: {err}");
+        assert!(
+            err.contains("UAAS_CONFIG_ENV_THAT_IS_NOT_SET"),
+            "and the environment variable that overrides it: {err}"
+        );
+    }
+
+    /// A file that is present but will not parse is a different fault and must
+    /// not be reported as a missing mount.
+    #[test]
+    fn cfg12_a_malformed_config_file_is_not_reported_as_a_missing_mount() {
+        let dir = std::env::temp_dir().join(format!("uaas_bad_config_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("uaasr.toml");
+        std::fs::write(&path, "this is not toml = = =").expect("write fixture");
+        let path_str = path.to_str().expect("temp path is utf-8");
+
+        let err = get_config("UAAS_CONFIG_ENV_THAT_IS_NOT_SET", path_str)
+            .expect_err("unparseable TOML must fail");
+
+        assert!(
+            err.contains(path_str),
+            "the message must name the file: {err}"
+        );
+        assert!(
+            !err.contains("/app/data"),
+            "a parse failure is not a missing mount: {err}"
+        );
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// The message is read off a crash log, so the path in it has to be one an
+    /// operator can act on without knowing the working directory.
+    #[test]
+    fn cfg13_the_reported_path_is_absolute_and_free_of_parent_components() {
+        let shown = display_path("../data/uaasr.toml");
+        assert!(shown.starts_with('/'), "must be absolute, got {shown}");
+        assert!(
+            !shown.contains(".."),
+            "must not leave .. for the reader to resolve, got {shown}"
+        );
+        assert!(shown.ends_with("/data/uaasr.toml"), "got {shown}");
+
+        // An already-absolute path is left as it is.
+        assert_eq!(display_path("/app/data/uaasr.toml"), "/app/data/uaasr.toml");
     }
 }

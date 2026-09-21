@@ -195,6 +195,43 @@ The Rust component of the service uses the following configuration components.
 ![Structs](diagrams/config_structure.png)
 
 
+# Configuration is mounted, never baked in
+
+`uaas-service` ships the binary and nothing else. It has no `/app/data` at all,
+so a configuration file must be supplied at run time:
+
+```bash
+docker run -v "$PWD/data:/app/data:ro" uaas-service
+```
+
+`docker-compose.yml` already does this. Started without it, the service exits
+non-zero and names the path it wanted:
+
+```
+Fatal startup error: no configuration at /app/data/uaasr.toml. The image ships
+without one: mount a directory containing uaasr.toml at /app/data, or set
+UAASR_CONFIG to the configuration as JSON.
+```
+
+`UAASR_CONFIG` takes the whole configuration as JSON and skips the file
+entirely, which suits an orchestrator that injects configuration as an
+environment variable.
+
+**Why the image carries none.** `Rust_Dockerfile` used to copy
+`data/uaasr.toml` into the builder and then into the release stage.
+`data/uaasr.toml` holds database credentials for both networks and the peer IP
+list, and `multi-build.sh` publishes that image to `nchain/innovation-uaas-service`.
+Compose mounts a different file over the top at run time, so the baked copy was
+never *used* — but it stayed in the image layer, readable by anyone who pulled
+the tag:
+
+```console
+$ docker run --rm --entrypoint sh uaas-service -c 'grep postgres_url /app/data/uaasr.toml'
+postgres_url = "postgresql://uaas:uaas-password@localhost:5433/uaas_db"
+```
+
+A runtime mount hides a file; it does not remove it from the image. See CS-401.
+
 # Peer Thread Status States
 The peer thread works through the following states:
 
