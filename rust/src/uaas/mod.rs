@@ -16,6 +16,7 @@ mod probes;
 #[cfg(test)]
 pub mod script_asm;
 pub mod script_parse;
+mod spend_id;
 mod tx_analyser;
 pub mod tx_bounds;
 mod txdb;
