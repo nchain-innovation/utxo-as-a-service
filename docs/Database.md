@@ -78,6 +78,64 @@ Adminer, at <http://localhost:8080>, is a GUI over the same database. Choose
 "PostgreSQL" as the system and `postgres` as the server — the compose service
 name, not `localhost`, because Adminer connects from inside the compose network.
 
+## The life of a spend
+
+An outpoint is in exactly one of three places, and moves between them rather
+than being flagged in place:
+
+| Table | Meaning |
+|---|---|
+| `utxo` | spendable. Presence *is* spendability; there is no `spent` column |
+| `utxo_spent`, `spent_height IS NULL` | a spend has been seen but not mined |
+| `utxo_spent`, `spent_height` set | the spend is in a block at that height |
+
+`utxo_unmined_spend` holds the outpoints in the middle state, with the chain
+tip at which each spend was first seen. It duplicates something
+`utxo_spent.spent_height IS NULL` already says, deliberately.
+
+The obvious alternative — index `utxo_spent` to support that predicate —
+cannot be used. Measured against `postgres:17` over 20 000 rows at
+`fillfactor = 85`:
+
+| Indexes on the table | HOT updates |
+|---|---|
+| none (control) | 16.0% |
+| `btree (spent_seen_height)` | 16.0% |
+| `btree (spent_seen_height) WHERE spent_height IS NULL` | **0.0%** |
+
+A partial index counts the columns in its *predicate* as indexed. Naming
+`spent_height` there means the settle's `UPDATE ... SET spent_height` modifies
+an indexed column, and no update on `utxo_spent` can be heap-only again — which
+is exactly what V6's `fillfactor = 85` exists to preserve, quietly undone. The
+non-partial form keeps HOT but cannot separate unmined rows from the settled
+ones sharing the column, so it degrades as the table grows.
+
+The side table avoids the choice: `utxo_spent` gains no column, no index and no
+lock, and the eviction scan runs over a table bounded by the mempool rather
+than by the chain.
+
+## Eviction
+
+A spend that is broadcast and never mined would otherwise sit in `utxo_spent`
+with a NULL `spent_height` for ever, leaving its outpoint in neither the
+spendable set nor a settled spend — the UTXO set under-reported permanently,
+with nothing logged. Two ordinary things cause it: a fee too low to be mined,
+and the losing side of a double-spend.
+
+After each block the service reclaims unmined spends older than
+`[mempool] eviction_blocks` (default 144) and deletes the matching `mempool`
+rows. Counts are logged at `warn`, not `info`, because `release_max_level_warn`
+compiles `info!` out of release builds — a count logged at info would be
+invisible in the deployment that needs it.
+
+Age is measured in **blocks, not wall-clock time**. A timestamp keeps advancing
+while the service is stopped or not syncing, so a restart after an outage would
+reclaim everything at once; height only advances when the chain does.
+
+Everything keys on the **outpoint**, never the spending txid, for the same
+reason the settle does: a spend announced under one txid and mined as a
+malleated sibling is the same spend.
+
 ## Byte order
 
 Hashes are stored as 32 raw bytes in `bytea`, in **internal** order — the

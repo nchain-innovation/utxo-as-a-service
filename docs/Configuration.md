@@ -96,6 +96,34 @@ threshold = 100
 * `threshold` - is the number of blocks before we start looking for orphan blocks
 
 
+## Mempool eviction
+When the service gives up on a spend that was broadcast and never mined.
+```toml
+[mempool]
+eviction_blocks = 144
+```
+* `eviction_blocks` - the number of blocks an unconfirmed spend may go unmined
+  before its outpoint is returned to the spendable set and its `mempool` row is
+  removed. Set to `0` to disable eviction entirely.
+
+Without this, a spend that never confirms leaves its outpoint in neither the
+spendable set nor a settled spend, so the UTXO set is under-reported
+permanently and nothing reports it. A fee too low to be mined, or the losing
+side of a double-spend, is enough to cause it.
+
+The threshold is a policy choice with a cost on both sides. Too low and a slow
+but valid spend is briefly counted as spendable while it is still in flight;
+too high and a dropped spend under-reports the set for longer. The default of
+144 is roughly a day at ten-minute blocks, on the basis that a transaction
+unmined for a day is not going to be mined.
+
+Age is counted in **blocks, not elapsed time**: wall-clock age keeps advancing
+while the service is stopped, so after an outage every pending spend would look
+ancient at once. See [Database.md](Database.md) for how the state is stored.
+
+Eviction counts are logged at `warn`, which is the level to alert on. They are
+not logged at `info` because `info` is compiled out of release builds.
+
 # Logging
 This sets the logging messages level produced by the Rust service.
 ```toml

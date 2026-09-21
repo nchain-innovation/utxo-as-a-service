@@ -429,6 +429,19 @@ impl BlockManager {
             // Read in the blocks from the file
             self.read_blocks_from_file(tx_analyser);
         }
+
+        // `self.height` is the height of the *next* block, so the tip is one
+        // below it. Told to the analyser because a mempool transaction arriving
+        // before the next block still needs a height to be aged against
+        // (CS-423); without this the first sighting after every restart would
+        // be recorded against no height at all.
+        match i32::try_from(self.height.saturating_sub(1)) {
+            Ok(tip) => tx_analyser.set_chain_tip(tip),
+            Err(err) => log::error!(
+                "Block height {} is out of range for the eviction chain tip: {err}",
+                self.height
+            ),
+        }
     }
 
     fn write_block_to_file(&mut self, block: &Block) -> u64 {

@@ -38,6 +38,35 @@ pub struct OrphanConfig {
     pub threshold: usize,
 }
 
+/// When an unconfirmed spend is given up on (CS-423).
+#[derive(Debug, Deserialize, Clone)]
+pub struct MempoolConfig {
+    /// Blocks an unconfirmed spend may go unmined before its outpoint is
+    /// returned to the spendable set and its mempool row removed.
+    ///
+    /// A policy choice with a cost on both sides. Too low and a slow but valid
+    /// spend is briefly counted as spendable while it is still in flight; too
+    /// high and a dropped spend under-reports the UTXO set for longer. The
+    /// default is 144 — roughly a day at ten-minute blocks — on the basis that
+    /// a transaction unmined for a day is not going to be mined.
+    ///
+    /// `0` disables eviction entirely, which is the pre-CS-423 behaviour.
+    #[serde(default = "default_eviction_blocks")]
+    pub eviction_blocks: i32,
+}
+
+fn default_eviction_blocks() -> i32 {
+    144
+}
+
+impl Default for MempoolConfig {
+    fn default() -> Self {
+        Self {
+            eviction_blocks: default_eviction_blocks(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct LoggingConfig {
     pub level: String,
@@ -89,6 +118,10 @@ pub struct Config {
     pub orphan: OrphanConfig,
     pub logging: LoggingConfig,
     pub dynamic_config: DynamicConfigConfig,
+
+    /// Defaulted so an existing config file keeps working without an edit.
+    #[serde(default)]
+    pub mempool: MempoolConfig,
 
     #[serde(default)]
     pub web_interface: WebInterfaceConfig,

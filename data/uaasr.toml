@@ -90,6 +90,21 @@ retries = 6
 detect = true
 threshold = 100
 
+[mempool]
+# Blocks an unconfirmed spend may go unmined before its outpoint is returned to
+# the spendable set and its mempool row removed (CS-423).
+#
+# Measured in blocks, not time: wall-clock age keeps advancing while the service
+# is stopped, so after an outage every pending spend would look ancient at once.
+#
+# A policy choice with a cost either side. Too low and a slow but valid spend is
+# briefly counted as spendable while still in flight; too high and a spend that
+# was dropped under-reports the UTXO set for longer. 144 is roughly a day at
+# ten-minute blocks.
+#
+# Set to 0 to disable eviction entirely.
+eviction_blocks = 144
+
 [logging]
 level = "info"
 
