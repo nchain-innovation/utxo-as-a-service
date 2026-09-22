@@ -119,6 +119,7 @@ impl DynamicConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MatchProperty;
     use crate::config::{
         CollectionConfig, Config, DatabaseConfig, DynamicConfigConfig as RootDynamicConfigConfig,
         LoggingConfig, MempoolConfig, NetworkSettings, OrphanConfig, Service, WebInterfaceConfig,
@@ -188,6 +189,7 @@ mod tests {
             track_descendants: false,
             address: Some("mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5".to_string()),
             locking_script_pattern: None,
+            require: MatchProperty::BytesPresent,
         });
         let saved = std::fs::read_to_string(&path).expect("dynamic config file");
         assert!(saved.contains("runtime-monitor"));

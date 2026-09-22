@@ -161,6 +161,44 @@ Each collection section has  the following fields:
 * `name` - the name of the collection, the service will create a table with this name and store collection matching transaction in it
 * `locking_script_pattern` - a regular expression that identifies the locking script that defines the transactions of interest
 * `track_descendants` - a flag to indicate if decendent transactions should also be captured.
+* `require` - which property a locking script must have before the collection selects it. Optional; omitted, it is `bytes_present`, which is the behaviour every collection had before this field existed.
+
+### `require`
+
+| Value | Meaning |
+|-------|---------|
+| `bytes_present` (default) | The pattern's bytes appear somewhere in the locking script. |
+| `signature_operand` | The match covers whole opcodes — or exactly one push element — on a path that executes, **and** the element it selects reaches a signature check. |
+
+`bytes_present` establishes less than it looks. Anyone can put any bytes in any
+output for the cost of a dust payment, so a match says the bytes are there, not
+that the output pays the monitored key. Consumers were reading it as the
+second.
+
+`signature_operand` asks the stricter question. It is **opt-in per collection**
+because it changes what a collection captures, and because it is wrong for some
+of them:
+
+* **Data-protocol collections must keep the default.** `dsa` and `CoCv1` match
+  `OP_RETURN` payloads, which are data by definition and can never be an
+  operand to anything.
+* **`1sat` must keep the default.** A 1Sat-Ordinal inscription envelope lives
+  in a branch that never executes and is not an operand to a signature check,
+  so requiring the strict property would empty that collection rather than
+  tighten it.
+* **Address-derived and key monitors are what it is for** — the case where
+  "this output pays that key" is what the monitor means.
+
+The analysis is deliberately conservative: anything it cannot model answers
+"no" rather than "probably", because a false positive is the failure this
+exists to remove. Branches are the clearest case — whether one executes depends
+on the unlocking script, which an output does not carry — so a pattern matching
+inside an `OP_IF` will not satisfy `signature_operand`.
+
+A pattern that embeds the push opcode, such as `21<key>`, is encoding-specific
+by construction: the same key pushed with `OP_PUSHDATA1` will not match it.
+Write the pattern against the element alone if the collection should be
+independent of how the element was pushed.
 
 
 ## REST API Web Interface
