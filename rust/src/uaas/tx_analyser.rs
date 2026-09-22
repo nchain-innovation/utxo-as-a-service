@@ -219,27 +219,54 @@ impl TxAnalyser {
         }
     }
 
+    /// Offers the transaction to **every** collection, not just the first.
+    ///
+    /// Both of the loop's exits used to be `return`, which exits the function
+    /// rather than the iteration (CS-434). Two consequences, both silent:
+    /// a transaction reached at most one collection, and — worse — a
+    /// transaction the *first* collection already held stopped the scan before
+    /// any other collection was consulted. Collections are independent
+    /// selectors over the same stream; one having a transaction says nothing
+    /// about whether another wants it.
+    ///
+    /// `(hash, monitor)` is the primary key of the `collection` table and the
+    /// insert is `ON CONFLICT DO NOTHING`, so a transaction landing in several
+    /// collections is one row per collection, which is what the schema was
+    /// built for.
     fn process_collection(&mut self, tx: &Tx, is_uaas_broadcast_tx: bool) {
+        let hash = tx.hash();
+        // Whether any collection holds it once this returns — including one
+        // that already did. The broadcast collection is a fallback for
+        // transactions nothing else wanted, so "already held" counts as taken.
+        let mut taken = false;
+
         for c in self.collection.iter_mut() {
-            // Check to see if we have already processed it if so quit
-            if c.have_tx(tx.hash()) {
-                return;
+            // Already held by *this* collection. Skip it, so the row is not
+            // rewritten and `txs` does not grow a duplicate, and carry on to
+            // the rest.
+            if c.have_tx(hash) {
+                taken = true;
+                continue;
             }
 
+            // Descendant tracking reads `txs`, which this loop can extend, so
+            // a descendant of a transaction admitted earlier in this same pass
+            // is only seen by collections later in configuration order. That
+            // ordering dependency is pre-existing and unchanged here.
             if (c.track_descendants() && c.is_decendant(tx)) || c.match_any_locking_script(tx) {
-                // Save tx hash and write to database
-                c.push(tx.hash());
+                c.push(hash);
                 self.collection_db.write_tx_to_database(c.name(), tx);
-                return;
+                taken = true;
             }
         }
-        // write to a broadcast collection - if hasn't already been picked up by previous collections
-        if is_uaas_broadcast_tx {
-            // get broadcast_collection
+
+        // The broadcast collection catches transactions this service
+        // broadcast that no configured collection selected. It carries no
+        // pattern, so the loop above never matches it.
+        if is_uaas_broadcast_tx && !taken {
             match self.collection.iter_mut().find(|c| c.name() == "broadcast") {
                 Some(broadcast_collection) => {
-                    // write to a broadcast collection - if hasn't already been picked up by previous collections
-                    broadcast_collection.push(tx.hash());
+                    broadcast_collection.push(hash);
                     self.collection_db
                         .write_tx_to_database(broadcast_collection.name(), tx);
                 }
@@ -1179,6 +1206,211 @@ mod tests {
         assert!(
             analyser.txdb.mempool.contains_key(&new_spender.hash()),
             "and must keep its mempool row"
+        );
+    }
+
+    // --- CS-434: a transaction is offered to every collection ------------
+    //
+    // The sample config carries two overlapping monitors, which is what makes
+    // these testable: `demo` selects one specific address, `fixtures` selects
+    // any P2PKH. An output paying the demo address satisfies both.
+
+    /// hash160 of `mgzhRq55hEYFgyCrtNxEsP1MdusZZ31hH5`, the `demo` monitor's
+    /// address in the sample config. Decoded from base58check rather than
+    /// copied, and the checksum was verified when it was taken.
+    const DEMO_HASH160: [u8; 20] = [
+        0x10, 0x37, 0x5c, 0xfe, 0x32, 0xb9, 0x17, 0xcd, 0x24, 0xca, 0x10, 0x38, 0xf8, 0x24, 0xcd,
+        0x00, 0xf7, 0x39, 0x18, 0x59,
+    ];
+
+    fn p2pkh_script_for(hash160: &[u8; 20]) -> Script {
+        let mut script = Vec::with_capacity(25);
+        script.extend_from_slice(&[0x76, 0xa9, 0x14]);
+        script.extend_from_slice(hash160);
+        script.extend_from_slice(&[0x88, 0xac]);
+        Script(script)
+    }
+
+    /// As `tx_paying`, but with a caller-chosen `lock_time` so each test gets
+    /// a distinct txid and a failure names the test it came from.
+    fn tx_paying_at(script: Script, lock_time: u32) -> Tx {
+        Tx {
+            version: 1,
+            inputs: vec![TxIn::default()],
+            outputs: vec![TxOut {
+                satoshis: 1_000,
+                lock_script: script,
+            }],
+            lock_time,
+        }
+    }
+
+    fn holds(analyser: &TxAnalyser, name: &str, hash: Hash256) -> bool {
+        analyser
+            .collection
+            .iter()
+            .find(|c| c.name() == name)
+            .unwrap_or_else(|| panic!("collection {name} must exist in the sample config"))
+            .have_tx(hash)
+    }
+
+    #[test]
+    fn disp01_a_transaction_matching_two_collections_lands_in_both() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("disp01_two_collections") else {
+            return;
+        };
+
+        let tx = tx_paying_at(p2pkh_script_for(&DEMO_HASH160), 0xd1);
+        analyser.process_collection(&tx, false);
+
+        assert!(
+            holds(&analyser, "demo", tx.hash()),
+            "the address monitor selected it"
+        );
+        assert!(
+            holds(&analyser, "fixtures", tx.hash()),
+            "and so did the any-p2pkh monitor; the first match must not consume it"
+        );
+    }
+
+    /// The worse half of CS-434: one collection already holding a transaction
+    /// used to end the scan before any other collection was consulted.
+    #[test]
+    fn disp02_a_collection_already_holding_it_does_not_block_the_others() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("disp02_already_held") else {
+            return;
+        };
+
+        let tx = tx_paying_at(p2pkh_script_for(&DEMO_HASH160), 0xd2);
+
+        // Seed only the first collection, as a previous run would have.
+        analyser
+            .collection
+            .iter_mut()
+            .find(|c| c.name() == "demo")
+            .expect("demo collection")
+            .push(tx.hash());
+        assert!(!holds(&analyser, "fixtures", tx.hash()));
+
+        analyser.process_collection(&tx, false);
+
+        assert!(
+            holds(&analyser, "fixtures", tx.hash()),
+            "a later collection must still be offered a transaction an earlier one holds"
+        );
+    }
+
+    /// And it must not duplicate the entry in the collection that had it.
+    #[test]
+    fn disp03_a_collection_that_already_holds_it_does_not_grow_a_duplicate() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("disp03_no_duplicate") else {
+            return;
+        };
+
+        let tx = tx_paying_at(p2pkh_script_for(&DEMO_HASH160), 0xd3);
+        analyser.process_collection(&tx, false);
+        analyser.process_collection(&tx, false);
+
+        let demo = analyser
+            .collection
+            .iter()
+            .find(|c| c.name() == "demo")
+            .expect("demo collection");
+        assert_eq!(
+            demo.txs.iter().filter(|h| **h == tx.hash()).count(),
+            1,
+            "processing the same transaction twice must not push it twice"
+        );
+    }
+
+    /// The broadcast collection is a fallback, so it must not fire for a
+    /// transaction a configured collection already took.
+    #[test]
+    fn disp04_broadcast_does_not_claim_a_transaction_a_collection_took() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("disp04_broadcast_skipped") else {
+            return;
+        };
+
+        let tx = tx_paying_at(p2pkh_script_for(&DEMO_HASH160), 0xd4);
+        analyser.process_collection(&tx, true);
+
+        assert!(holds(&analyser, "demo", tx.hash()));
+        assert!(
+            !holds(&analyser, "broadcast", tx.hash()),
+            "broadcast is for transactions nothing else wanted"
+        );
+    }
+
+    /// ...and must still fire when nothing wanted it.
+    #[test]
+    fn disp05_broadcast_claims_a_transaction_no_collection_wanted() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("disp05_broadcast_fires") else {
+            return;
+        };
+
+        // OP_FALSE OP_RETURN with a payload: matches neither monitor.
+        let tx = tx_paying_at(Script(vec![0x00, 0x6a, 0x02, 0xbe, 0xef]), 0xd5);
+        analyser.process_collection(&tx, true);
+
+        assert!(!holds(&analyser, "demo", tx.hash()));
+        assert!(!holds(&analyser, "fixtures", tx.hash()));
+        assert!(
+            holds(&analyser, "broadcast", tx.hash()),
+            "a broadcast transaction nothing selected must still be recorded"
+        );
+    }
+
+    /// Descendant tracking must not be suppressed by an earlier collection
+    /// holding the descendant for its own reasons. This is the shape that
+    /// matters for `1sat`, the only collection with track_descendants = true.
+    #[test]
+    fn disp06_descendant_tracking_survives_an_earlier_collection_holding_it() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("disp06_descendant") else {
+            return;
+        };
+
+        // `fixtures` tracks no descendants in the sample config, so turn it on
+        // for this test: the property under test is the dispatch, not the flag.
+        analyser
+            .collection
+            .iter_mut()
+            .find(|c| c.name() == "fixtures")
+            .expect("fixtures collection")
+            .collection
+            .track_descendants = true;
+
+        // A parent that `fixtures` holds.
+        let parent = tx_paying_at(p2pkh_script(0x42), 0xd6);
+        analyser.process_collection(&parent, false);
+        assert!(holds(&analyser, "fixtures", parent.hash()));
+
+        // A child spending it, whose own output pays the demo address — so
+        // `demo` matches it on pattern and would previously have consumed it
+        // before `fixtures` could claim it as a descendant.
+        let child = Tx {
+            version: 1,
+            inputs: vec![TxIn {
+                prev_output: OutPoint {
+                    hash: parent.hash(),
+                    index: 0,
+                },
+                ..TxIn::default()
+            }],
+            outputs: vec![TxOut {
+                satoshis: 900,
+                lock_script: p2pkh_script_for(&DEMO_HASH160),
+            }],
+            lock_time: 0xd7,
+        };
+        analyser.process_collection(&child, false);
+
+        assert!(
+            holds(&analyser, "demo", child.hash()),
+            "demo selected it on pattern"
+        );
+        assert!(
+            holds(&analyser, "fixtures", child.hash()),
+            "and fixtures must still claim it as a descendant"
         );
     }
 }
