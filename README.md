@@ -147,7 +147,7 @@ As there are two Docker images there are also two startup scripts:
 * `run_web.sh` - to start the Python REST API
 
 ## Configuration
-The configuration of the service is set in `data/uaasr.toml` file. The tracked copy carries `CHANGE-ME` placeholders in place of the database URL and the peer addresses, because this repository is public — supply real values through `UAAS_POSTGRES_URL` and an untracked config. See [docs/Security.md](docs/Security.md#credentials).
+The configuration of the service is set in `data/uaasr.toml` file. This repository is public, so the tracked copy carries a `CHANGE-ME` placeholder in place of the database URL — supply a real one through `UAAS_POSTGRES_URL`. The mainnet peer list is deliberately unroutable so switching networks cannot silently dial a real node. See [docs/Security.md](docs/Security.md#credentials).
 This is read when the service starts up.
 
 For more details about the configuration file see [here](docs/Configuration.md).

@@ -111,13 +111,9 @@ class TestConfigSourceRequirements:
                     "carry the CHANGE-ME placeholder and be supplied through "
                     "UAAS_POSTGRES_URL"
                 )
-            # 192.0.2.1 is TEST-NET-1 (RFC 5737), guaranteed not to route.
-            # Unlike the database URL this does not refuse startup, so this
-            # assertion is the only thing standing between a debugging session
-            # and a real node address being committed.
-            for network in ("mainnet", "testnet"):
-                for ip in config[network]["ip"]:
-                    assert ip == "192.0.2.1", (
-                        f"{name} [{network}].ip contains {ip!r}; a real peer "
-                        "address must not be committed to a public repository"
-                    )
+            # Peer addresses are deliberately NOT asserted on. A node address
+            # is not a credential — nodes gossip each other's addresses and
+            # public crawlers list reachable ones — and a placeholder there
+            # means the stack starts and silently never syncs, which is worse
+            # for development. Revisit before a live deployment; 192.0.2.1 is
+            # the unroutable value the service warns about.

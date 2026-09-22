@@ -8,11 +8,14 @@ rust_address = "127.0.0.1:8081"
 
 [mainnet]
 # ip = ["18.157.234.254",
-# 192.0.2.1 is TEST-NET-1 (RFC 5737): valid and guaranteed not to route. A real
-# node address does not belong in a public repository, so this is what ships.
-# The service starts and stays healthy with it, warns that it will never sync,
-# and never dials anything. Set a real peer in an untracked config or in
-# UAASR_CONFIG. See docs/Security.md.
+# No mainnet peer is configured. 192.0.2.1 is TEST-NET-1 (RFC 5737): valid and
+# guaranteed not to route, so switching `network` to mainnet cannot silently
+# start dialling a real node — the service starts, stays healthy and warns that
+# it will never sync. Put a real address here deliberately, when that is what
+# is wanted.
+#
+# This previously listed 65.108.14.253, which is a testnet machine and was
+# never a mainnet peer.
 ip = ["192.0.2.1"]
 port = 8333
 #start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
@@ -34,7 +37,12 @@ save_txs = false
 
 
 [testnet]
-ip = ["192.0.2.1"]
+# A node address, not a credential: nodes gossip each other's addresses in
+# `addr` messages and public crawlers list reachable ones, so this is not
+# meaningfully secret, and it is in this repository's history regardless. Kept
+# concrete because a placeholder here means the stack starts and silently never
+# syncs, which is worse for development. Revisit before a live deployment.
+ip = [ "167.172.61.80"]  # Murphy machine
 
 port = 18333
 

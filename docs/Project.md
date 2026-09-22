@@ -342,9 +342,9 @@ Have now added a panic handler so that if any thread panics the service will sto
 
 ```
 set_state(Ready)
-1658789292.57072s, 198.51.100.1, Tx=639f9bffadc6f5f39e5ddcad45c7434654de23efec93e5c803f71c78d7af5446
+1658789292.57072s, 167.172.61.80, Tx=639f9bffadc6f5f39e5ddcad45c7434654de23efec93e5c803f71c78d7af5446
 Have been asleep for 67.614 seconds
-1658796501.962826s, 198.51.100.1, Disconnected
+1658796501.962826s, 167.172.61.80, Disconnected
 set_state(Disconnected)
 thread '<unnamed>' panicked at 'called `Result::unwrap()` on an `Err` value: IllegalState("Not connected")', src/event_handler.rs:74:30
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
