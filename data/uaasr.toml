@@ -15,7 +15,7 @@ rust_address = "127.0.0.1:8081"
 # is wanted.
 #
 # This previously listed 65.108.14.253, which is a testnet machine and was
-# never a mainnet peer.
+# never a mainnet peer; it now sits under [testnet] where it belongs.
 ip = ["192.0.2.1"]
 port = 8333
 #start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
@@ -42,7 +42,7 @@ save_txs = false
 # meaningfully secret, and it is in this repository's history regardless. Kept
 # concrete because a placeholder here means the stack starts and silently never
 # syncs, which is worse for development. Revisit before a live deployment.
-ip = [ "167.172.61.80"]  # Murphy machine
+ip = ["167.172.61.80", "65.108.14.253"]  # Murphy machines
 
 port = 18333
 
