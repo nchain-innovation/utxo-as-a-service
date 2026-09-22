@@ -366,8 +366,8 @@ dependencies = [
 
 [[package]]
 name = "chain-gang"
-version = "0.11.2"
-source = "git+https://github.com/nchain-innovation/chain-gang.git?tag=v0.11.2#7ce216b8eafbe733199017d694b69307a0861ed8"
+version = "0.11.3"
+source = "git+https://github.com/nchain-innovation/chain-gang.git?tag=v0.11.3#5f56c81b1d3eff60ccc076c6a769e637ac0412e1"
 dependencies = [
  "bs58",
  "byteorder",
