@@ -136,6 +136,60 @@ Everything keys on the **outpoint**, never the spending txid, for the same
 reason the settle does: a spend announced under one txid and mined as a
 malleated sibling is the same spend.
 
+## Conflicting spends
+
+Two announcements can spend the same outpoint. The txid cannot tell you which
+case you are looking at, because the txid covers the unlocking scripts and
+those are malleable, so `spend_id::provisional_id` hashes only **what a spend
+consumes and what it pays**:
+
+| Prevouts | Outputs | Meaning |
+|---|---|---|
+| same | same | one spend, two encodings — malleation |
+| same | different | two spends of one coin — a double spend |
+
+Inputs are sorted into the hash and outputs are not: reordering inputs changes
+nothing, while reordering outputs moves the coins, because an outpoint is a
+txid and an index.
+
+A refused spend does not add its outputs to the UTXO set. Without that, both
+siblings' outputs were recorded as live and unrelated — 900 satoshis counted
+twice from 1000 funded, with nothing logged. Malleation is reported at `warn`
+and a genuine double spend at `error`, for the same reason the eviction counts
+are at `warn`: `info!` is compiled out of release builds.
+
+A refused transaction is still offered to the collections. A collection is a
+record of transactions seen, not of the spendable set, and the conflict is
+itself worth capturing.
+
+Detection is on **positive evidence** — who already claims this outpoint —
+never on the outpoint being absent from `utxo`, which since CS-421 is the
+ordinary case for almost every transaction the service sees. There are two
+sources of that evidence, both bounded:
+
+* the unmined claims in `Utxo::spent_unmined`, bounded by the mempool;
+* the outpoints spent earlier in the block being processed, bounded by the
+  block.
+
+An input with an all-zero txid claims nothing — that is the coinbase
+convention, and no real output can have such a txid — so it is skipped.
+
+### What this does not cover
+
+Stated because the gaps are not obvious from the code:
+
+* **A conflicting announcement arriving after the first spend was mined.** Once
+  settled, the outpoint has no claim, and recognising it would need either a
+  database lookup per input on the hot path or every spent outpoint held in
+  memory, which grows with the chain rather than with the mempool.
+* **The block does not win.** If A is seen unmined and its sibling B is then
+  mined, B is refused because A already claims the outpoint. The *amount* is
+  right — the coins are counted once — but they are recorded under A's txid,
+  and A is the encoding that will never confirm. A query by B's txid finds
+  nothing. First seen wins, where a block ought to.
+* **Restarts.** Claims live in memory and are rebuilt only as new spends are
+  seen, so a conflict spanning a restart is not detected.
+
 ## Byte order
 
 Hashes are stored as 32 raw bytes in `bytea`, in **internal** order — the

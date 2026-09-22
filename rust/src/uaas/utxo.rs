@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc;
 
 use std::time::Instant;
@@ -9,6 +9,7 @@ use chain_gang::util::Hash256;
 use crate::db::PooledConn;
 
 use super::database::{height_from_sql, DBOperationType, MonitorRecord, SpendRecord, UtxoEntryDB};
+use super::spend_id::SpendId;
 
 // Used to store the unspent txs (UTXO)
 #[derive(Clone)]
@@ -20,6 +21,50 @@ pub struct UtxoEntry {
     /// declared no identifier.
     #[allow(dead_code)]
     identifier: Option<Vec<u8>>,
+}
+
+/// An unmined spend that has claimed an outpoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpendClaim {
+    /// The txid of the announcement that claimed it. Malleable, which is why
+    /// it is not what conflicts are judged on.
+    pub spending_txid: Hash256,
+    /// What the spend consumes and pays, independent of its encoding.
+    pub provisional_id: SpendId,
+}
+
+/// A second spend of an outpoint that something else has already claimed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Conflict {
+    /// Same prevouts and same outputs as the claim, under a different txid:
+    /// one spend, two encodings. Only one can confirm, and either will do.
+    Malleated {
+        outpoint: OutPoint,
+        claimed_by: Hash256,
+    },
+    /// Same outpoint, a different spend. Two attempts to spend one coin.
+    DoubleSpend {
+        outpoint: OutPoint,
+        claimed_by: Hash256,
+    },
+}
+
+impl Conflict {
+    pub fn outpoint(&self) -> &OutPoint {
+        match self {
+            Conflict::Malleated { outpoint, .. } | Conflict::DoubleSpend { outpoint, .. } => {
+                outpoint
+            }
+        }
+    }
+
+    pub fn claimed_by(&self) -> Hash256 {
+        match self {
+            Conflict::Malleated { claimed_by, .. } | Conflict::DoubleSpend { claimed_by, .. } => {
+                *claimed_by
+            }
+        }
+    }
 }
 
 /// An output being added to the spendable set, with everything the tables need.
@@ -65,15 +110,20 @@ pub struct Utxo {
     // the emitted operations depend on hashing.
     utxo_settles: BTreeMap<i32, Vec<SpendRecord>>,
 
-    // Outpoints we have recorded as spent but not yet settled.
+    // Outpoints recorded as spent but not yet settled, and which spend claimed
+    // each one.
     //
-    // Needed because the settle must still find an outpoint whose mempool
-    // sighting already took it out of the live set — that is the ordinary path
-    // into a block, and skipping it there would leave the row unsettled for
-    // ever. Entries leave on settle; the ones that never do are what CS-423
-    // (mempool eviction) is about, and they leak here exactly as they leak in
-    // the table.
-    spent_unmined: HashSet<OutPoint>,
+    // Needed for two things. The settle must still find an outpoint whose
+    // mempool sighting already took it out of the live set — that is the
+    // ordinary path into a block, and skipping it there would leave the row
+    // unsettled for ever. And the claim is the positive evidence conflict
+    // detection needs (CS-428): once only monitored outputs are recorded, an
+    // outpoint being absent from `utxo` says nothing, so the question has to
+    // be "who is already spending this" rather than "did we have it".
+    //
+    // Entries leave on settle or on eviction. Bounded by the mempool, not by
+    // the chain.
+    spent_unmined: HashMap<OutPoint, SpendClaim>,
 
     // Channel to database
     tx: mpsc::Sender<DBOperationType>,
@@ -109,7 +159,7 @@ impl Utxo {
             utxo_monitors: Vec::new(),
             utxo_spends: BTreeMap::new(),
             utxo_settles: BTreeMap::new(),
-            spent_unmined: HashSet::new(),
+            spent_unmined: HashMap::new(),
             tx,
         }
     }
@@ -253,15 +303,61 @@ impl Utxo {
     /// `utxo03` documents. It is not a conflict check and must not be read as
     /// one: an absent outpoint is now overwhelmingly the ordinary case rather
     /// than a suspicious one. Detecting a conflicting spend is CS-428.
-    pub fn spend(&mut self, outpoint: &OutPoint, spending_txid: Hash256, seen_height: i32) {
+    pub fn spend(
+        &mut self,
+        outpoint: &OutPoint,
+        spending_txid: Hash256,
+        provisional_id: SpendId,
+        seen_height: i32,
+    ) {
         if self.utxo.remove(outpoint).is_some() {
             self.utxo_entries.remove(outpoint);
-            self.spent_unmined.insert(outpoint.clone());
+            self.spent_unmined.insert(
+                outpoint.clone(),
+                SpendClaim {
+                    spending_txid,
+                    provisional_id,
+                },
+            );
             self.utxo_spends
                 .entry(seen_height)
                 .or_default()
                 .push(Self::record(outpoint, spending_txid));
         }
+    }
+
+    /// Whether `outpoint` is already claimed by a spend other than this one.
+    ///
+    /// Judged on the provisional identity, never on the txid: a malleated
+    /// sibling has a different txid and is the same spend, which is the whole
+    /// point. A re-announcement of the *same* txid is not a conflict either —
+    /// it is the same message twice.
+    ///
+    /// This is positive evidence. It asks who is already spending the
+    /// outpoint, not whether the service happens to hold it, because since
+    /// CS-421 an outpoint absent from `utxo` is the ordinary case rather than
+    /// a suspicious one.
+    pub fn conflict_for(
+        &self,
+        outpoint: &OutPoint,
+        spending_txid: Hash256,
+        provisional_id: &SpendId,
+    ) -> Option<Conflict> {
+        let claim = self.spent_unmined.get(outpoint)?;
+        if claim.spending_txid == spending_txid {
+            return None;
+        }
+        Some(if &claim.provisional_id == provisional_id {
+            Conflict::Malleated {
+                outpoint: outpoint.clone(),
+                claimed_by: claim.spending_txid,
+            }
+        } else {
+            Conflict::DoubleSpend {
+                outpoint: outpoint.clone(),
+                claimed_by: claim.spending_txid,
+            }
+        })
     }
 
     /// A spend seen in a block, at `height`.
@@ -272,7 +368,7 @@ impl Utxo {
     /// the row with a NULL `spent_height` for ever.
     pub fn settle(&mut self, outpoint: &OutPoint, spending_txid: Hash256, height: i32) {
         let was_live = self.utxo.remove(outpoint).is_some();
-        let was_unmined = self.spent_unmined.remove(outpoint);
+        let was_unmined = self.spent_unmined.remove(outpoint).is_some();
         if was_live || was_unmined {
             self.utxo_entries.remove(outpoint);
             self.utxo_settles
