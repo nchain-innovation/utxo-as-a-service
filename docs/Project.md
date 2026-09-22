@@ -138,6 +138,30 @@ This section contains project status related notes.
 * Rust error handling improvements (REST API, event loop)
 * Documentation refresh (README, Development, Configuration, p2p_framework)
 
+-- 21/09/2026 (PostgreSQL migration)
+* Moved both components from MariaDB to PostgreSQL (CS-419/420/421/424)
+    * Schema owned by `rust/migrations/`, applied by `uaas migrate`; nothing
+      creates tables at startup any more, and the service refuses to run
+      against a version it does not expect
+    * Two-table UTXO store: a spend moves the outpoint to `utxo_spent` rather
+      than deleting it, so a spend can still be reported after it happens
+    * Only monitored outputs are recorded, with the pattern's captured
+      identifier
+    * Txids stored as raw `bytea` in internal order; both REST APIs still speak
+      display order, pinned from both sides
+    * Python data layer on psycopg 3
+* Mempool eviction (CS-423): a spend that is broadcast and never mined has its
+  outpoint returned to the spendable set after `[mempool] eviction_blocks`, and
+  its mempool row removed. The mempool had never been pruned
+* Fixed: the service panicked on every restart with a non-empty mempool or tx
+  table (CS-429) — `bytea` columns were being read as text
+* Security: the published Rust image no longer carries `data/uaasr.toml`, which
+  held database credentials (CS-401). Config must be mounted
+* A missing dynamic config file is reported at info, not error (CS-408)
+
+Earlier entries above are kept as written; where they say MySQL, that is what
+was true at the time.
+
 ## In Progress
 
 * Merkle Proofs
