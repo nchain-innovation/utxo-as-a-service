@@ -121,17 +121,41 @@ impl TxAnalyser {
         self.read_tables();
     }
 
-    fn is_spendable(&self, vout: &TxOut) -> bool {
-        // Return true if the transaction output is spendable,
-        // and therefore should go in the unspent outputs (UTXO) set.
-        // OP_FALSE OP_RETURN (0x00, 0x61) is known to be unspendable.
+    /// Whether an output could be spent by anyone, and so belongs in the UTXO
+    /// set.
+    ///
+    /// **This recognises the two OP_RETURN data-carrier prefixes and nothing
+    /// else.** It is not an analysis of the script and must not grow into one:
+    /// deciding in general whether a script can be satisfied is CS-415's
+    /// problem, and spendability is not a durable property of an output
+    /// anyway, so no result from here is persisted as a flag.
+    ///
+    /// The two forms, both decidable from the first two bytes:
+    ///
+    /// * `OP_RETURN …` — aborts the script immediately, so nothing can make
+    ///   it succeed.
+    /// * `OP_FALSE OP_RETURN …` — the conventional data carrier. `OP_FALSE`
+    ///   only pushes, so the `OP_RETURN` after it is still reached.
+    ///
+    /// Everything else is admitted, **including scripts that are provably
+    /// false for other reasons** — a bare `OP_FALSE`, say. That is a
+    /// deliberate line: recognising those means reasoning about the stack,
+    /// which is where prefix matching ends and evaluation begins. The empty
+    /// script is admitted for the same reason, and is in any case spendable:
+    /// it leaves whatever the unlocking script pushed.
+    ///
+    /// Previously this checked only the second form, and its comment named
+    /// `0x61` — `OP_NOP` — while the code tested `0x6a`. The code was right
+    /// and the comment was not (CS-436).
+    ///
+    /// Takes no `self`: it never used it, and without it this is testable
+    /// without a database.
+    fn is_spendable(vout: &TxOut) -> bool {
+        const OP_FALSE: u8 = 0x00;
+        const OP_RETURN: u8 = 0x6a;
 
-        if vout.lock_script.0.len() < 2 {
-            // We are assuming that [] is spendable
-            true
-        } else {
-            vout.lock_script.0[0..2] != vec![0x00, 0x6a]
-        }
+        let script = &vout.lock_script.0;
+        !(script.starts_with(&[OP_RETURN]) || script.starts_with(&[OP_FALSE, OP_RETURN]))
     }
 
     /// Every monitor whose pattern selects this locking script, in
@@ -175,7 +199,7 @@ impl TxAnalyser {
     fn process_tx_outputs(&mut self, tx: &Tx, height: i32) {
         let hash = tx.hash();
         for (index, vout) in tx.outputs.iter().enumerate() {
-            if !self.is_spendable(vout) {
+            if !Self::is_spendable(vout) {
                 continue;
             }
             let script = &vout.lock_script.0;
@@ -1411,6 +1435,97 @@ mod tests {
         assert!(
             holds(&analyser, "fixtures", child.hash()),
             "and fixtures must still claim it as a descendant"
+        );
+    }
+
+    // --- CS-436: which outputs are admitted to the UTXO set --------------
+    //
+    // No database: `is_spendable` takes no `self`, so these are plain unit
+    // tests over the two prefixes it recognises.
+
+    fn out(script: Vec<u8>) -> TxOut {
+        TxOut {
+            satoshis: 1_000,
+            lock_script: Script(script),
+        }
+    }
+
+    /// The 1Sat Ordinals inscription envelope, as the `1sat` monitor's
+    /// pattern in `data/uaasr.toml` describes it:
+    /// `OP_FALSE OP_IF "ord" OP_1 "application/bsv-20" OP_FALSE <payload> OP_ENDIF`.
+    fn inscription_envelope() -> Vec<u8> {
+        let mut v = vec![0x00, 0x63, 0x03];
+        v.extend_from_slice(b"ord");
+        v.extend_from_slice(&[0x51, 0x12]);
+        v.extend_from_slice(b"application/bsv-20");
+        v.extend_from_slice(&[0x00, 0x02, 0x7b, 0x7d]); // OP_FALSE, push "{}"
+        v.push(0x68); // OP_ENDIF
+        v
+    }
+
+    #[test]
+    fn spend01_the_op_return_data_carrier_forms_are_not_spendable() {
+        // OP_FALSE OP_RETURN <data> — the form already recognised.
+        assert!(!TxAnalyser::is_spendable(&out(vec![
+            0x00, 0x6a, 0x02, 0xbe, 0xef
+        ])));
+        // Bare OP_RETURN <data> — the form that used to be admitted.
+        assert!(!TxAnalyser::is_spendable(&out(vec![
+            0x6a, 0x02, 0xbe, 0xef
+        ])));
+        // And each with no payload at all.
+        assert!(!TxAnalyser::is_spendable(&out(vec![0x00, 0x6a])));
+        assert!(!TxAnalyser::is_spendable(&out(vec![0x6a])));
+    }
+
+    /// The short-script cases, stated rather than left as an aside. A
+    /// one-byte script was previously admitted whatever it was, which is how
+    /// a bare `OP_RETURN` got in.
+    #[test]
+    fn spend02_short_scripts_have_a_stated_behaviour() {
+        // Empty: spendable, and genuinely so — it leaves whatever the
+        // unlocking script pushed.
+        assert!(TxAnalyser::is_spendable(&out(Vec::new())));
+        // One byte that is not OP_RETURN: admitted. OP_FALSE alone is in fact
+        // unsatisfiable, and is admitted anyway — see the doc comment on why
+        // that line is drawn here.
+        assert!(TxAnalyser::is_spendable(&out(vec![0x00])));
+        assert!(TxAnalyser::is_spendable(&out(vec![0x51])));
+        // One byte that is OP_RETURN: rejected.
+        assert!(!TxAnalyser::is_spendable(&out(vec![0x6a])));
+    }
+
+    /// The regression that matters most: nothing the service is deployed to
+    /// watch may be filtered out by this.
+    #[test]
+    fn spend03_genuine_outputs_are_still_admitted() {
+        // Ordinary P2PKH.
+        assert!(TxAnalyser::is_spendable(&out(p2pkh_script(0x11).0)));
+
+        // A 1Sat Ordinals output, envelope first. Starts OP_FALSE OP_IF, not
+        // OP_FALSE OP_RETURN, so it must be admitted — the inscription is
+        // carried in a branch that never executes, and the output is spent
+        // normally.
+        let envelope_first = inscription_envelope();
+        assert_eq!(&envelope_first[0..2], &[0x00, 0x63], "OP_FALSE OP_IF");
+        assert!(TxAnalyser::is_spendable(&out(envelope_first.clone())));
+
+        // And the common on-chain shape: P2PKH followed by the envelope.
+        let mut p2pkh_then_envelope = p2pkh_script(0x22).0;
+        p2pkh_then_envelope.extend_from_slice(&envelope_first);
+        assert!(TxAnalyser::is_spendable(&out(p2pkh_then_envelope)));
+    }
+
+    /// `OP_RETURN` later in the script is not this function's business.
+    /// Recognising it needs the executable-path analysis CS-415 is for, and
+    /// guessing here would drop spendable outputs.
+    #[test]
+    fn spend04_an_op_return_after_the_prefix_is_left_alone() {
+        let mut script = p2pkh_script(0x33).0;
+        script.extend_from_slice(&[0x6a, 0x02, 0xbe, 0xef]);
+        assert!(
+            TxAnalyser::is_spendable(&out(script)),
+            "admitted deliberately: deciding this needs path analysis, not a prefix"
         );
     }
 }
