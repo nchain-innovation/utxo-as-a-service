@@ -85,3 +85,35 @@ class TestConfigSourceRequirements:
         # passes for APP_ENVIRONMENT, which is a different variable.
         assert '"APP_ENV"' in rust
         assert '"APP_ENV"' in python
+
+    def test_cfg08_both_honour_the_same_url_override(self) -> None:
+        # UAAS_POSTGRES_URL is what lets the tracked configs carry a
+        # placeholder. If only one side read it, that side would reach the
+        # database and the other would refuse to start — or worse, the two
+        # would target different databases (CS-450).
+        rust = (REPO_ROOT / "rust/src/config.rs").read_text(encoding="utf-8")
+        python = (REPO_ROOT / "python/src/database.py").read_text(encoding="utf-8")
+        assert '"UAAS_POSTGRES_URL"' in rust
+        assert '"UAAS_POSTGRES_URL"' in python
+
+    def test_cfg09_no_tracked_config_carries_a_working_credential(self) -> None:
+        # The repository is public. A password or a real peer address here is
+        # disclosed the moment it is pushed, and removing it later does not
+        # remove it from history (CS-450).
+        import toml
+
+        for name in ("uaasr.toml", "uaasr.docker.toml"):
+            text = (REPO_ROOT / "data" / name).read_text(encoding="utf-8")
+            config = toml.loads(text)
+            for key in ("postgres_url", "postgres_url_docker"):
+                assert "CHANGE-ME" in config["database"][key], (
+                    f"{name} [database].{key} looks like a real URL; it must "
+                    "carry the CHANGE-ME placeholder and be supplied through "
+                    "UAAS_POSTGRES_URL"
+                )
+            # Peer addresses are deliberately NOT asserted on. A node address
+            # is not a credential — nodes gossip each other's addresses and
+            # public crawlers list reachable ones — and a placeholder there
+            # means the stack starts and silently never syncs, which is worse
+            # for development. Revisit before a live deployment; 192.0.2.1 is
+            # the unroutable value the service warns about.

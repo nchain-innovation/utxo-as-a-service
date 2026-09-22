@@ -43,10 +43,43 @@ pub type PooledConn = r2d2::PooledConnection<Manager>;
 /// construction — before entering a runtime at all, and the peer manager runs
 /// on a plain thread. A test that needs a pool inside `#[actix_web::test]` has
 /// to build it on a plain thread too.
+/// A connection URL with its password replaced, for an error message.
+///
+/// `build_pool` used to put the URL verbatim into its context, so a malformed
+/// URL wrote the database password into an `error!` line — which is exactly
+/// the path most likely to be hit and copied into a bug report (CS-450).
+///
+/// Purely textual: it finds the `user:password@` of the authority and blanks
+/// the password. Anything it does not recognise is returned unchanged, which
+/// is safe here because a string with no `user:password@` has no password to
+/// leak.
+pub(crate) fn redact_url(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+    let start = scheme_end + 3;
+    // The authority ends at the first '/', '?' or '#'; a later '@' belongs to
+    // the path or query and is not a credential separator.
+    let end = url[start..]
+        .find(['/', '?', '#'])
+        .map_or(url.len(), |i| start + i);
+    // Last '@' rather than first: a password may itself contain one.
+    let Some(at) = url[start..end].rfind('@') else {
+        return url.to_string();
+    };
+    let at = start + at;
+    let Some(colon) = url[start..at].find(':') else {
+        // user@host with no password.
+        return url.to_string();
+    };
+    let colon = start + colon;
+    format!("{}:***{}", &url[..colon], &url[at..])
+}
+
 pub fn build_pool(url: &str) -> Result<Pool> {
     let config = url
         .parse()
-        .with_context(|| format!("invalid PostgreSQL connection URL: {url}"))?;
+        .with_context(|| format!("invalid PostgreSQL connection URL: {}", redact_url(url)))?;
     let manager = PostgresConnectionManager::new(config, NoTls);
     Pool::new(manager).context("could not connect to PostgreSQL")
 }
@@ -76,4 +109,60 @@ pub(crate) fn shared_test_pool() -> Option<Pool> {
         Pool::builder().max_size(32).build(manager).ok()
     })
     .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_url;
+
+    /// The shape that actually appears in this repository's configs, and the
+    /// one that used to reach an `error!` line intact.
+    #[test]
+    fn redact01_a_password_is_removed_from_a_libpq_url() {
+        assert_eq!(
+            redact_url("postgresql://uaas:uaas-password@localhost:5433/uaas_db"),
+            "postgresql://uaas:***@localhost:5433/uaas_db"
+        );
+    }
+
+    /// The host, port, database and user are all kept: the message has to stay
+    /// useful for diagnosing a wrong target, which is its whole purpose.
+    #[test]
+    fn redact02_everything_that_is_not_the_password_survives() {
+        let out = redact_url("postgresql://uaas:hunter2@db.internal:5432/uaas_db?sslmode=require");
+        assert!(out.contains("uaas@") || out.contains("uaas:***@"), "{out}");
+        assert!(out.contains("db.internal:5432/uaas_db"), "{out}");
+        assert!(out.contains("sslmode=require"), "{out}");
+        assert!(!out.contains("hunter2"), "the password survived: {out}");
+    }
+
+    /// Nothing to redact must not corrupt the string, or a malformed-URL error
+    /// becomes unreadable on top of being an error.
+    #[test]
+    fn redact03_urls_without_a_password_are_unchanged() {
+        for url in [
+            "postgresql://localhost/uaas_db",
+            "postgresql://uaas@localhost/uaas_db",
+            "not a url at all",
+            "",
+        ] {
+            assert_eq!(redact_url(url), url, "changed a url with no password");
+        }
+    }
+
+    /// An `@` after the authority belongs to the path or query. Treating the
+    /// last one in the whole string as the credential separator would blank
+    /// most of the URL and hide the fault being reported.
+    #[test]
+    fn redact04_an_at_sign_later_in_the_url_is_not_a_credential() {
+        assert_eq!(
+            redact_url("postgresql://localhost/db?options=user@thing"),
+            "postgresql://localhost/db?options=user@thing"
+        );
+        // A password containing '@' still goes, because the authority is
+        // scanned from its right-hand end.
+        let out = redact_url("postgresql://uaas:pa@ss@localhost/uaas_db");
+        assert!(!out.contains("pa@ss"), "{out}");
+        assert!(out.contains("localhost/uaas_db"), "{out}");
+    }
 }

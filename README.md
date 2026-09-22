@@ -88,9 +88,9 @@ cd rust
 cargo run
 ```
 
-If the following message is seen in the output, the service is unable to connect to the database. Check that PostgreSQL is running and that `database.postgres_url` in `data/uaasr.toml` points at the correct host and port.
+If the following message is seen in the output, the service is unable to connect to the database. Check that PostgreSQL is running and that `UAAS_POSTGRES_URL` — or, when it is unset, `database.postgres_url` in `data/uaasr.toml` — points at the correct host and port. The tracked config carries a `CHANGE-ME` placeholder, so a different message naming that placeholder means nothing supplied a URL at all; see [docs/Security.md](docs/Security.md#credentials).
 ```
-Fatal startup error: Problem connecting to database. Check the database is running and database.postgres_url is correct: could not connect to PostgreSQL: error connecting to server: Connection refused (os error 111)
+Fatal startup error: Problem connecting to database. Check the database is running and that UAAS_POSTGRES_URL or database.postgres_url is correct: could not connect to PostgreSQL: error connecting to server: Connection refused (os error 111)
 ```
 ## To Run the REST Web interface
 
@@ -147,7 +147,7 @@ As there are two Docker images there are also two startup scripts:
 * `run_web.sh` - to start the Python REST API
 
 ## Configuration
-The configuration of the service is set in `data/uaasr.toml` file.
+The configuration of the service is set in `data/uaasr.toml` file. This repository is public, so the tracked copy carries a `CHANGE-ME` placeholder in place of the database URL — supply a real one through `UAAS_POSTGRES_URL`. The mainnet peer list is deliberately unroutable so switching networks cannot silently dial a real node. See [docs/Security.md](docs/Security.md#credentials).
 This is read when the service starts up.
 
 For more details about the configuration file see [here](docs/Configuration.md).

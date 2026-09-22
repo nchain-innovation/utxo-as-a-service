@@ -15,7 +15,65 @@ UaaS exposes HTTP APIs and a database that were designed for trusted network env
 
 - Bind the Python API to `127.0.0.1` when running on a single host unless another layer (VPN, reverse proxy, firewall) restricts access.
 - Do not publish ports `8081`, `3307`, or `8080` to the public internet.
-- Replace default database passwords in `docker-compose.yml` and `data/uaasr.toml` for any shared or production environment.
+- Supply the database URL through `UAAS_POSTGRES_URL` rather than editing `data/uaasr.toml`; see [Credentials](#credentials) below.
+
+## Credentials
+
+**This repository is public.** Anything committed here is disclosed the moment
+it is pushed, and deleting it later does not remove it from git history — the
+answer to a disclosed credential is to rotate it, not to try to un-publish it.
+
+So the tracked application configs carry a placeholder rather than a working
+database URL:
+
+```toml
+[database]
+postgres_url = "postgresql://uaas:CHANGE-ME@localhost:5433/uaas_db"
+```
+
+Both components refuse to start on a `CHANGE-ME` value and say what to set,
+rather than attempting a connection that would fail with something less
+useful.
+
+**Peer addresses are not treated this way.** A node's address is not a
+credential — nodes gossip each other's addresses in `addr` messages and public
+crawlers list reachable ones — and a placeholder there means the stack starts
+and silently never syncs, which is worse for development. The testnet peer is
+concrete; revisit it before a live deployment.
+
+The **mainnet** peer list is `192.0.2.1` — TEST-NET-1 (RFC 5737), valid and
+guaranteed not to route. Switching `network` to mainnet therefore cannot
+silently start dialling a real node: the service starts, stays healthy and
+warns that it will never sync. Put a real address there deliberately, when
+that is what is wanted.
+
+### Supplying real values
+
+| What | How |
+|------|-----|
+| Database URL | `UAAS_POSTGRES_URL`. Read by `uaas migrate`, the Rust service and the Python API, in preference to the config file. `docker-compose.yml` sets it for all three. |
+| Peer addresses | Edit the config, or supply the whole config as JSON in `UAASR_CONFIG`. Not secret; see above. |
+| Everything else | An untracked config, or `UAASR_CONFIG`. |
+
+An empty `UAAS_POSTGRES_URL` counts as unset and falls back to the file.
+
+### What is still in the repository, deliberately
+
+`docker-compose.yml` and `init_database/postgres/01_roles_and_databases.sql`
+carry the development password for the throwaway PostgreSQL container that
+compose creates. They have to agree with each other for the stack to
+initialise itself, and that container is local-only and recreated from empty.
+
+**Never reuse those values anywhere shared.** Removing them entirely means
+templating the database bootstrap at deploy time, which has not been done; see
+`.env.example`. `POSTGRES_PASSWORD` and `UAAS_POSTGRES_URL` can both be
+overridden from `.env` today.
+
+### Connection URLs in logs
+
+A connection URL carries the password, so it is redacted before it reaches an
+error message — `postgresql://uaas:***@host:5432/db`. If you add a log line on
+a database path, do the same.
 
 ## Optional API key
 
@@ -58,4 +116,4 @@ Use TLS termination at a reverse proxy when traffic crosses untrusted networks. 
 
 ## Docker Compose
 
-The sample `docker-compose.yml` uses weak default credentials and exposes Adminer for convenience. Treat it as a development stack, not a production deployment template.
+The sample `docker-compose.yml` uses weak default credentials for its own throwaway database and exposes Adminer for convenience. Treat it as a development stack, not a production deployment template. See [Credentials](#credentials) for what is a placeholder and what is not.

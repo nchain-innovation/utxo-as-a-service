@@ -197,7 +197,7 @@ The Rust component reads one TOML file, `data/uaasr.toml`, into `Config`.
 |---|---|---|
 | `[service]` | `Service` | `user_agent`, `network`, `rust_address` |
 | `[mainnet]`, `[testnet]` | `NetworkSettings` | `ip`, `port`, `timeout_period`, `start_block_hash`, `start_block_height`, `startup_load_from_database`, `block_file`, `save_blocks`, `save_txs` |
-| `[database]` | `DatabaseConfig` | `postgres_url`, `postgres_url_docker`, `ms_delay`, `retries` |
+| `[database]` | `DatabaseConfig` | `postgres_url`, `postgres_url_docker`, `ms_delay`, `retries`. The two URLs are `CHANGE-ME` placeholders in the tracked config; `UAAS_POSTGRES_URL` overrides both. |
 | `[orphan]` | `OrphanConfig` | `detect`, `threshold` |
 | `[mempool]` | `MempoolConfig` | `eviction_blocks` |
 | `[logging]` | `LoggingConfig` | `level` |
