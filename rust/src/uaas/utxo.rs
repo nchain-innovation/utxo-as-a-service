@@ -31,6 +31,32 @@ pub struct SpendClaim {
     pub spending_txid: Hash256,
     /// What the spend consumes and pays, independent of its encoding.
     pub provisional_id: SpendId,
+    /// How many outputs the claiming announcement has.
+    ///
+    /// Held so that a block overruling this claim can find the outputs it
+    /// created — they are `(spending_txid, 0..outputs)` — without scanning the
+    /// UTXO set for a matching txid or reading the raw transaction back from
+    /// the mempool table, neither of which is affordable on this path
+    /// (CS-439). Removing an outpoint that was never recorded is a no-op, so
+    /// the count being an over-estimate of what was stored is harmless.
+    pub outputs: u32,
+}
+
+/// An unmined claim that a block overruled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Displaced {
+    /// The outpoint both spends wanted.
+    pub outpoint: OutPoint,
+    /// The announcement that loses: it claimed the outpoint first, but a block
+    /// carried a different transaction spending it.
+    pub losing_txid: Hash256,
+    /// Whether the two were one spend under two encodings. A malleated sibling
+    /// losing is routine; a genuinely different spend losing means someone
+    /// tried to spend the coin twice and the chain chose.
+    pub malleated: bool,
+    /// How many of the losing announcement's outputs were actually removed
+    /// from the spendable set.
+    pub outputs_removed: usize,
 }
 
 /// A second spend of an outpoint that something else has already claimed.
@@ -125,6 +151,11 @@ pub struct Utxo {
     // the chain.
     spent_unmined: HashMap<OutPoint, SpendClaim>,
 
+    // Outputs of announcements a block overruled, pending deletion from the
+    // `utxo` table. A Vec rather than a set: the same outpoint cannot be
+    // displaced twice, and the writer coalesces adjacent deletes anyway.
+    utxo_deletes: Vec<OutPoint>,
+
     // Channel to database
     tx: mpsc::Sender<DBOperationType>,
 }
@@ -160,6 +191,7 @@ impl Utxo {
             utxo_spends: BTreeMap::new(),
             utxo_settles: BTreeMap::new(),
             spent_unmined: HashMap::new(),
+            utxo_deletes: Vec::new(),
             tx,
         }
     }
@@ -309,6 +341,7 @@ impl Utxo {
         spending_txid: Hash256,
         provisional_id: SpendId,
         seen_height: i32,
+        outputs: u32,
     ) {
         if self.utxo.remove(outpoint).is_some() {
             self.utxo_entries.remove(outpoint);
@@ -317,6 +350,7 @@ impl Utxo {
                 SpendClaim {
                     spending_txid,
                     provisional_id,
+                    outputs,
                 },
             );
             self.utxo_spends
@@ -378,6 +412,52 @@ impl Utxo {
         }
     }
 
+    /// The unmined claim on `outpoint`, if any.
+    ///
+    /// Separate from `conflict_for`, which answers whether there *is* a
+    /// conflict. This hands back the claim itself, which a block needs in
+    /// order to find and remove the losing announcement's outputs before
+    /// `settle` forgets it.
+    pub fn claim_for(&self, outpoint: &OutPoint) -> Option<&SpendClaim> {
+        self.spent_unmined.get(outpoint)
+    }
+
+    /// Remove the outputs of an announcement a block has overruled (CS-439).
+    ///
+    /// The losing transaction will never confirm, so its outputs are not
+    /// spendable and must leave both the in-memory set and the `utxo` table.
+    /// This is the first operation here that **removes** rows a consumer may
+    /// already have read; `handle_orphan_block` has the same shape, and this
+    /// follows it — prune memory, and queue the matching delete for the
+    /// writer rather than issuing one inline.
+    ///
+    /// **Descendants are not reconsidered.** If the service already saw a
+    /// transaction spending one of these outputs, that spend keeps its claim
+    /// and its own outputs stay. Chasing the chain would mean an unbounded
+    /// walk on a path that runs per block; the ticket records this as a
+    /// deliberate limit rather than an oversight.
+    ///
+    /// Returns how many outpoints were actually in the spendable set.
+    pub fn drop_outputs_of(&mut self, txid: Hash256, outputs: u32) -> usize {
+        let mut removed = 0;
+        let mut deletes = Vec::new();
+        for index in 0..outputs {
+            let outpoint = OutPoint { hash: txid, index };
+            if self.utxo.remove(&outpoint).is_some() {
+                removed += 1;
+            }
+            // Queued whether or not it was in memory: a row written by an
+            // earlier flush is in the table even when this process no longer
+            // holds it, and deleting a row that is not there is a no-op.
+            self.utxo_entries.remove(&outpoint);
+            deletes.push(outpoint);
+        }
+        if !deletes.is_empty() {
+            self.utxo_deletes.extend(deletes);
+        }
+        removed
+    }
+
     pub fn get_satoshis(&self, outpoint: &OutPoint) -> Option<i64> {
         // Return the satoshis associated with this outpoint
         self.utxo.get(outpoint).map(|v| v.satoshis)
@@ -398,6 +478,14 @@ impl Utxo {
         // One operation per seen height, each a different statement.
         for (seen_height, spends) in std::mem::take(&mut self.utxo_spends) {
             self.send_db_op(DBOperationType::UtxoBatchSpend(spends, seen_height));
+        }
+
+        // Outputs of announcements a block overruled. After the write above,
+        // so an output written and then displaced inside one flush is deleted
+        // rather than left behind by a delete the writer saw first.
+        if !self.utxo_deletes.is_empty() {
+            let deletes = std::mem::take(&mut self.utxo_deletes);
+            self.send_db_op(DBOperationType::UtxoBatchDelete(deletes));
         }
 
         // Settles, in height order. One operation per height, because each is
