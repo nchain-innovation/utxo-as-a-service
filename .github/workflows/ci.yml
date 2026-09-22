@@ -1,4 +1,16 @@
 name: CI
+# The runner image is pinned, not `ubuntu-latest`. That label migrates to Ubuntu
+# 26 between 19 October and 19 November 2026 (actions/runner-images#14748),
+# which would move the OS under every build on a date nobody chose — including
+# the Docker and containerd that back the postgres service containers below.
+# Pinning decouples the upgrade from that date so it happens deliberately
+# (CS-460; CS-442 and CS-444 did the same for the other four Rust repos).
+#
+# Keep the `cache-key` / `cache-suffix` values below in step with this. A cache
+# key that does not name the image is restored across an image change, which is
+# how CS-444's trial produced a convincing but false
+# `unable to find library -lpython3.12` in chain-gang: a 24.04 cache carrying
+# pyo3 output resolved against Python 3.12, landing on an image shipping 3.13.
 
 on:
   push:
@@ -12,7 +24,7 @@ permissions:
 jobs:
   rust:
     name: Rust
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     services:
       # PostgreSQL is the engine the Rust service runs on now. There is no
       # MariaDB service in this job any more: nothing in the crate speaks it.
@@ -48,6 +60,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           components: rustfmt, clippy
+          # Scoped to the image: the action's default key carries the
+          # architecture but not the OS version.
+          cache-key: ubuntu-26.04
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config postgresql-client
@@ -106,7 +121,7 @@ jobs:
 
   python:
     name: Python
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     services:
       postgres:
         image: postgres:17
@@ -132,8 +147,11 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          cache-suffix: ubuntu-26.04
 
       - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          cache-key: ubuntu-26.04
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
@@ -170,7 +188,7 @@ jobs:
 
   docker:
     name: Docker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - uses: actions/checkout@v7
