@@ -125,7 +125,7 @@ impl TxAnalyser {
         self.utxo.load_utxo();
         // Load Collections
         for c in self.collection.iter_mut() {
-            c.txs = self.collection_db.load_txs(c.name());
+            c.replace_txs(self.collection_db.load_txs(c.name()));
         }
     }
 
@@ -1723,6 +1723,17 @@ mod tests {
     }
 
     /// And it must not duplicate the entry in the collection that had it.
+    ///
+    /// **This asserts an invariant rather than catching a live bug.** It used
+    /// to count occurrences in a `Vec`, where a second push was possible; CS-438
+    /// made `txs` a `HashSet`, so a duplicate is now impossible by
+    /// construction. Kept because it is what would fail if the set ever went
+    /// back to being a list, and rewritten against the public API because the
+    /// field is now private.
+    ///
+    /// The database cannot stand in for this: `write_tx_to_database` inserts
+    /// `ON CONFLICT (hash, monitor) DO NOTHING`, so a row count of one says
+    /// nothing about whether the write was attempted twice.
     #[test]
     fn disp03_a_collection_that_already_holds_it_does_not_grow_a_duplicate() {
         let Some((mut analyser, _rx)) = analyser_with_live_db("disp03_no_duplicate") else {
@@ -1738,10 +1749,16 @@ mod tests {
             .iter()
             .find(|c| c.name() == "demo")
             .expect("demo collection");
+        assert!(
+            demo.have_tx(tx.hash()),
+            "the collection must still hold the transaction"
+        );
+        // `TxAnalyser::new` does not load the tables, so this counts only what
+        // this test pushed, whatever else is in the shared test database.
         assert_eq!(
-            demo.txs.iter().filter(|h| **h == tx.hash()).count(),
+            demo.tx_count(),
             1,
-            "processing the same transaction twice must not push it twice"
+            "processing the same transaction twice must leave exactly one entry"
         );
     }
 

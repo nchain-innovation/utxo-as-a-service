@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Instant;
 
 use crate::db::PooledConn;
@@ -62,7 +63,7 @@ impl CollectionDatabase {
         }
     }
 
-    pub fn load_txs(&mut self, collection_name: &str) -> Vec<Hash256> {
+    pub fn load_txs(&mut self, collection_name: &str) -> HashSet<Hash256> {
         // load txs- tx hash from database
         let start = Instant::now();
         let txs: Vec<Vec<u8>> = match self.conn.query(
@@ -72,11 +73,11 @@ impl CollectionDatabase {
             Ok(rows) => rows.iter().map(|row| row.get(0)).collect(),
             Err(err) => {
                 log::error!("Unable to load collection txs for {collection_name}: {err:?}");
-                return Vec::new();
+                return HashSet::new();
             }
         };
 
-        let retval: Vec<Hash256> = txs
+        let retval: HashSet<Hash256> = txs
             .iter()
             .filter_map(|hash| Self::decode_stored_hash(hash))
             .collect();
@@ -122,7 +123,17 @@ impl CollectionDatabase {
 pub struct WorkingCollection {
     // this is a collection that also maintains a list of tx hashes that it has used
     pub collection: CollectionConfig,
-    pub txs: Vec<Hash256>,
+    /// Every transaction hash this collection holds.
+    ///
+    /// A set rather than a `Vec`: `have_tx` runs once per collection per
+    /// transaction and `is_decendant` once per input, and both were linear
+    /// scans over a list that only ever grows. Insertion order was never used
+    /// — `load_txs` reads it back from the database and nothing depends on the
+    /// sequence — so the set is a straight swap (CS-438).
+    ///
+    /// Private, so the scans cannot come back: the operations are `have_tx`,
+    /// `is_decendant`, `push` and `replace_txs`.
+    txs: HashSet<Hash256>,
     // No point to the Collection if there is no locking_script_regex
     // Actually there is for is_uaas_broadcast txs
     locking_script_regex: Option<ScriptMatcher>,
@@ -137,7 +148,7 @@ impl WorkingCollection {
             let locking_script_regex = ScriptMatcher::compile(&pattern)?;
             return Ok(WorkingCollection {
                 collection: collection.clone(),
-                txs: Vec::new(),
+                txs: HashSet::new(),
                 locking_script_regex: Some(locking_script_regex),
             });
         }
@@ -147,7 +158,7 @@ impl WorkingCollection {
 
             return Ok(WorkingCollection {
                 collection: collection.clone(),
-                txs: Vec::new(),
+                txs: HashSet::new(),
                 locking_script_regex: Some(locking_script_regex),
             });
         }
@@ -169,7 +180,7 @@ impl WorkingCollection {
         WorkingCollection {
             // this is a collection that also maintains a list of tx hashes that it has used
             collection: broadcast_collection,
-            txs: Vec::new(),
+            txs: HashSet::new(),
             // No point to the Collection if there is no locking_script_regex
             // Actually there is for is_uaas_broadcast txs
             locking_script_regex: None,
@@ -186,7 +197,23 @@ impl WorkingCollection {
 
     pub fn have_tx(&self, hash: Hash256) -> bool {
         // Return true if we already have this tx hash
-        self.txs.iter().any(|x| x == &hash)
+        self.txs.contains(&hash)
+    }
+
+    /// How many transactions this collection holds.
+    ///
+    /// Only the tests need this; it exists because `txs` is private and a test
+    /// asserting "exactly one" should not be the reason to expose the set.
+    pub fn tx_count(&self) -> usize {
+        self.txs.len()
+    }
+
+    /// Replace the whole set, for the load at startup.
+    ///
+    /// Takes the set by value rather than exposing the field, so nothing
+    /// outside can hold a reference and scan it.
+    pub fn replace_txs(&mut self, txs: HashSet<Hash256>) {
+        self.txs = txs;
     }
 
     /// Whether this collection's pattern selects a single locking script.
@@ -219,18 +246,16 @@ impl WorkingCollection {
     }
 
     pub fn push(&mut self, hash: Hash256) {
-        // Add to our list of known txs
-        self.txs.push(hash);
+        // Add to our list of known txs. A set, so pushing the same hash twice
+        // is a no-op rather than a duplicate entry.
+        self.txs.insert(hash);
     }
 
     pub fn is_decendant(&self, tx: &Tx) -> bool {
         // Return true if transaction is a decendant of a known `collection` transaction.
-        for vin in &tx.inputs {
-            if self.txs.iter().any(|x| x == &vin.prev_output.hash) {
-                return true;
-            }
-        }
-        false
+        tx.inputs
+            .iter()
+            .any(|vin| self.txs.contains(&vin.prev_output.hash))
     }
 }
 
@@ -377,5 +402,108 @@ mod tests {
             Network::BSV_Testnet,
         );
         assert!(result.is_err(), "an odd-length literal must be rejected");
+    }
+
+    /// Distinct hashes, cheap to generate and spread across the key space.
+    fn distinct_hashes(n: usize) -> Vec<Hash256> {
+        (0..n)
+            .map(|i| {
+                let mut bytes = [0u8; 32];
+                bytes[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                // Vary the high bytes too, so a hasher looking at any slice of
+                // the key sees variation rather than a constant.
+                bytes[24..].copy_from_slice(
+                    &((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)).to_le_bytes(),
+                );
+                Hash256(bytes)
+            })
+            .collect()
+    }
+
+    /// The measurement behind CS-438: membership in a collection, `Vec` versus
+    /// `HashSet`, at sizes a real collection reaches.
+    ///
+    /// Probes that **miss** are the case that matters. A hit can stop early,
+    /// but `have_tx` returning false is the common outcome — most transactions
+    /// are not already held — and that is the one that reads the whole list.
+    ///
+    /// `UAAS_BENCH=1 cargo test --release --lib bench_probe_collection_membership -- --nocapture`
+    #[test]
+    fn bench_probe_collection_membership() {
+        if std::env::var("UAAS_BENCH").is_err() {
+            eprintln!("skipping bench_probe: UAAS_BENCH not set");
+            return;
+        }
+        if cfg!(debug_assertions) {
+            eprintln!("bench_probe: debug build, numbers are not meaningful");
+        }
+
+        const PROBES: usize = 1000;
+
+        println!(
+            "\n{:>9} | {:>12} | {:>12} | {:>8} | {:>11} | {:>11}",
+            "entries", "Vec scan", "HashSet", "ratio", "Vec bytes", "Set >="
+        );
+        println!(
+            "{:->9}-+-{:->12}-+-{:->12}-+-{:->8}-+-{:->11}-+-{:->11}",
+            "", "", "", "", "", ""
+        );
+
+        for entries in [10_000usize, 100_000, 500_000] {
+            let held = distinct_hashes(entries);
+            // Probes drawn from beyond the held range, so every one misses.
+            let misses = distinct_hashes(entries + PROBES);
+            let misses = &misses[entries..];
+
+            let as_vec: Vec<Hash256> = held.clone();
+            let as_set: HashSet<Hash256> = held.iter().copied().collect();
+
+            let start = Instant::now();
+            let mut found = 0usize;
+            for h in misses {
+                if as_vec.iter().any(|x| x == h) {
+                    found += 1;
+                }
+            }
+            let vec_elapsed = start.elapsed().as_secs_f64();
+
+            let start = Instant::now();
+            let mut found_set = 0usize;
+            for h in misses {
+                if as_set.contains(h) {
+                    found_set += 1;
+                }
+            }
+            let set_elapsed = start.elapsed().as_secs_f64();
+
+            // Both must agree, or the comparison is measuring two different
+            // questions rather than two answers to one.
+            assert_eq!(found, 0, "probes were supposed to miss");
+            assert_eq!(found_set, found, "the two structures disagreed");
+
+            // Capacity is read from the structures rather than estimated.
+            //
+            // The set figure is a LOWER BOUND. `HashSet::capacity` reports how
+            // many elements fit, not how many slots exist, and hashbrown keeps
+            // spare slots above its load factor plus one control byte each. So
+            // the real footprint is above this; the column is here to show the
+            // order of the trade, not to be exact.
+            let vec_bytes = as_vec.capacity() * std::mem::size_of::<Hash256>();
+            let set_bytes = as_set.capacity() * (std::mem::size_of::<Hash256>() + 1);
+
+            let ratio = if set_elapsed > 1e-9 {
+                format!("{:.0}x", vec_elapsed / set_elapsed)
+            } else {
+                "n/a".to_string()
+            };
+            println!(
+                "{entries:>9} | {:>9.3} ms | {:>9.3} ms | {ratio:>8} | {:>8} KiB | {:>8} KiB",
+                vec_elapsed * 1000.0,
+                set_elapsed * 1000.0,
+                vec_bytes / 1024,
+                set_bytes / 1024,
+            );
+        }
+        println!();
     }
 }
