@@ -16,7 +16,7 @@ use crate::{
         database::DBOperationType,
         spend_id::{provisional_id, SpendId},
         txdb::TxDB,
-        utxo::{Conflict, NewOutput, Utxo},
+        utxo::{Conflict, Displaced, NewOutput, SpendClaim, Utxo},
     },
 };
 /*
@@ -252,6 +252,14 @@ impl TxAnalyser {
             return Ok(());
         }
         let spending_txid = tx.hash();
+        // Saturating rather than failing: the count only bounds which outpoints
+        // are removed if this transaction is later overruled, and a transaction
+        // with more than u32::MAX outputs cannot be serialised anyway.
+        let outputs = u32::try_from(tx.outputs.len()).unwrap_or(u32::MAX);
+
+        // Claims a block is about to overrule. Empty on every ordinary
+        // transaction; only a malleated sibling or a double spend fills it.
+        let mut displacements: Vec<(OutPoint, SpendClaim, bool)> = Vec::new();
 
         // Two passes. Detection first, over every input, so a transaction is
         // either applied whole or not at all — a conflict found on the second
@@ -264,7 +272,25 @@ impl TxAnalyser {
                 self.utxo
                     .conflict_for(&vin.prev_output, spending_txid, &spend_id)
             {
-                return Err(conflict);
+                if height == NOT_IN_BLOCK {
+                    // Two announcements, neither mined. Nothing distinguishes
+                    // them, so first seen wins. Unchanged from CS-428.
+                    return Err(conflict);
+                }
+                // A block carries this one. The chain is authoritative and the
+                // mempool is not, so the standing claim loses rather than this
+                // transaction being refused (CS-439).
+                //
+                // Captured here because `settle` in the second pass removes
+                // the claim, and the losing announcement's output count is
+                // only available from it.
+                if let Some(claim) = self.utxo.claim_for(&vin.prev_output) {
+                    displacements.push((
+                        vin.prev_output.clone(),
+                        claim.clone(),
+                        matches!(conflict, Conflict::Malleated { .. }),
+                    ));
+                }
             }
             if height != NOT_IN_BLOCK {
                 if let Some(claimed_by) = self.block_spends.get(&vin.prev_output) {
@@ -283,8 +309,13 @@ impl TxAnalyser {
 
         for vin in tx.inputs.iter() {
             if height == NOT_IN_BLOCK {
-                self.utxo
-                    .spend(&vin.prev_output, spending_txid, spend_id, self.chain_tip);
+                self.utxo.spend(
+                    &vin.prev_output,
+                    spending_txid,
+                    spend_id,
+                    self.chain_tip,
+                    outputs,
+                );
             } else {
                 self.utxo.settle(&vin.prev_output, spending_txid, height);
                 if !Self::is_null_prevout(&vin.prev_output) {
@@ -293,7 +324,62 @@ impl TxAnalyser {
                 }
             }
         }
+
+        // After the settles, so the outpoint is recorded against the mined
+        // txid before the losing announcement's outputs are taken away.
+        for (outpoint, claim, malleated) in displacements {
+            let outputs_removed = self
+                .utxo
+                .drop_outputs_of(claim.spending_txid, claim.outputs);
+            self.report_displacement(
+                tx,
+                &Displaced {
+                    outpoint,
+                    losing_txid: claim.spending_txid,
+                    malleated,
+                    outputs_removed,
+                },
+            );
+        }
         Ok(())
+    }
+
+    /// A block overruled an unmined claim (CS-439).
+    ///
+    /// `warn` for a malleated sibling: routine, and the amount was never
+    /// wrong, only the identity. `error` for a genuine double spend, because
+    /// someone attempted to spend one coin twice and the chain has now chosen
+    /// between them — which an operator should see.
+    ///
+    /// Neither is `info`: `release_max_level_warn` compiles that out of the
+    /// published image, which is exactly where this needs to be visible.
+    fn report_displacement(&self, tx: &Tx, displaced: &Displaced) {
+        let outpoint = &displaced.outpoint;
+        if displaced.malleated {
+            log::warn!(
+                "Mined spend displaces a malleated sibling: block carries {:?} spending \
+                 {:?}:{}, which {:?} claimed. The sibling will never confirm; {} of its \
+                 outputs left the UTXO set. Its descendants, if any were seen, are not \
+                 reconsidered.",
+                tx.hash(),
+                outpoint.hash,
+                outpoint.index,
+                displaced.losing_txid,
+                displaced.outputs_removed
+            );
+        } else {
+            log::error!(
+                "Mined spend displaces a conflicting spend: block carries {:?} spending \
+                 {:?}:{}, which {:?} claimed while paying different outputs. One coin was \
+                 spent twice and the chain chose; {} of the loser's outputs left the UTXO \
+                 set. Its descendants, if any were seen, are not reconsidered.",
+                tx.hash(),
+                outpoint.hash,
+                outpoint.index,
+                displaced.losing_txid,
+                displaced.outputs_removed
+            );
+        }
     }
 
     /// Whether this input references nothing.
@@ -920,6 +1006,212 @@ mod tests {
             lock_time: 0,
         };
         (build(900, 0xcc), build(800, 0xdd))
+    }
+
+    // --- CS-439: a block overrules an unmined claim ----------------------
+    //
+    // CS-428 resolves every conflict first-seen-wins, which is the only answer
+    // available when neither side is mined. When one side is in a block it is
+    // the wrong answer: the amount stays right, but the outputs sit under the
+    // txid that will never confirm, and a consumer querying the txid the chain
+    // actually carries finds nothing.
+
+    /// Every outpoint a transaction's outputs would occupy.
+    fn outpoints_of(tx: &Tx) -> Vec<OutPoint> {
+        (0..tx.outputs.len() as u32)
+            .map(|index| OutPoint {
+                hash: tx.hash(),
+                index,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn displace01_a_mined_spend_displaces_the_unmined_sibling() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("displace01_mined_wins") else {
+            return;
+        };
+
+        let funding = funding_tx(0x51);
+        analyser.process_block_tx(&funding, 500, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let (announced, mined) = malleated_pair(outpoint.clone());
+
+        // Announced first, so it holds the claim.
+        analyser.process_standalone_tx(&announced, false);
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoints_of(&announced)[0]),
+            Some(900),
+            "the announcement's output is in the set before the block arrives"
+        );
+
+        // Then the block carries the sibling.
+        analyser.process_block_tx(&mined, 501, 1);
+
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoints_of(&mined)[0]),
+            Some(900),
+            "the mined transaction's outputs must be recorded under its own txid"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoints_of(&announced)[0]),
+            None,
+            "the losing announcement's outputs must leave the set"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoint),
+            None,
+            "and the coin they both spent stays spent"
+        );
+    }
+
+    #[test]
+    fn displace02_the_settle_names_the_txid_the_block_carried() {
+        let Some((mut analyser, rx)) = analyser_with_live_db("displace02_settle_txid") else {
+            return;
+        };
+
+        let funding = funding_tx(0x52);
+        analyser.process_block_tx(&funding, 510, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let (announced, mined) = malleated_pair(outpoint.clone());
+        analyser.process_standalone_tx(&announced, false);
+        analyser.process_block_tx(&mined, 511, 1);
+        analyser.flush_database_cache();
+
+        let settled = settles(drain(&rx));
+        let record = settled
+            .iter()
+            .find(|(s, _)| s.txid == outpoint.hash.0.to_vec() && s.vout == outpoint.index)
+            .map(|(s, _)| s)
+            .expect("the outpoint must be settled");
+        assert_eq!(
+            record.spending_txid,
+            mined.hash().0.to_vec(),
+            "spent_txid must name the transaction the block carried, not the announcement"
+        );
+        assert_ne!(
+            record.spending_txid,
+            announced.hash().0.to_vec(),
+            "the losing announcement must not be recorded as the spender"
+        );
+    }
+
+    /// Dropping the outputs from memory is not enough: an earlier flush may
+    /// already have written them to `utxo`, and a consumer reads the table.
+    #[test]
+    fn displace03_the_losing_outputs_are_deleted_from_the_table_too() {
+        let Some((mut analyser, rx)) = analyser_with_live_db("displace03_table_delete") else {
+            return;
+        };
+
+        let funding = funding_tx(0x53);
+        analyser.process_block_tx(&funding, 520, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let (announced, mined) = malleated_pair(outpoint.clone());
+        // Flushed between the two, so the announcement's outputs really are in
+        // the table rather than only in the pending write.
+        analyser.process_standalone_tx(&announced, false);
+        analyser.flush_database_cache();
+        let _ = drain(&rx);
+
+        analyser.process_block_tx(&mined, 521, 1);
+        analyser.flush_database_cache();
+
+        let deleted: Vec<OutPoint> = drain(&rx)
+            .into_iter()
+            .filter_map(|op| match op {
+                DBOperationType::UtxoBatchDelete(outpoints) => Some(outpoints),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert!(
+            deleted.contains(&outpoints_of(&announced)[0]),
+            "the losing announcement's output must be queued for deletion, got {deleted:?}"
+        );
+    }
+
+    /// The CS-428 behaviour, unchanged. Two announcements and no block: there
+    /// is nothing to prefer between them, so the first still wins.
+    #[test]
+    fn displace04_two_unmined_announcements_still_resolve_first_seen_wins() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("displace04_unmined_unchanged")
+        else {
+            return;
+        };
+
+        let funding = funding_tx(0x54);
+        analyser.process_block_tx(&funding, 530, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let (first, second) = malleated_pair(outpoint.clone());
+        analyser.process_standalone_tx(&first, false);
+        analyser.process_standalone_tx(&second, false);
+
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoints_of(&first)[0]),
+            Some(900),
+            "the first announcement keeps its claim and its outputs"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoints_of(&second)[0]),
+            None,
+            "the second is still refused; neither side is authoritative"
+        );
+    }
+
+    /// A genuine double spend is displaced on the same rule. The difference
+    /// between this and `displace01` is what gets reported — `error` rather
+    /// than `warn` — because here one coin really was spent twice.
+    #[test]
+    fn displace05_a_mined_spend_displaces_a_conflicting_spend_too() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("displace05_double_spend") else {
+            return;
+        };
+
+        let funding = funding_tx(0x55);
+        analyser.process_block_tx(&funding, 540, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let (announced, mined) = double_spend_pair(outpoint.clone());
+        assert_ne!(
+            provisional_id(&announced),
+            provisional_id(&mined),
+            "this pair must be a genuine double spend, not a malleated one"
+        );
+
+        analyser.process_standalone_tx(&announced, false);
+        analyser.process_block_tx(&mined, 541, 1);
+
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoints_of(&mined)[0]),
+            Some(800),
+            "the mined spend's outputs are recorded"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoints_of(&announced)[0]),
+            None,
+            "the loser's outputs leave the set"
+        );
     }
 
     /// The distinction the ticket asks for: same prevout, different outputs
