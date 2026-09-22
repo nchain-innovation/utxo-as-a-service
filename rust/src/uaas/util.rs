@@ -1,3 +1,29 @@
+use chain_gang::messages::Tx;
+
+/// The sum of a transaction's output amounts, or `None` if it does not fit.
+///
+/// `Iterator::sum` on `i64` panics in a debug build and **wraps silently in a
+/// release one**, and `release_max_level_warn` compiles out anything below
+/// `warn`, so the release binary — the one that is published — is exactly
+/// where a wrapped total would go unnoticed. Output amounts arrive straight
+/// off the P2P network and nothing validates them against the supply cap, so
+/// they are untrusted input (CS-435).
+///
+/// **Checked rather than saturating.** A saturated total is a plausible number
+/// that is wrong, and every caller here already has a "cannot determine this"
+/// path to fall back on, so there is nothing to gain by inventing a value.
+///
+/// Note what this does *not* do: a negative `satoshis` is out of range for a
+/// real output but is representable in `i64` and arrives unvalidated, and this
+/// sums it as given. Rejecting it is a validity question rather than an
+/// arithmetic one, and belongs with whatever else decides a transaction is
+/// well formed.
+pub fn sum_output_satoshis(tx: &Tx) -> Option<i64> {
+    tx.outputs
+        .iter()
+        .try_fold(0i64, |total, vout| total.checked_add(vout.satoshis))
+}
+
 use chrono::*;
 //{format::ParseError, prelude::DateTime, Utc};
 
@@ -95,3 +121,61 @@ impl fmt::Display for DecodeHexError {
 }
 
 impl std::error::Error for DecodeHexError {}
+
+#[cfg(test)]
+mod tests {
+    use super::sum_output_satoshis;
+    use chain_gang::messages::{Tx, TxOut};
+    use chain_gang::script::Script;
+
+    fn tx_paying(amounts: &[i64]) -> Tx {
+        Tx {
+            version: 1,
+            inputs: Vec::new(),
+            outputs: amounts
+                .iter()
+                .map(|satoshis| TxOut {
+                    satoshis: *satoshis,
+                    lock_script: Script(vec![0x51]),
+                })
+                .collect(),
+            lock_time: 0,
+        }
+    }
+
+    #[test]
+    fn sat01_an_ordinary_total_is_returned() {
+        assert_eq!(
+            sum_output_satoshis(&tx_paying(&[1_000, 2_500, 7])),
+            Some(3_507)
+        );
+    }
+
+    /// The case the whole change exists for. Unchecked this panicked in a
+    /// debug build and wrapped in a release one, and `release_max_level_warn`
+    /// meant the wrapped value was never logged — so the published binary was
+    /// the one that would have carried a wrong number silently.
+    #[test]
+    fn sat02_a_total_that_does_not_fit_is_none_rather_than_a_panic_or_a_wrap() {
+        assert_eq!(sum_output_satoshis(&tx_paying(&[i64::MAX, 1])), None);
+        assert_eq!(sum_output_satoshis(&tx_paying(&[i64::MAX, i64::MAX])), None);
+        // Overflow found part way through still stops, rather than continuing
+        // with a wrapped accumulator.
+        assert_eq!(sum_output_satoshis(&tx_paying(&[i64::MAX, 1, -5])), None);
+    }
+
+    #[test]
+    fn sat03_no_outputs_is_zero_not_an_error() {
+        assert_eq!(sum_output_satoshis(&tx_paying(&[])), Some(0));
+    }
+
+    /// A negative amount is out of range for a real output but is
+    /// representable and arrives unvalidated. Summed as given, deliberately:
+    /// rejecting it is a validity question, not an arithmetic one. This pins
+    /// the stated limit so it cannot quietly change.
+    #[test]
+    fn sat04_a_negative_amount_is_summed_as_given() {
+        assert_eq!(sum_output_satoshis(&tx_paying(&[1_000, -400])), Some(600));
+        assert_eq!(sum_output_satoshis(&tx_paying(&[i64::MIN, -1])), None);
+    }
+}
