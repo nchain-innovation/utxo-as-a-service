@@ -8,7 +8,12 @@ rust_address = "127.0.0.1:8081"
 
 [mainnet]
 # ip = ["18.157.234.254",
-ip = ["65.108.14.253"]  # The murphy machine
+# 192.0.2.1 is TEST-NET-1 (RFC 5737): valid and guaranteed not to route. A real
+# node address does not belong in a public repository, so this is what ships.
+# The service starts and stays healthy with it, warns that it will never sync,
+# and never dials anything. Set a real peer in an untracked config or in
+# UAASR_CONFIG. See docs/Security.md.
+ip = ["192.0.2.1"]
 port = 8333
 #start_block_hash = "000000000000000013675dba290a19dcec3bfa6a89764687da3ab5fdfe8fee5d"
 #start_block_height = 739859
@@ -29,7 +34,7 @@ save_txs = false
 
 
 [testnet]
-ip = [ "167.172.61.80"]  # Murphy machine
+ip = ["192.0.2.1"]
 
 port = 18333
 
@@ -77,11 +82,14 @@ save_txs = false
 #locking_script_pattern = "006a[0-9a-f]*"
 
 [database]
-postgres_url = "postgresql://uaas:uaas-password@localhost:5433/uaas_db"
-postgres_url_docker = "postgresql://uaas:uaas-password@host.docker.internal:5433/uaas_db"
-
-# postgres_url = "postgresql://uaas:uaas-password@localhost:5433/uaas_db"
-# postgres_url_docker = "postgresql://uaas:uaas-password@host.docker.internal:5433/uaas_db"
+# Placeholders, deliberately. This repository is public, so a working
+# connection URL must not live here. Supply one with UAAS_POSTGRES_URL, which
+# `uaas migrate`, the Rust service and the Python web API all read in
+# preference to this file; docker-compose.yml already sets it. Starting with
+# CHANGE-ME still in place fails with a message saying so rather than dialling
+# anything. See docs/Security.md.
+postgres_url = "postgresql://uaas:CHANGE-ME@localhost:5433/uaas_db"
+postgres_url_docker = "postgresql://uaas:CHANGE-ME@host.docker.internal:5433/uaas_db"
 
 ms_delay = 300
 retries = 6

@@ -88,6 +88,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+    environment:
+      # The tracked configs carry a CHANGE-ME placeholder, so the URL has to
+      # come from here. Local development credentials for the throwaway
+      # postgres container in this file, matching the roles created by
+      # init_database/postgres/01_roles_and_databases.sql.
+      UAAS_POSTGRES_URL: ${UAAS_POSTGRES_URL:-postgresql://uaas:uaas-password@postgres:5432/uaas_db}
     volumes:
       - ./data:/app/data
       - ./data/uaasr.docker.toml:/app/data/uaasr.toml:ro
@@ -108,6 +114,12 @@ services:
         condition: service_completed_successfully
       uaas_backend:
         condition: service_healthy
+    environment:
+      # The tracked configs carry a CHANGE-ME placeholder, so the URL has to
+      # come from here. Local development credentials for the throwaway
+      # postgres container in this file, matching the roles created by
+      # init_database/postgres/01_roles_and_databases.sql.
+      UAAS_POSTGRES_URL: ${UAAS_POSTGRES_URL:-postgresql://uaas:uaas-password@postgres:5432/uaas_db}
     healthcheck:
       test:
         [

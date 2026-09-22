@@ -134,11 +134,14 @@ fn start() -> Result<(), String> {
     let max_broadcast_tx_bytes = config.web_interface.max_broadcast_tx_bytes;
     let payload_limit = max_broadcast_tx_bytes.saturating_mul(2).max(1024);
 
-    let db_pool = db::build_pool(config.get_postgres_url()).map_err(|err| {
+    // Resolved before the pool is built so a placeholder is refused with a
+    // message about what to set, rather than surfacing as a URL parse failure.
+    let postgres_url = config.get_postgres_url()?;
+    let db_pool = db::build_pool(&postgres_url).map_err(|err| {
         log::error!("Problem connecting to database: {err:#}");
         format!(
             "Problem connecting to database. Check the database is running and \
-             database.postgres_url is correct: {err:#}"
+             that UAAS_POSTGRES_URL or database.postgres_url is correct: {err:#}"
         )
     })?;
 

@@ -2,6 +2,30 @@ use chain_gang::{network::Network, util::Hash256};
 use serde::{Deserialize, Serialize};
 use std::{env, io, net::IpAddr};
 
+/// What a tracked config carries in place of a real credential or address.
+///
+/// This repository is public, so `data/uaasr*.toml` must not hold a working
+/// connection URL or the address of a real node. A deployment supplies those
+/// through `UAAS_POSTGRES_URL` or an untracked config; what stays in the file
+/// is this marker, so a missing setting fails loudly and says what to set
+/// rather than quietly dialling something (CS-450).
+pub const CREDENTIAL_PLACEHOLDER: &str = "CHANGE-ME";
+
+/// The peer address the tracked configs ship with.
+///
+/// TEST-NET-1 (RFC 5737): a valid address that is guaranteed not to route, so
+/// the service starts, stays healthy and simply never syncs. That is why the
+/// peer list is not treated like the database URL — without a database nothing
+/// can work and refusing is right, whereas without a peer everything works
+/// except the one thing the operator came for. Refusing there would stop the
+/// compose stack coming up from a clean clone, which is a worse default than
+/// starting and saying so.
+///
+/// It warns rather than informs deliberately: `release_max_level_warn`
+/// compiles `info!` out of release builds, so an `info!` here would be
+/// invisible in exactly the deployment that needs it.
+pub const PLACEHOLDER_PEER: &str = "192.0.2.1";
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Service {
     pub user_agent: String,
@@ -169,6 +193,28 @@ impl Config {
         if settings.ip.is_empty() {
             return Err("network ip list must not be empty".into());
         }
+        // Before `get_ips`, which would otherwise report this as an address
+        // that failed to parse and leave the reader none the wiser.
+        if settings
+            .ip
+            .iter()
+            .any(|ip| ip.contains(CREDENTIAL_PLACEHOLDER))
+        {
+            return Err(format!(
+                "network ip list still contains the {CREDENTIAL_PLACEHOLDER} placeholder. \
+                 Set a peer address in a config that is not tracked by git."
+            ));
+        }
+        // Shipped default: valid, unroutable, and useless for syncing. Said
+        // once, loudly, rather than left to be inferred from a peer that never
+        // connects.
+        if settings.ip.iter().any(|ip| ip == PLACEHOLDER_PEER) {
+            log::warn!(
+                "peer address is the shipped placeholder {PLACEHOLDER_PEER}; the service \
+                 will start but will never sync. Set a real peer in a config that is not \
+                 tracked by git, or in UAASR_CONFIG."
+            );
+        }
         self.get_ips()?;
         self.get_network().map_err(|err| err.to_string())?;
         Hash256::decode(&settings.start_block_hash).map_err(|err| {
@@ -180,14 +226,48 @@ impl Config {
         Ok(())
     }
 
-    pub fn get_postgres_url(&self) -> &str {
-        // Return the connection URL for the current environment.
-
-        // APP_ENV=docker means that we are in docker, otherwise we are on raw machine :-)
-        match env::var_os("APP_ENV") {
-            Some(_) => &self.database.postgres_url_docker,
-            None => &self.database.postgres_url,
+    /// The libpq connection URL for this environment.
+    ///
+    /// `UAAS_POSTGRES_URL` wins over the config file. That is the same
+    /// variable `uaas migrate` already honours, so one setting serves both the
+    /// migration and the service, and a deployment never edits a tracked file
+    /// to supply a credential. This repository is public (CS-450).
+    ///
+    /// An empty value counts as unset, so `UAAS_POSTGRES_URL=` in a shell or a
+    /// compose file falls back to the config rather than failing to parse.
+    ///
+    /// Falling back, `APP_ENV=docker` selects the in-container host.
+    /// `python/src/database.py::connection_url` makes the same two choices in
+    /// the same order, and `test_requirements_source.py` pins that they agree —
+    /// a change here needs the same change there.
+    pub fn get_postgres_url(&self) -> Result<String, String> {
+        if let Some(url) = env::var_os("UAAS_POSTGRES_URL") {
+            let url = url.into_string().map_err(|_| {
+                "environment variable UAAS_POSTGRES_URL contains invalid UTF-8".to_string()
+            })?;
+            if !url.is_empty() {
+                return Ok(url);
+            }
         }
+
+        let (key, url) = match env::var_os("APP_ENV") {
+            Some(_) => ("postgres_url_docker", &self.database.postgres_url_docker),
+            None => ("postgres_url", &self.database.postgres_url),
+        };
+
+        // Refuse rather than dial. The tracked configs carry a placeholder, so
+        // reaching here with one means nothing supplied a real URL, and
+        // attempting the connection would fail with a parse error that says
+        // nothing about what to do.
+        if url.contains(CREDENTIAL_PLACEHOLDER) {
+            return Err(format!(
+                "database.{key} is still the {CREDENTIAL_PLACEHOLDER} placeholder. \
+                 Set UAAS_POSTGRES_URL, or point UAASR_CONFIG at a config that is \
+                 not tracked by git. Do not commit a real URL: this repository is \
+                 public."
+            ));
+        }
+        Ok(url.clone())
     }
 
     // Return the log level (as a log::Level type) from the config
@@ -398,16 +478,120 @@ filename = "../data/dynamic.toml"
         assert_eq!(config.service.network, "testnet");
     }
 
+    /// Serialises the tests that mutate process environment.
+    ///
+    /// `set_var` is process-wide and the harness runs tests on several
+    /// threads, so without this `cfg03` and `cfg14`–`cfg16` race: one clears
+    /// `APP_ENV` or `UAAS_POSTGRES_URL` while another is relying on it. cfg03
+    /// predates the others and was already unguarded; it is included here
+    /// rather than left as the one that can still lose.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Clears both variables this module sets, so a test starts from a known
+    /// state whatever ran before and whatever panicked.
+    fn clear_env() {
+        unsafe {
+            std::env::remove_var("APP_ENV");
+            std::env::remove_var("UAAS_POSTGRES_URL");
+        }
+    }
+
     #[test]
     fn cfg03_uses_docker_postgres_url_when_app_env_set() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
         let config = sample_config();
         unsafe {
             std::env::set_var("APP_ENV", "docker");
         }
-        assert_eq!(config.get_postgres_url(), "postgresql://docker");
+        let url = config
+            .get_postgres_url()
+            .expect("sample config has a real url");
+        clear_env();
+        assert_eq!(url, "postgresql://docker");
+    }
+
+    #[test]
+    fn cfg14_the_environment_url_wins_over_the_config_file() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        let config = sample_config();
         unsafe {
-            std::env::remove_var("APP_ENV");
+            std::env::set_var("UAAS_POSTGRES_URL", "postgresql://from-the-environment");
         }
+        let url = config.get_postgres_url();
+        clear_env();
+        assert_eq!(
+            url.expect("an environment url is accepted"),
+            "postgresql://from-the-environment",
+            "UAAS_POSTGRES_URL must win, or a deployment has to edit a tracked file"
+        );
+    }
+
+    #[test]
+    fn cfg15_an_empty_environment_url_falls_back_to_the_config() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        let config = sample_config();
+        unsafe {
+            // What `UAAS_POSTGRES_URL=` in a shell or an unset compose
+            // interpolation produces. Treated as absent rather than as a URL
+            // that cannot parse.
+            std::env::set_var("UAAS_POSTGRES_URL", "");
+        }
+        let url = config.get_postgres_url();
+        clear_env();
+        assert_eq!(url.expect("falls back"), "postgresql://local");
+    }
+
+    #[test]
+    fn cfg16_a_placeholder_url_is_refused_and_says_what_to_set() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        let mut config = sample_config();
+        config.database.postgres_url =
+            format!("postgresql://uaas:{CREDENTIAL_PLACEHOLDER}@localhost/uaas_db");
+        let err = config
+            .get_postgres_url()
+            .expect_err("a placeholder must not be dialled");
+        clear_env();
+        assert!(
+            err.contains("UAAS_POSTGRES_URL"),
+            "the message must name what to set, got: {err}"
+        );
+        assert!(
+            err.contains("postgres_url"),
+            "and which key is at fault, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cfg17_a_placeholder_peer_address_is_refused_before_it_is_parsed() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        let mut config = sample_config();
+        config.testnet.ip = vec![CREDENTIAL_PLACEHOLDER.to_string()];
+        let err = config
+            .validate_startup()
+            .expect_err("a placeholder peer address must not start the service");
+        assert!(
+            err.contains(CREDENTIAL_PLACEHOLDER),
+            "the message must name the placeholder rather than report a parse \
+             failure, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cfg18_the_shipped_placeholder_peer_still_starts_the_service() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        let mut config = sample_config();
+        config.testnet.ip = vec![PLACEHOLDER_PEER.to_string()];
+        // Unroutable, so it never syncs — but it must not stop startup, or
+        // `docker compose up` fails from a clean clone.
+        config
+            .validate_startup()
+            .expect("the shipped placeholder peer must not refuse startup");
     }
 
     #[test]

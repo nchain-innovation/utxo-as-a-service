@@ -72,12 +72,18 @@ Information used to configure the Rust database connection
 ```toml
 [database]
 
-postgres_url = "postgresql://uaas:uaas-password@localhost:5433/uaas_db"
-postgres_url_docker = "postgresql://uaas:uaas-password@postgres:5432/uaas_db"
+postgres_url = "postgresql://uaas:CHANGE-ME@localhost:5433/uaas_db"
+postgres_url_docker = "postgresql://uaas:CHANGE-ME@host.docker.internal:5433/uaas_db"
 
 ms_delay = 300
 retries = 6
 ```
+
+The two URLs are placeholders in the tracked config: this repository is public,
+so a working one must not be committed. `UAAS_POSTGRES_URL` overrides both and
+is what `docker-compose.yml` sets; the service refuses to start if neither it
+nor an untracked config supplies a real URL. See
+[Security.md](Security.md#credentials).
 
 * `postgres_url` - libpq connection URL for the database, used by the Rust service on the local machine
 * `postgres_url_docker` - as `postgres_url` but for use in a Docker container, where the host is the compose service name and the port is the container's own, not the published one
