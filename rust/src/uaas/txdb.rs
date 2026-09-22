@@ -8,6 +8,7 @@ use chain_gang::util::{Hash256, Serializable};
 use crate::db::PooledConn;
 
 use super::database::{DBOperationType, MempoolEntryDB, TxEntryWriteDB};
+use super::util::sum_output_satoshis;
 
 // Used for loading tx from mempool table
 pub struct MempoolEntryReadDB {
@@ -172,7 +173,14 @@ impl TxDB {
 
     // save the tx to the database
     fn save_tx(&mut self, tx: &Tx, hash: Hash256, blockindex: u32, height: usize) {
-        let satoshi_sum: i64 = tx.outputs.iter().map(|x| x.satoshis).sum();
+        // Checked: the `try_into` below guards the narrowing to u64, not the
+        // addition that produces the value being narrowed. Unchecked, that
+        // `sum()` panicked in a debug build and wrapped in a release one, so
+        // the guard that looked like it covered this case never did (CS-435).
+        let Some(satoshi_sum) = sum_output_satoshis(tx) else {
+            log::warn!("Skipping tx {hash:?}: summing output amounts overflows i64");
+            return;
+        };
         let satoshi_out: u64 = match satoshi_sum.try_into() {
             Ok(value) => value,
             Err(_) => {

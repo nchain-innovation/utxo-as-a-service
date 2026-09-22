@@ -16,6 +16,7 @@ use crate::{
         database::DBOperationType,
         spend_id::{provisional_id, SpendId},
         txdb::TxDB,
+        util::sum_output_satoshis,
         utxo::{Conflict, Displaced, NewOutput, SpendClaim, Utxo},
     },
 };
@@ -594,22 +595,66 @@ impl TxAnalyser {
         }
     }
 
+    /// The fee this transaction pays, or 0 if it cannot be determined.
+    ///
+    /// Every step is checked. The amounts come straight off the P2P network
+    /// and nothing validates them against the supply cap, so a crafted
+    /// transaction can overflow `i64`: unchecked, that panics in a debug build
+    /// and wraps silently in a release one, storing a wrong fee in the
+    /// `mempool` table with nothing logged (CS-435).
+    ///
+    /// **0 on overflow, not a saturated value.** This function already returns
+    /// 0 for "an input is missing, so the fee is unknowable", so overflow
+    /// joins an existing signal rather than inventing a second one — and a
+    /// saturated fee would be a plausible number that is wrong. 0 is also a
+    /// legitimate fee, so the two are indistinguishable to a reader of the
+    /// table; that ambiguity predates this change, and the `warn!` is what
+    /// makes the overflow case visible.
+    ///
+    /// Reaching this needs roughly four thousand maximum-value outputs in one
+    /// transaction. It will not happen by accident, which is the point: it is
+    /// the arithmetic being unstated that is the defect, not the odds.
     fn calc_fee(&self, tx: &Tx) -> i64 {
-        // Given the tx attempt to determine the fee, return 0 if unable to calculate
-        let mut inputs = 0i64;
+        // "Could not determine", this function's existing convention.
+        const UNKNOWN: i64 = 0;
+
+        let mut inputs: i64 = 0;
         for vin in tx.inputs.iter() {
-            if let Some(satoshis) = self.utxo.get_satoshis(&vin.prev_output) {
-                inputs += satoshis;
-            } else {
-                // if any of the inputs are missing then return 0
-                return 0;
-            }
+            // An input this service does not hold: the fee is unknowable.
+            let Some(satoshis) = self.utxo.get_satoshis(&vin.prev_output) else {
+                return UNKNOWN;
+            };
+            let Some(total) = inputs.checked_add(satoshis) else {
+                log::warn!(
+                    "Fee not calculated for {:?}: summing input amounts overflows i64",
+                    tx.hash()
+                );
+                return UNKNOWN;
+            };
+            inputs = total;
         }
-        let outputs: i64 = tx.outputs.iter().map(|vout| vout.satoshis).sum();
-        // Determine the difference between the inputs and the outputs
-        let fee = inputs - outputs;
-        //log::info!("fee={} ({} - {})", fee, inputs, outputs);
-        // Don't return a negative fee, it must be at least 0
+
+        let Some(outputs) = sum_output_satoshis(tx) else {
+            log::warn!(
+                "Fee not calculated for {:?}: summing output amounts overflows i64",
+                tx.hash()
+            );
+            return UNKNOWN;
+        };
+
+        // Can overflow even when both totals fit: a negative output amount is
+        // representable and nothing has rejected one.
+        let Some(fee) = inputs.checked_sub(outputs) else {
+            log::warn!(
+                "Fee not calculated for {:?}: inputs {inputs} minus outputs {outputs} \
+                 overflows i64",
+                tx.hash()
+            );
+            return UNKNOWN;
+        };
+
+        // A negative fee means the transaction pays out more than it takes in,
+        // which is not valid; report no fee rather than a negative one.
         cmp::max(0i64, fee)
     }
 
@@ -1006,6 +1051,100 @@ mod tests {
             lock_time: 0,
         };
         (build(900, 0xcc), build(800, 0xdd))
+    }
+
+    // --- CS-435: the fee arithmetic is checked ---------------------------
+
+    /// Spend `prev_output`, paying the given amounts.
+    fn tx_spending(prev_output: OutPoint, amounts: &[i64]) -> Tx {
+        Tx {
+            version: 2,
+            inputs: vec![TxIn {
+                prev_output,
+                unlock_script: Script(vec![0x51]),
+                ..TxIn::default()
+            }],
+            outputs: amounts
+                .iter()
+                .map(|satoshis| TxOut {
+                    satoshis: *satoshis,
+                    lock_script: p2pkh_script(0xfe),
+                })
+                .collect(),
+            lock_time: 0,
+        }
+    }
+
+    #[test]
+    fn fee01_an_ordinary_fee_is_still_calculated() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("fee01_ordinary") else {
+            return;
+        };
+
+        let funding = funding_tx(0x61);
+        analyser.process_block_tx(&funding, 600, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        // 1000 in, 900 out.
+        let spend = tx_spending(outpoint, &[900]);
+        assert_eq!(analyser.calc_fee(&spend), 100);
+    }
+
+    /// The case the change exists for. Unchecked, summing these outputs
+    /// panicked in a debug build — which is what this test runs in — and
+    /// wrapped silently in a release one.
+    #[test]
+    fn fee02_outputs_that_overflow_give_no_fee_rather_than_a_panic() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("fee02_output_overflow") else {
+            return;
+        };
+
+        let funding = funding_tx(0x62);
+        analyser.process_block_tx(&funding, 610, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let spend = tx_spending(outpoint, &[i64::MAX, i64::MAX]);
+        assert_eq!(
+            analyser.calc_fee(&spend),
+            0,
+            "an unsummable output total must report no fee, not a wrapped one"
+        );
+    }
+
+    /// And the whole path stays up: `process_standalone_tx` calls `calc_fee`
+    /// before anything else, so an overflow there used to take the thread down
+    /// rather than skipping one fee.
+    #[test]
+    fn fee03_a_transaction_with_unsummable_outputs_is_still_processed() {
+        let Some((mut analyser, _rx)) = analyser_with_live_db("fee03_standalone_survives") else {
+            return;
+        };
+
+        let funding = funding_tx(0x63);
+        analyser.process_block_tx(&funding, 620, 0);
+        let outpoint = OutPoint {
+            hash: funding.hash(),
+            index: 0,
+        };
+
+        let spend = tx_spending(outpoint.clone(), &[i64::MAX, i64::MAX]);
+        analyser.process_standalone_tx(&spend, false);
+
+        assert!(
+            analyser.txdb.mempool.contains_key(&spend.hash()),
+            "the transaction is still recorded; only its fee is unknown"
+        );
+        assert_eq!(
+            analyser.utxo.get_satoshis(&outpoint),
+            None,
+            "and it still spends its input"
+        );
     }
 
     // --- CS-439: a block overrules an unmined claim ----------------------
