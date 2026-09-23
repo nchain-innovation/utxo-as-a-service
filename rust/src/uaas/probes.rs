@@ -51,7 +51,7 @@ use chain_gang::{
 };
 
 use crate::{
-    config::CollectionConfig,
+    config::{CollectionConfig, MatchProperty},
     uaas::{collection::WorkingCollection, script_asm::assemble},
 };
 
@@ -90,10 +90,40 @@ fn collection_for(pattern: &str) -> WorkingCollection {
             track_descendants: false,
             address: None,
             locking_script_pattern: Some(pattern.to_string()),
+            require: MatchProperty::BytesPresent,
         },
         Network::BSV_Testnet,
     )
     .expect("probe pattern compiles")
+}
+
+/// The same pattern, requiring the strict property (CS-415).
+fn strict_collection_for(pattern: &str) -> WorkingCollection {
+    WorkingCollection::new(
+        CollectionConfig {
+            name: "probe-strict".to_string(),
+            track_descendants: false,
+            address: None,
+            locking_script_pattern: Some(pattern.to_string()),
+            require: MatchProperty::SignatureOperand,
+        },
+        Network::BSV_Testnet,
+    )
+    .expect("probe pattern compiles")
+}
+
+fn strict_collection_for_address(address: &str) -> WorkingCollection {
+    WorkingCollection::new(
+        CollectionConfig {
+            name: "probe-strict-address".to_string(),
+            track_descendants: false,
+            address: Some(address.to_string()),
+            locking_script_pattern: None,
+            require: MatchProperty::SignatureOperand,
+        },
+        Network::BSV_Testnet,
+    )
+    .expect("probe address compiles")
 }
 
 fn collection_for_address(address: &str) -> WorkingCollection {
@@ -103,6 +133,7 @@ fn collection_for_address(address: &str) -> WorkingCollection {
             track_descendants: false,
             address: Some(address.to_string()),
             locking_script_pattern: None,
+            require: MatchProperty::BytesPresent,
         },
         Network::BSV_Testnet,
     )
@@ -151,7 +182,7 @@ fn probe_baseline_a_genuine_p2pkh_output_is_collected() {
 /// TODO(CS-415): a structural matcher must not collect this. Invert to
 /// `assert!(!collects(...))` and drop the `_today` suffix.
 #[test]
-fn probe_a_p2pkh_template_as_op_return_data_is_collected_today() {
+fn probe_a_p2pkh_template_as_op_return_data_is_collected_under_bytes_present() {
     let collection = collection_for(P2PKH_PATTERN);
 
     // 6a 19 76a914<h160>88ac
@@ -176,7 +207,7 @@ fn probe_a_p2pkh_template_as_op_return_data_is_collected_today() {
 ///
 /// TODO(CS-415): must not be collected once branch structure is understood.
 #[test]
-fn probe_b_op_return_inside_a_branch_is_collected_today() {
+fn probe_b_op_return_inside_a_branch_is_collected_under_bytes_present() {
     let collection = collection_for(P2PKH_PATTERN);
 
     // 63 6a 68 19 76a914<h160>88ac
@@ -205,7 +236,7 @@ fn probe_b_op_return_inside_a_branch_is_collected_today() {
 /// TODO(CS-415): the match must sit on an executable path terminating in a
 /// signature check over that operand.
 #[test]
-fn probe_c_key_dropped_before_any_checksig_is_collected_today() {
+fn probe_c_key_dropped_before_any_checksig_is_collected_under_bytes_present() {
     let collection = collection_for(&pubkey_pattern());
 
     // 21<pubkey> 75 00 6a
@@ -243,7 +274,7 @@ fn probe_c_key_dropped_before_any_checksig_is_collected_today() {
 /// TODO(CS-415): all four must match, on the element rather than its
 /// encoding.
 #[test]
-fn probe_d_the_same_element_matches_under_only_two_of_four_encodings_today() {
+fn probe_d_the_same_element_matches_under_only_two_of_four_encodings_under_bytes_present() {
     let collection = collection_for(&pubkey_pattern());
 
     let cases: [(&str, &str, bool, &str); 4] = [
@@ -318,7 +349,7 @@ fn probe_d_the_four_encodings_carry_an_identical_element() {
 /// TODO(CS-415): an address monitor must select only outputs that actually
 /// pay that address.
 #[test]
-fn probe_e_address_derived_pattern_matches_a_forged_copy_today() {
+fn probe_e_address_derived_pattern_matches_a_forged_copy_under_bytes_present() {
     let hash160 = Hash160(
         hex::decode(FIN_H160)
             .expect("h160 hex")
@@ -379,6 +410,7 @@ fn probe_g_pathological_patterns_are_rejected_before_they_reach_the_engine() {
                 track_descendants: false,
                 address: None,
                 locking_script_pattern: Some(pattern.to_string()),
+                require: MatchProperty::BytesPresent,
             },
             Network::BSV_Testnet,
         );
@@ -619,4 +651,173 @@ fn write_fuzz_seed_corpus() {
             path.display()
         );
     }
+}
+
+// --- CS-415: the same corpus under the strict property -------------------
+//
+// Each probe above documents what `BytesPresent` establishes. These are the
+// inversions: the same fixtures, asked the question consumers were already
+// assuming the answer to.
+
+/// The genuine article must survive the tightening, or the property is useless.
+#[test]
+fn probe_baseline_strict_a_genuine_p2pkh_output_is_still_collected() {
+    let collection = strict_collection_for(P2PKH_PATTERN);
+    let script = asm(&format!(
+        "OP_DUP OP_HASH160 0x{FIN_H160} OP_EQUALVERIFY OP_CHECKSIG"
+    ));
+    assert!(
+        collects(&collection, script),
+        "the h160 is compared against HASH160 of the key OP_CHECKSIG verifies, \
+         so it is a signature-check operand"
+    );
+}
+
+/// Probe A inverted: data after a top-level `OP_RETURN` is not script.
+#[test]
+fn probe_a_strict_op_return_data_is_not_collected() {
+    let collection = strict_collection_for(P2PKH_PATTERN);
+    let script = asm(&format!("OP_RETURN 0x76a914{FIN_H160}88ac"));
+    assert!(
+        !collects(&collection, script),
+        "the template is pushed data after OP_RETURN; nothing executes it"
+    );
+}
+
+/// Probe B inverted. The `OP_RETURN` is inside a branch so it does not end the
+/// script — but the template is still a **push element**, not opcodes, and
+/// that is what the strict property rejects.
+#[test]
+fn probe_b_strict_a_template_inside_a_push_is_not_collected() {
+    let collection = strict_collection_for(P2PKH_PATTERN);
+    let script = asm(&format!("OP_IF OP_RETURN OP_ENDIF 0x76a914{FIN_H160}88ac"));
+    assert!(
+        !collects(&collection, script),
+        "the match lands inside one push element, so it found data not script"
+    );
+}
+
+/// Probe C inverted, and the one alignment alone cannot catch: this match is
+/// perfectly token-aligned. The key is pushed on an executable path and then
+/// dropped, so it never reaches a signature check.
+#[test]
+fn probe_c_strict_a_dropped_key_is_not_collected() {
+    let collection = strict_collection_for(&pubkey_pattern());
+    let script = asm(&format!("0x{PUBKEY} OP_DROP OP_0 OP_RETURN"));
+    assert!(
+        !collects(&collection, script),
+        "pushed, then OP_DROPped: no signature check ever sees it"
+    );
+}
+
+/// Probe D inverted. Under `BytesPresent` the four encodings answer
+/// `true, true, false, false` — the second `true` an accident of
+/// `OP_PUSHDATA1`'s length byte. Under the strict property all four answer
+/// **the same**, because none of these fixtures contains a signature check at
+/// all. The encoding sensitivity disappears because the element is compared,
+/// not the bytes that introduce it.
+#[test]
+fn probe_d_strict_all_four_encodings_answer_identically() {
+    let collection = strict_collection_for(&pubkey_pattern());
+    for src in [
+        format!("0x{PUBKEY}"),
+        format!("OP_PUSHDATA1 0x{PUBKEY}"),
+        format!("OP_PUSHDATA2 0x{PUBKEY}"),
+        format!("OP_PUSHDATA4 0x{PUBKEY}"),
+    ] {
+        assert!(
+            !collects(&collection, asm(&src)),
+            "{src}: a bare push reaches no signature check, whatever the encoding"
+        );
+    }
+}
+
+/// And the property **is** encoding-independent — but only for a pattern that
+/// describes the element rather than the opcode that introduces it.
+///
+/// `pubkey_pattern()` embeds the `21` push opcode, so it is encoding-specific
+/// by construction and no property can rescue that: under `OP_PUSHDATA1` the
+/// bytes `21 <key>` start one byte into the token and align to nothing. That
+/// is a limitation of the pattern, not of the strict property.
+///
+/// Written against the 33-byte element alone, the same key is collected under
+/// all four encodings, because rule 1 accepts a match that covers exactly one
+/// push element and the tokeniser exposes that element independently of how it
+/// was pushed.
+#[test]
+fn probe_d_strict_an_element_pattern_is_encoding_independent() {
+    let collection = strict_collection_for(PUBKEY);
+    for src in [
+        format!("0x{PUBKEY} OP_CHECKSIG"),
+        format!("OP_PUSHDATA1 0x{PUBKEY} OP_CHECKSIG"),
+        format!("OP_PUSHDATA2 0x{PUBKEY} OP_CHECKSIG"),
+        format!("OP_PUSHDATA4 0x{PUBKEY} OP_CHECKSIG"),
+    ] {
+        assert!(
+            collects(&collection, asm(&src)),
+            "{src}: the element is the CHECKSIG operand under every encoding"
+        );
+    }
+}
+
+/// Probe E inverted: an address monitor is no longer satisfied by a forged
+/// copy of its own script.
+#[test]
+fn probe_e_strict_a_forged_copy_does_not_satisfy_an_address_monitor() {
+    let hash160 = Hash160(
+        hex::decode(FIN_H160)
+            .expect("h160 hex")
+            .try_into()
+            .expect("20 bytes"),
+    );
+    let address = addr_encode(&hash160, AddressType::P2PKH, Network::BSV_Testnet);
+    let collection = strict_collection_for_address(&address);
+
+    let genuine = asm(&format!(
+        "OP_DUP OP_HASH160 0x{FIN_H160} OP_EQUALVERIFY OP_CHECKSIG"
+    ));
+    assert!(
+        collects(&collection, genuine.clone()),
+        "a real payment to that address must still be selected"
+    );
+
+    let forged = asm(&format!("OP_RETURN 0x{}", hex::encode(&genuine)));
+    assert!(
+        !collects(&collection, forged),
+        "the same 25 bytes re-pushed as OP_RETURN data must not be"
+    );
+}
+
+/// The data-protocol collections must be untouched by this. `dsa` and `CoCv1`
+/// match `OP_RETURN` payloads, which are data by definition — requiring the
+/// strict property of them would empty them, which is why it is opt-in.
+#[test]
+fn probe_strict_is_opt_in_so_op_return_collections_are_unaffected() {
+    let payload_pattern = "006a[0-9a-f]*";
+    let script = asm("OP_0 OP_RETURN 0xdeadbeef");
+
+    let permissive = collection_for(payload_pattern);
+    assert!(
+        collects(&permissive, script.clone()),
+        "the default property still selects an OP_RETURN payload"
+    );
+
+    let strict = strict_collection_for(payload_pattern);
+    assert!(
+        !collects(&strict, script),
+        "and the strict property would not, which is why nothing gets it by default"
+    );
+}
+
+/// The analysis is conservative: what it cannot model answers "no", never
+/// "probably". A branch is the clearest case — whether it executes depends on
+/// the unlocking script, which an output does not carry.
+#[test]
+fn probe_strict_an_unmodelled_construct_answers_no_rather_than_guessing() {
+    let collection = strict_collection_for(&pubkey_pattern());
+    let script = asm(&format!("OP_IF 0x{PUBKEY} OP_CHECKSIG OP_ENDIF"));
+    assert!(
+        !collects(&collection, script),
+        "a CHECKSIG inside a branch cannot be proven reachable from the output alone"
+    );
 }

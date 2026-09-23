@@ -9,6 +9,7 @@ pub mod hex_pattern;
 #[cfg(test)]
 mod hexslice;
 pub mod logic;
+pub mod reachability;
 // Test-only: the adversarial fixture corpus (CS-405).
 #[cfg(test)]
 mod probes;
