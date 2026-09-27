@@ -125,6 +125,12 @@ Nothing creates tables at startup any more. The service asserts the schema versi
 
 Both components read the same database and the same connection URL. See [docs/Database.md](docs/Database.md).
 
+### Backfilling from a node's chainstate
+
+The service only knows about outputs it has seen on the wire since it started, and the P2P protocol has no way to ask for the rest. A node's `chainstate` holds the current UTXO set, and `uaas-load-utxo` loads a reviewed export of it into `utxo` and `utxo_monitor`. The service must be stopped: it caches the spendable set in memory at startup, and the loader refuses to run while anything is attached to the database.
+
+See [docs/Backfill.md](docs/Backfill.md).
+
 ## Docker
 Encapsulating the service in Docker removes the need to install the project dependencies on the host machine.
 Only Docker is required to build and run the service and web interface.
