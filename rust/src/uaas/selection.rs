@@ -80,7 +80,7 @@ pub fn select(collections: &[WorkingCollection], script: &[u8]) -> Option<Select
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::CollectionConfig;
+    use crate::config::{CollectionConfig, MatchProperty};
     use chain_gang::network::Network;
 
     fn collection(name: &str, pattern: &str) -> WorkingCollection {
@@ -90,6 +90,11 @@ mod tests {
                 track_descendants: false,
                 address: None,
                 locking_script_pattern: Some(pattern.to_string()),
+                // These tests are about which monitors a pattern selects and
+                // which capture becomes the identifier, not about CS-415's
+                // structural property. Stated rather than defaulted so a change
+                // to the default cannot quietly change what they cover.
+                require: MatchProperty::BytesPresent,
             },
             Network::BSV_Testnet,
         )

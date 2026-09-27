@@ -10,7 +10,7 @@ use chain_gang::network::Network;
 use chain_gang::util::Serializable;
 
 use uaas::candidate_export::{txid_from_display, Candidate, Export};
-use uaas::config::CollectionConfig;
+use uaas::config::{CollectionConfig, MatchProperty};
 use uaas::loader::{decide, LoadTotals, Verdict};
 use uaas::uaas::collection::WorkingCollection;
 
@@ -34,6 +34,10 @@ fn collection(name: &str, pattern: &str) -> WorkingCollection {
             track_descendants: false,
             address: None,
             locking_script_pattern: Some(pattern.to_string()),
+            // The parity this file asserts is between the loader and the live
+            // path under one property. CS-415's strict property is a separate
+            // axis with its own corpus in `probes.rs`.
+            require: MatchProperty::BytesPresent,
         },
         Network::BSV_Testnet,
     )
