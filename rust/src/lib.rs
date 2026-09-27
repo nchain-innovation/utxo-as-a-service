@@ -24,8 +24,14 @@
 extern crate lazy_static;
 
 // Used by the binary.
+// Reading a reviewed chainstate export (CS-448 format). Public because the
+// backfill binary is a separate crate that links this one.
+pub mod candidate_export;
 pub mod config;
 pub mod db;
+// The backfill loader (CS-449). In the library rather than the bin target so
+// it can be tested: a src/bin crate is one nothing else can link.
+pub mod loader;
 pub mod migrate;
 pub mod peer_event;
 pub mod rate_limit;

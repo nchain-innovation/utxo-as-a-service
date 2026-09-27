@@ -2,6 +2,11 @@
 name = "uaas"
 version = "1.4.0"
 edition = "2021"
+# Required now that there are two binaries. Without it `cargo run` refuses to
+# choose, which breaks `cargo run -- migrate` in CI and in the documented
+# local setup -- a second binary is not supposed to change how the first one
+# is invoked.
+default-run = "uaas"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,6 +30,13 @@ r2d2_postgres = "0.18.2"
 chrono = "0.4.45"
 rand = "0.10.2"
 hex = "0.4.3"
+# Streaming SHA-256, for verifying an export against the digests in its
+# manifest. chain-gang exposes a one-shot sha256 over a slice, which would mean
+# holding the whole file in memory: a testnet export's script sidecar measured
+# 818 MB and a mainnet one is larger. This crate is already compiled as a
+# transitive dependency of chain-gang, so naming it directly pulls in no new
+# code -- only the edge.
+sha2 = "0.11.0"
 regex = "1.12.3"
 retry = "2.2.0"
 actix-web = { version = "4.14.0", features = ["macros"] }
@@ -32,6 +44,22 @@ tokio = { version = "1.52", features = ["signal", "macros"] }
 log = { version = "0.4.33", features = ["max_level_trace", "release_max_level_warn"] }
 simple_logger = "5.2.0"
 anyhow = "1.0.102"
+
+# Both binaries named explicitly. Declaring one [[bin]] turns off Cargo's
+# automatic discovery of src/main.rs, so the service would silently stop being
+# built -- the kind of failure that shows up at deploy time.
+[[bin]]
+name = "uaas"
+path = "src/main.rs"
+
+# The backfill loader (CS-449). A second binary in this crate rather than a
+# separate one, so the pattern matcher, the config types and EXPECTED_VERSION
+# are shared rather than duplicated. Note that docker/Rust_Dockerfile copies
+# only /app/bin/uaas, so shipping this in the image is a deliberate choice
+# still to be made.
+[[bin]]
+name = "uaas-load-utxo"
+path = "src/bin/uaas-load-utxo.rs"
 
 [features]
 # Introduce random orphans into the download stream
