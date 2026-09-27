@@ -96,12 +96,53 @@ pub struct LoggingConfig {
     pub level: String,
 }
 
+/// What a collection requires of a locking script before it selects it.
+///
+/// Three independent properties were conflated before CS-415, and only the
+/// first was ever established:
+///
+/// 1. the script **contains bytes** matching the pattern — anyone can arrange
+///    this for the cost of a dust output;
+/// 2. the output is spendable at all;
+/// 3. the pattern matches **executable script** and the element it selects is
+///    an operand to a signature check.
+///
+/// Downstream consumers were reading (1) as though it were (3).
+#[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchProperty {
+    /// Property 1: the bytes appear somewhere in the script.
+    ///
+    /// The default, so every existing config file, dynamic-config file and
+    /// `POST /collection/monitor` body keeps its current behaviour. The
+    /// data-protocol collections want exactly this: `dsa` and `CoCv1` match
+    /// `OP_RETURN` payloads, which are data by definition and can never
+    /// satisfy the strict property.
+    #[default]
+    BytesPresent,
+    /// Property 3: the match covers whole opcodes on an executable path, and
+    /// the element it selects reaches a signature check.
+    ///
+    /// Opt-in per collection. **Not** suitable for `1sat`: an inscription
+    /// envelope lives in a branch that never executes and is not an operand to
+    /// anything, so requiring this would empty that collection rather than
+    /// tighten it.
+    SignatureOperand,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct CollectionConfig {
     pub name: String,
     pub track_descendants: bool,
     pub address: Option<String>,
     pub locking_script_pattern: Option<String>,
+    /// Defaulted, because this type is three wire formats at once: the TOML
+    /// config, the `POST /collection/monitor` request body (`rest_api.rs`) and
+    /// the serialised dynamic monitor file (`dynamic_config.rs`). A bare enum
+    /// field here is a hard parse error on every existing file and a 4xx on
+    /// every existing client; measured, not assumed — see cfg19.
+    #[serde(default)]
+    pub require: MatchProperty,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -592,6 +633,77 @@ filename = "../data/dynamic.toml"
         config
             .validate_startup()
             .expect("the shipped placeholder peer must not refuse startup");
+    }
+
+    /// The compatibility criterion, and the reason the field is
+    /// `#[serde(default)]` rather than bare.
+    ///
+    /// `CollectionConfig` is three wire formats at once: the TOML config, the
+    /// `POST /collection/monitor` request body, and the serialised dynamic
+    /// monitor file. Measured rather than assumed — a bare enum field is a
+    /// hard parse error when absent, which would break every existing dynamic
+    /// config on upgrade and 4xx every existing API client.
+    #[test]
+    fn cfg19_an_existing_collection_without_the_field_still_parses() {
+        // TOML: an existing config file or dynamic monitor file.
+        let toml_without = r#"
+            name = "legacy"
+            track_descendants = false
+            locking_script_pattern = "76a914[0-9a-f]{40}88ac"
+        "#;
+        let parsed: CollectionConfig =
+            toml::from_str(toml_without).expect("a config written before CS-415 must still parse");
+        assert_eq!(
+            parsed.require,
+            MatchProperty::BytesPresent,
+            "and must keep the behaviour it had"
+        );
+
+        // JSON: an existing POST /collection/monitor body.
+        let json_without = r#"{
+            "name": "legacy",
+            "track_descendants": false,
+            "address": null,
+            "locking_script_pattern": "76a914[0-9a-f]{40}88ac"
+        }"#;
+        let parsed: CollectionConfig =
+            serde_json::from_str(json_without).expect("an existing API client must not 4xx");
+        assert_eq!(parsed.require, MatchProperty::BytesPresent);
+    }
+
+    /// And the field can be set, in both formats, or it is not opt-in at all.
+    #[test]
+    fn cfg20_the_strict_property_can_be_requested_in_either_format() {
+        let from_toml: CollectionConfig = toml::from_str(
+            r#"
+            name = "strict"
+            track_descendants = false
+            locking_script_pattern = "76a914[0-9a-f]{40}88ac"
+            require = "signature_operand"
+        "#,
+        )
+        .expect("the opt-in must parse from TOML");
+        assert_eq!(from_toml.require, MatchProperty::SignatureOperand);
+
+        let from_json: CollectionConfig = serde_json::from_str(
+            r#"{
+            "name": "strict",
+            "track_descendants": false,
+            "address": null,
+            "locking_script_pattern": "76a914[0-9a-f]{40}88ac",
+            "require": "signature_operand"
+        }"#,
+        )
+        .expect("and from an API body");
+        assert_eq!(from_json.require, MatchProperty::SignatureOperand);
+
+        // Round-trips, because the dynamic config file is written by this
+        // type as well as read by it.
+        let written = toml::to_string(&from_toml).expect("serialises");
+        assert!(
+            written.contains("signature_operand"),
+            "the opt-in must survive being written back, got: {written}"
+        );
     }
 
     #[test]

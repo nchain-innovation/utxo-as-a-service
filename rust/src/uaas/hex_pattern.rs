@@ -326,6 +326,15 @@ impl ScriptMatcher {
         self.regex.is_match(script)
     }
 
+    /// Where the pattern matched, as a byte range into `script`.
+    ///
+    /// The strict property needs the position, not just the fact: a match
+    /// inside a push element has found data rather than script, and only its
+    /// offset distinguishes the two (CS-415).
+    pub fn match_range(&self, script: &[u8]) -> Option<std::ops::Range<usize>> {
+        self.regex.find(script).map(|m| m.start()..m.end())
+    }
+
     // Not called yet: the consumer is the utxo.identifier column introduced by
     // the PostgreSQL migration, and the backfill tool that shares this matcher.
     // Kept here rather than deferred because the two must agree about what an

@@ -4,8 +4,8 @@ use std::time::Instant;
 use crate::db::PooledConn;
 
 use crate::{
-    config::{CollectionConfig, Config},
-    uaas::hex_pattern::ScriptMatcher,
+    config::{CollectionConfig, Config, MatchProperty},
+    uaas::{hex_pattern::ScriptMatcher, reachability},
 };
 use anyhow::{anyhow, Result};
 use chain_gang::{
@@ -175,6 +175,9 @@ impl WorkingCollection {
             track_descendants: false,
             address: None,
             locking_script_pattern: None,
+            // Carries no pattern, so nothing is ever matched against it and
+            // the property is not consulted. The default keeps it honest.
+            require: MatchProperty::default(),
         };
 
         WorkingCollection {
@@ -221,10 +224,31 @@ impl WorkingCollection {
     /// Match the script bytes directly. Encoding to hex cost more than the
     /// match itself and allowed nibble-misaligned matches; the pattern was
     /// translated to bytes at compile time.
+    /// Whether this collection selects `script`, under the property it requires.
+    ///
+    /// `BytesPresent` is the pattern match as it has always been. Under
+    /// `SignatureOperand` the match must additionally cover whole opcodes — or
+    /// exactly one push element — on an executable path, and the element it
+    /// selects must reach a signature check (CS-415).
     pub fn matches_script(&self, script: &[u8]) -> bool {
-        self.locking_script_regex
-            .as_ref()
-            .is_some_and(|matcher| matcher.is_match(script))
+        let Some(matcher) = self.locking_script_regex.as_ref() else {
+            return false;
+        };
+        match self.collection.require {
+            MatchProperty::BytesPresent => matcher.is_match(script),
+            MatchProperty::SignatureOperand => matcher
+                .match_range(script)
+                .is_some_and(|range| reachability::is_signature_operand(script, range)),
+        }
+    }
+
+    /// Which property this collection requires of a match.
+    ///
+    /// Exposed so a consumer can tell "these bytes are present" from "this is
+    /// a signature-check operand". They are different signals and must not
+    /// share a channel.
+    pub fn required_property(&self) -> MatchProperty {
+        self.collection.require
     }
 
     /// The bytes this collection's pattern captured as the output's identifier.
@@ -275,6 +299,7 @@ mod tests {
             track_descendants: false,
             address: None,
             locking_script_pattern: Some("76a914".to_string()),
+            require: MatchProperty::BytesPresent,
         };
         let working = WorkingCollection::new(collection, Network::BSV_Testnet).expect("collection");
         let script = Script(
@@ -299,6 +324,7 @@ mod tests {
                 track_descendants: false,
                 address: None,
                 locking_script_pattern: Some(pattern.to_string()),
+                require: MatchProperty::BytesPresent,
             },
             Network::BSV_Testnet,
         )
@@ -398,6 +424,7 @@ mod tests {
                 track_descendants: false,
                 address: None,
                 locking_script_pattern: Some("76a91".to_string()),
+                require: MatchProperty::BytesPresent,
             },
             Network::BSV_Testnet,
         );
