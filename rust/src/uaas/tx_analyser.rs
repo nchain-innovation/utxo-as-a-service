@@ -14,6 +14,7 @@ use crate::{
     uaas::{
         collection::{CollectionDatabase, WorkingCollection},
         database::DBOperationType,
+        selection,
         spend_id::{provisional_id, SpendId},
         txdb::TxDB,
         util::sum_output_satoshis,
@@ -164,35 +165,12 @@ impl TxAnalyser {
     ///
     /// Takes no `self`: it never used it, and without it this is testable
     /// without a database.
-    fn is_spendable(vout: &TxOut) -> bool {
-        const OP_FALSE: u8 = 0x00;
-        const OP_RETURN: u8 = 0x6a;
-
-        let script = &vout.lock_script.0;
-        !(script.starts_with(&[OP_RETURN]) || script.starts_with(&[OP_FALSE, OP_RETURN]))
-    }
-
-    /// Every monitor whose pattern selects this locking script, in
-    /// configuration order.
     ///
-    /// Order matters twice: it decides which pattern's capture becomes the
-    /// output's identifier when several match, and it is what makes that choice
-    /// reproducible. `collection` is a Vec built from the config in order, so
-    /// the same script always yields the same identifier.
-    fn monitors_for(&self, script: &[u8]) -> Vec<String> {
-        self.collection
-            .iter()
-            .filter(|c| c.matches_script(script))
-            .map(|c| c.name().to_string())
-            .collect()
-    }
-
-    /// The identifier the first matching pattern captured, if any declared one.
-    fn identifier_for(&self, script: &[u8]) -> Option<Vec<u8>> {
-        self.collection
-            .iter()
-            .find_map(|c| c.identifier_in(script))
-            .map(<[u8]>::to_vec)
+    /// Delegates to [`selection::is_spendable`], which the backfill loader also
+    /// calls. The loader has a script and no transaction, so the shared
+    /// function takes the script.
+    fn is_spendable(vout: &TxOut) -> bool {
+        selection::is_spendable(&vout.lock_script.0)
     }
 
     /// Records the spendable outputs of this transaction that a monitor
@@ -217,18 +195,20 @@ impl TxAnalyser {
                 continue;
             }
             let script = &vout.lock_script.0;
-            let monitors = self.monitors_for(script);
-            if monitors.is_empty() {
+            // One decision, shared with the backfill loader. Asking the
+            // question here instead would be the drift the shared module
+            // exists to prevent.
+            let Some(selected) = selection::select(&self.collection, script) else {
                 continue;
-            }
+            };
             self.utxo.add(NewOutput {
                 hash,
                 index,
                 satoshis: vout.satoshis,
                 height,
                 locking_script: script,
-                identifier: self.identifier_for(script),
-                monitors,
+                identifier: selected.identifier,
+                monitors: selected.monitors,
             });
         }
     }
