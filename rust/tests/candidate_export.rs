@@ -29,6 +29,21 @@ fn fixture_copy() -> (tempdir::Dir, PathBuf) {
 /// dependency.
 mod tempdir {
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Names are made unique by a counter, not by a timestamp.
+    ///
+    /// The first version of this used `SystemTime::now().as_nanos()`, which is
+    /// only nominally nanoseconds: macOS reports microseconds, so the value
+    /// ends in three zeros. `cargo test` runs these tests in parallel threads
+    /// of one process, two of them landed in the same microsecond, and they
+    /// shared a directory -- one test's `Drop` then deleted the files another
+    /// was still reading. That failed about one run in four, and only ever
+    /// under parallelism.
+    ///
+    /// A counter cannot collide within a process, and the pid separates
+    /// processes.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
 
     pub struct Dir(PathBuf);
 
@@ -36,12 +51,9 @@ mod tempdir {
         pub fn new() -> Self {
             let mut path = std::env::temp_dir();
             path.push(format!(
-                "uaas_export_test_{}_{:?}",
+                "uaas_export_test_{}_{}",
                 std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
+                NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir_all(&path).expect("creating a temporary directory");
             Dir(path)

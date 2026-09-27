@@ -53,7 +53,7 @@ pub type PooledConn = r2d2::PooledConnection<Manager>;
 /// the password. Anything it does not recognise is returned unchanged, which
 /// is safe here because a string with no `user:password@` has no password to
 /// leak.
-pub(crate) fn redact_url(url: &str) -> String {
+pub fn redact_url(url: &str) -> String {
     let Some(scheme_end) = url.find("://") else {
         return url.to_string();
     };
