@@ -1,0 +1,37 @@
+# Written only on a completed pass. An export stopped early has no
+# manifest, so nothing downstream can mistake it for a whole one.
+format_version = 1
+tool = "scan_chainstate"
+
+[chainstate]
+directory = "chainstate"
+# The chainstate 'B' record holds the best block HASH, not a height:
+# bitcoin-sv src/txdb.cpp reads DB_BEST_BLOCK into hashBestChain. The
+# height for this tip is a 'b' lookup in the block index, a different
+# database, so it is not recorded here.
+tip_block_hash = "1111111111111111111111111111111111111111111111111111111111111111"
+records_scanned = 8
+records_skipped = 0
+
+[filter]
+# A coarse prefix test, deliberately over-inclusive. The authoritative
+# matcher lives in the Rust loader and is not duplicated here.
+patterns = [{ label = "ordinal", hex = "0063036f7264" }]
+
+[output]
+candidates = 3
+distinct_heights = 3
+truncated_rows = 0
+# script_is_raw = false means the node stored a compressed template
+# (nType 0-5), so those script bytes are a 20- or 32-byte hash rather
+# than a script. The loader must not treat them as one.
+
+[output.candidates_csv]
+file = "candidates.csv"
+bytes = 566
+sha256 = "e02050fed61e2c414b60255da26a004f108297b584c6524c2881b55fd98fa052"
+
+[output.scripts]
+file = "scripts.dat"
+bytes = 43
+sha256 = "98ac0e3cdd16b0f124dadeb4c7ad780aaf5a62218192f74cc9cfd4caec635221"

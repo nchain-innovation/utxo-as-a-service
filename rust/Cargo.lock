@@ -2089,6 +2089,7 @@ dependencies = [
  "retry",
  "serde",
  "serde_json",
+ "sha2",
  "simple_logger",
  "tokio",
  "toml",

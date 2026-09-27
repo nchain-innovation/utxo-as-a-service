@@ -14,6 +14,7 @@ use crate::{
     uaas::{
         collection::{CollectionDatabase, WorkingCollection},
         database::DBOperationType,
+        selection,
         spend_id::{provisional_id, SpendId},
         txdb::TxDB,
         util::sum_output_satoshis,
@@ -164,35 +165,12 @@ impl TxAnalyser {
     ///
     /// Takes no `self`: it never used it, and without it this is testable
     /// without a database.
-    fn is_spendable(vout: &TxOut) -> bool {
-        const OP_FALSE: u8 = 0x00;
-        const OP_RETURN: u8 = 0x6a;
-
-        let script = &vout.lock_script.0;
-        !(script.starts_with(&[OP_RETURN]) || script.starts_with(&[OP_FALSE, OP_RETURN]))
-    }
-
-    /// Every monitor whose pattern selects this locking script, in
-    /// configuration order.
     ///
-    /// Order matters twice: it decides which pattern's capture becomes the
-    /// output's identifier when several match, and it is what makes that choice
-    /// reproducible. `collection` is a Vec built from the config in order, so
-    /// the same script always yields the same identifier.
-    fn monitors_for(&self, script: &[u8]) -> Vec<String> {
-        self.collection
-            .iter()
-            .filter(|c| c.matches_script(script))
-            .map(|c| c.name().to_string())
-            .collect()
-    }
-
-    /// The identifier the first matching pattern captured, if any declared one.
-    fn identifier_for(&self, script: &[u8]) -> Option<Vec<u8>> {
-        self.collection
-            .iter()
-            .find_map(|c| c.identifier_in(script))
-            .map(<[u8]>::to_vec)
+    /// Delegates to [`selection::is_spendable`], which the backfill loader also
+    /// calls. The loader has a script and no transaction, so the shared
+    /// function takes the script.
+    fn is_spendable(vout: &TxOut) -> bool {
+        selection::is_spendable(&vout.lock_script.0)
     }
 
     /// Records the spendable outputs of this transaction that a monitor
@@ -217,18 +195,20 @@ impl TxAnalyser {
                 continue;
             }
             let script = &vout.lock_script.0;
-            let monitors = self.monitors_for(script);
-            if monitors.is_empty() {
+            // One decision, shared with the backfill loader. Asking the
+            // question here instead would be the drift the shared module
+            // exists to prevent.
+            let Some(selected) = selection::select(&self.collection, script) else {
                 continue;
-            }
+            };
             self.utxo.add(NewOutput {
                 hash,
                 index,
                 satoshis: vout.satoshis,
                 height,
                 locking_script: script,
-                identifier: self.identifier_for(script),
-                monitors,
+                identifier: selected.identifier,
+                monitors: selected.monitors,
             });
         }
     }
@@ -1906,6 +1886,230 @@ mod tests {
         apply_all(pool, drain(rx));
 
         (outpoint, spender)
+    }
+
+    /// The guard against the live path and the backfill loader drifting apart
+    /// (CS-449).
+    ///
+    /// One real output, written twice: once by the indexer through
+    /// `TxAnalyser` and the real database writer, once by the loader from a
+    /// chainstate export. Every column of the resulting `utxo` row, and every
+    /// `utxo_monitor` row, must be identical.
+    ///
+    /// The decision cannot drift -- both call `uaas::selection`, which is why
+    /// that module exists. What this catches is everything around it: the txid
+    /// byte order, the height mapping, whether the locking script survives
+    /// intact, and whether the identifier the capture group yields reaches the
+    /// column. Those go through completely different SQL on the two paths, and
+    /// nothing else compares them.
+    ///
+    /// The transaction is testnet block 1,173,457's coinbase, taken off the
+    /// chain, so the values being compared are ones that exist.
+    #[test]
+    fn parity01_the_loader_writes_the_row_the_live_path_would_write() {
+        use crate::candidate_export::Export;
+        use crate::loader::{load, Mode};
+        use chain_gang::util::Serializable;
+
+        const REAL_COINBASE: &str = "\
+0100000001000000000000000000000000000000000000000000000000000000000000\
+0000ffffffff4403d1e71100fe8adbcc59fe4dd601000963676d696e6572343208\
+0c000000000000002074726164653a50726574747950656e6e792d3e426f6e6e79\
+426974636f696e2100ffffffff01902f5009000000001976a914924a8f5e24e555\
+3280724dbd15e50de4ba7e3f4f88ac00000000";
+        const HEIGHT: i32 = 1_173_457;
+
+        let Some((mut analyser, rx, pool)) =
+            analyser_and_pool("parity01_the_loader_writes_the_row_the_live_path_would_write")
+        else {
+            return;
+        };
+
+        let bytes = hex::decode(REAL_COINBASE).expect("hex");
+        let tx = Tx::read(&mut std::io::Cursor::new(&bytes)).expect("real chain bytes parse");
+        let txid = tx.hash();
+        let script = tx.outputs[0].lock_script.0.clone();
+        let satoshis = tx.outputs[0].satoshis;
+
+        // Leave nothing behind from an earlier run of this test.
+        let mut conn = pool.get().expect("connection");
+        conn.execute("DELETE FROM utxo WHERE txid = $1", &[&&txid.0[..]])
+            .expect("clear utxo");
+        conn.execute("DELETE FROM utxo_monitor WHERE txid = $1", &[&&txid.0[..]])
+            .expect("clear utxo_monitor");
+
+        // ---- the live path ----
+        analyser.process_block_tx(&tx, HEIGHT, 0);
+        analyser.flush_database_cache();
+        apply_all(&pool, drain(&rx));
+
+        let live_row = conn
+            .query_one(
+                "SELECT satoshis, locking_script, identifier, created_height \
+                 FROM utxo WHERE txid = $1 AND vout = 0",
+                &[&&txid.0[..]],
+            )
+            .expect("the live path should have written the row");
+        let live: (i64, Vec<u8>, Option<Vec<u8>>, Option<i32>) = (
+            live_row.get(0),
+            live_row.get(1),
+            live_row.get(2),
+            live_row.get(3),
+        );
+        let mut live_monitors: Vec<String> = conn
+            .query(
+                "SELECT monitor FROM utxo_monitor WHERE txid = $1 AND vout = 0",
+                &[&&txid.0[..]],
+            )
+            .expect("monitors")
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        live_monitors.sort();
+        assert!(
+            !live_monitors.is_empty(),
+            "the sample config must select this output, or the test compares two empties"
+        );
+
+        // ---- the same output, through an export ----
+        conn.execute("DELETE FROM utxo WHERE txid = $1", &[&&txid.0[..]])
+            .expect("clear utxo");
+        conn.execute("DELETE FROM utxo_monitor WHERE txid = $1", &[&&txid.0[..]])
+            .expect("clear utxo_monitor");
+
+        let dir = std::env::temp_dir().join(format!("uaas_parity_{}", std::process::id()));
+        // Not `let _ =`: this crate warns on that deliberately, because it is
+        // how a dead write path stayed invisible for two years (CS-393). A
+        // previous run's leftovers are the expected case here, so the error is
+        // discarded on purpose and visibly.
+        if let Err(err) = std::fs::remove_dir_all(&dir) {
+            assert_eq!(err.kind(), std::io::ErrorKind::NotFound, "{err}");
+        }
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        write_export(&dir, &txid.encode(), satoshis, HEIGHT, &script);
+
+        let mut export = Export::open(&dir).expect("the export opens");
+        // Borrowed, not cloned: WorkingCollection is deliberately not Clone,
+        // and deriving it on a production type to suit a test would be the
+        // wrong way round. These are the very collections the live path above
+        // used, which is the point.
+        let totals = load(&mut conn, &mut export, &analyser.collection, Mode::Write, 0)
+            .expect("the load should succeed");
+        assert_eq!(totals.inserted, 1, "the loader should have written one row");
+
+        let loaded_row = conn
+            .query_one(
+                "SELECT satoshis, locking_script, identifier, created_height \
+                 FROM utxo WHERE txid = $1 AND vout = 0",
+                &[&&txid.0[..]],
+            )
+            .expect("the loader should have written the row");
+        let loaded: (i64, Vec<u8>, Option<Vec<u8>>, Option<i32>) = (
+            loaded_row.get(0),
+            loaded_row.get(1),
+            loaded_row.get(2),
+            loaded_row.get(3),
+        );
+        let mut loaded_monitors: Vec<String> = conn
+            .query(
+                "SELECT monitor FROM utxo_monitor WHERE txid = $1 AND vout = 0",
+                &[&&txid.0[..]],
+            )
+            .expect("monitors")
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        loaded_monitors.sort();
+
+        assert_eq!(loaded.0, live.0, "satoshis differ");
+        assert_eq!(loaded.1, live.1, "locking_script differs");
+        assert_eq!(loaded.2, live.2, "identifier differs");
+        assert_eq!(loaded.3, live.3, "created_height differs");
+        assert_eq!(loaded_monitors, live_monitors, "utxo_monitor rows differ");
+
+        // Stated absolutely as well, so a change that moves both paths the same
+        // wrong way still shows up.
+        assert_eq!(live.0, 156_250_000, "the real coinbase value");
+        assert_eq!(live.3, Some(HEIGHT));
+        assert_eq!(live.1, script, "the full locking script, not a placeholder");
+
+        conn.execute("DELETE FROM utxo WHERE txid = $1", &[&&txid.0[..]])
+            .expect("clean up");
+        conn.execute("DELETE FROM utxo_monitor WHERE txid = $1", &[&&txid.0[..]])
+            .expect("clean up");
+        std::fs::remove_dir_all(&dir).expect("remove the temporary export");
+    }
+
+    /// A one-row export in the CS-448 format, written to `dir`.
+    ///
+    /// Hand-built rather than taken from the committed fixture because the
+    /// parity test needs an export of one *specific* output -- the one the live
+    /// path just indexed. The format it writes is the format the committed
+    /// fixture pins, and that fixture came from the real scanner.
+    fn write_export(
+        dir: &std::path::Path,
+        txid_display: &str,
+        satoshis: i64,
+        height: i32,
+        script: &[u8],
+    ) {
+        use std::io::Write;
+
+        std::fs::write(dir.join("scripts.dat"), script).expect("scripts.dat");
+
+        let mut csv = std::fs::File::create(dir.join("candidates.csv")).expect("csv");
+        writeln!(csv, "# uaas-candidate-export v1").unwrap();
+        writeln!(
+            csv,
+            "txid,vout,height,coinbase,confiscation,satoshis,script_type,\
+             script_is_raw,script_len,script_offset,script_prefix,label"
+        )
+        .unwrap();
+        writeln!(
+            csv,
+            "{txid_display},0,{height},true,false,{satoshis},{},true,{},0,{},parity",
+            6 + script.len(),
+            script.len(),
+            hex::encode(script)
+        )
+        .unwrap();
+        drop(csv);
+
+        let csv_len = std::fs::metadata(dir.join("candidates.csv")).unwrap().len();
+        let csv_hash =
+            crate::candidate_export::sha256_of_file(&dir.join("candidates.csv")).unwrap();
+        let script_hash =
+            crate::candidate_export::sha256_of_file(&dir.join("scripts.dat")).unwrap();
+
+        std::fs::write(
+            dir.join("export.toml"),
+            format!(
+                "format_version = 1\n\
+                 tool = \"scan_chainstate\"\n\n\
+                 [chainstate]\n\
+                 directory = \"parity\"\n\
+                 tip_block_hash = \"{}\"\n\
+                 records_scanned = 1\n\
+                 records_skipped = 0\n\n\
+                 [filter]\n\
+                 patterns = [{{ label = \"parity\", hex = \"76a914\" }}]\n\n\
+                 [output]\n\
+                 candidates = 1\n\
+                 distinct_heights = 1\n\
+                 truncated_rows = 0\n\n\
+                 [output.candidates_csv]\n\
+                 file = \"candidates.csv\"\n\
+                 bytes = {csv_len}\n\
+                 sha256 = \"{csv_hash}\"\n\n\
+                 [output.scripts]\n\
+                 file = \"scripts.dat\"\n\
+                 bytes = {}\n\
+                 sha256 = \"{script_hash}\"\n",
+                "11".repeat(32),
+                script.len()
+            ),
+        )
+        .expect("export.toml");
     }
 
     /// Turning eviction off is a supported setting, not an accident.

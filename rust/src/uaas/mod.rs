@@ -17,6 +17,9 @@ mod probes;
 #[cfg(test)]
 pub mod script_asm;
 pub mod script_parse;
+// Shared by the live indexer and the backfill loader: both have to decide what
+// a monitor selects, and they must not decide it separately.
+pub mod selection;
 mod spend_id;
 mod tx_analyser;
 pub mod tx_bounds;
