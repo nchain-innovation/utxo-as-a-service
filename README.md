@@ -152,6 +152,12 @@ This is read when the service starts up.
 
 For more details about the configuration file see [here](docs/Configuration.md).
 
+### Deploying on testnet
+
+Standing up a fresh testnet instance involves two choices that are cheap to make before the first sync and expensive afterwards: the start height, and which `[[collection]]` patterns the service monitors. The service only records what a collection selects, only from its start height forward, and adding a collection later does not re-evaluate what it already stored.
+
+[docs/TestnetDeployment.md](docs/TestnetDeployment.md) covers both, with measured figures for what the testnet chain actually carries.
+
 ## Security
 
 The REST APIs have no authentication by default and can broadcast transactions or modify collection monitors. For local development, bind to `127.0.0.1` and keep ports off the public internet. For shared or production use, set `api_key` in `[web_interface]` and read [docs/Security.md](docs/Security.md).
