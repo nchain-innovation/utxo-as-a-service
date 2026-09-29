@@ -366,9 +366,9 @@ dependencies = [
 
 [[package]]
 name = "chain-gang"
-version = "0.11.3"
+version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77d3dd90fe36666fa87d5dbbcdb7de735e57349b202f0029f554d71b1ed8a6b1"
+checksum = "51385cdbbacbc49873351f4ef824be2c68efdfbf9b9e7a6e347e2e830181bed7"
 dependencies = [
  "bs58",
  "byteorder",
