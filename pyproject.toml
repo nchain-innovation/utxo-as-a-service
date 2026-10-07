@@ -5,7 +5,7 @@ description = "UTXO as a Service Python REST API"
 requires-python = ">=3.12"
 dependencies = [
     "toml==0.10.2",
-    "fastapi==0.141.1",
+    "fastapi==0.142.2",
     "fastapi-utils==0.8.0",
     "uvicorn[standard]==0.54.0",
     "psycopg[binary,pool]==3.3.6",
